@@ -6,8 +6,9 @@
  */
 
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { join, dirname, normalize, extname, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,7 @@ import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 import { mapCodexLogRow } from "../connectors/codex-filter.mjs";
+import { AxTextConnector } from "../connectors/ax-text.mjs";
 import { EVENT_TYPES } from "../connectors/base.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
@@ -32,6 +34,22 @@ const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
 const agents = new AgentRegistry(ROOT);
 let UI = loadUiConfig(ROOT);   // config/ui.json：环带摘要/面板常驻/停环时长
+
+// 本机令牌：写状态的接口要求带 token（页面用 Cookie 自动携带，脚本读 data/.token）
+const TOKEN_FILE = join(ROOT, "data", ".token");
+let TOKEN = "";
+try { TOKEN = readFileSync(TOKEN_FILE, "utf8").trim(); } catch { /* 首次启动 */ }
+if (!TOKEN) {
+  TOKEN = randomBytes(16).toString("hex");
+  try { mkdirSync(join(ROOT, "data"), { recursive: true }); writeFileSync(TOKEN_FILE, TOKEN, { mode: 0o600 }); } catch { /* 忽略 */ }
+}
+function tokenOk(req) {
+  const h = req.headers["x-td-token"];
+  if (h && h === TOKEN) return true;
+  const cookie = String(req.headers.cookie || "");
+  return cookie.split(/;\s*/).some((kv) => kv === `td_token=${TOKEN}`);
+}
+const COOKIE = `td_token=${TOKEN}; Path=/; HttpOnly; SameSite=Strict`;
 
 // zstd 只在 DSH 会话截流用得到；提前探测，缺了就在启动日志里明确告警
 // 轻量自检：内存与最近一段的 CPU 占用（健康检查里给出，便于长时间挂机观察）
@@ -369,10 +387,14 @@ const has = (p) => existsSync(p);
 //    进程守护 → 启动/退出；活动度（CPU）→ 真实「正在思考/输出」信号
 connectors.push(new ProcessWatchConnector({ source: "gemini-desktop", processName: "Gemini" }));
 connectors.push(new ProcessActivityConnector({ source: "gemini-desktop", match: "/Gemini.app/", cpuThreshold: 8 }));
+// 闭源端：可选 AX 读屏（需辅助功能授权），授权后才有真实文本
+connectors.push(new AxTextConnector({ source: "gemini-desktop", bundleId: "com.google.GeminiMacOS", bin: join(ROOT, "bin", "axread") }));
 
 // 5) ChatGPT 桌面版：同上（未启动时活动度自然静默）
 connectors.push(new ProcessWatchConnector({ source: "chatgpt-desktop", processName: "ChatGPT" }));
 connectors.push(new ProcessActivityConnector({ source: "chatgpt-desktop", match: "/ChatGPT.app/", cpuThreshold: 8 }));
+// ChatGPT.app 的 bundle id 在本机是 com.openai.codex（应用改名/分发方式不同），这里按实际 bundle id 读
+connectors.push(new AxTextConnector({ source: "chatgpt-desktop", bundleId: "com.openai.codex", bin: join(ROOT, "bin", "axread") }));
 
 // 6) 开发用：THINKING_DESKTOP_TAIL=<日志文件> 尾随任意日志
 if (process.env.THINKING_DESKTOP_TAIL) {
@@ -417,10 +439,17 @@ const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
-  if (MUTATING_PATHS.has(url.pathname)) {
+  const mutating = MUTATING_PATHS.has(url.pathname) && (
+    req.method !== "GET" || url.pathname === "/selftest" || url.searchParams.has("request")
+  );
+  if (mutating) {
     const origin = req.headers.origin;
     if (origin && !LOCAL_ORIGIN.test(String(origin))) {
       res.writeHead(403, { "Content-Type": "text/plain" }).end("forbidden origin");
+      return;
+    }
+    if (!tokenOk(req)) {
+      res.writeHead(403, { "Content-Type": "text/plain" }).end("missing token (见 data/.token，或用页面访问)");
       return;
     }
   }
@@ -716,6 +745,22 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // AX 读屏自检：直接返回 axread 的输出，授权后 `trusted` 会变成 true
+  if (url.pathname === "/ax") {
+    const bin = join(ROOT, "bin", "axread");
+    if (!existsSync(bin)) {
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ available: false, hint: "运行 macos/build-axread.sh 编译 bin/axread" }));
+      return;
+    }
+    try {
+      const out = execFileSync(bin, ["com.google.GeminiMacOS", "com.openai.codex"], { encoding: "utf8", timeout: 4000 });
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(out.trim() || "{}");
+    } catch (err) {
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ available: true, error: String(err.message) }));
+    }
+    return;
+  }
+
   // 界面行为配置：GET 读取，POST 更新（写回 config/ui.json，立刻生效）
   if (url.pathname === "/ui") {
     if (req.method === "POST") {
@@ -740,7 +785,7 @@ const server = createServer((req, res) => {
   if (url.pathname === "/tray" || url.pathname === "/config") {
     const file = join(ROOT, "web", url.pathname === "/tray" ? "tray.html" : "config.html");
     try {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }).end(readFileSync(file));
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Set-Cookie": COOKIE }).end(readFileSync(file));
     } catch { res.writeHead(404).end("not found"); }
     return;
   }
@@ -753,6 +798,7 @@ const server = createServer((req, res) => {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store, no-cache, must-revalidate",
       Pragma: "no-cache",
+      "Set-Cookie": COOKIE,
     });
     res.end(wallPage().replace("__DEBUG__", url.searchParams.has("debug") ? "true" : "false"));
     return;
@@ -776,6 +822,7 @@ const server = createServer((req, res) => {
         "Content-Type": mime,
         "Cache-Control": "no-store, no-cache, must-revalidate",
         Pragma: "no-cache",
+        ...(/text\/html/.test(mime) ? { "Set-Cookie": COOKIE } : {}),
       });
       res.end(readFileSync(fp));
       return;

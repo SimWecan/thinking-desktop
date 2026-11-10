@@ -16,6 +16,8 @@ launchctl kickstart -k "gui/$UID/$LABEL"
 
 echo "2/3 编译壁纸宿主 App…"
 "$ROOT/macos/build-wallpaper.sh"
+echo "    编译 AX 读屏小工具（可选，用于给 Gemini/ChatGPT 补文本）…"
+"$ROOT/macos/build-axread.sh" || echo "    axread 编译失败，AX 读屏将不可用（不影响其它功能）"
 
 echo "3/3 启动壁纸…"
 open "$ROOT/Thinking Desktop Wallpaper.app"

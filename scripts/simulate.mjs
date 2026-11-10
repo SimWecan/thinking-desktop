@@ -10,10 +10,18 @@
  * 并校验 /debug 里壁纸实际点亮的来源集合。结束后打印各阶段的主色。
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// 本机令牌：写状态接口需要（页面用 Cookie，脚本用 header）
+let TOKEN = process.env.TD_TOKEN || "";
+if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
+const authHeaders = (extra = {}) => ({ ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...extra });
+const api = (path, opts = {}) => fetch(`${BASE}${path}`, { ...opts, headers: authHeaders(opts.headers) });
 const OUT = process.env.SIM_OUT || "/tmp/td-sim";
 const SECONDS = Number(process.env.SIM_SECONDS || 5);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -49,7 +57,7 @@ const SAMPLES = {
 const pick = (arr, i) => arr[i % arr.length];
 
 async function post(source, type, payload) {
-  const res = await fetch(`${BASE}/ingest`, {
+  const res = await api("/ingest", {
     method: "POST",
     body: JSON.stringify({ source, type, payload }),
   });
@@ -57,9 +65,9 @@ async function post(source, type, payload) {
 }
 
 async function snapshot(name) {
-  await fetch(`${BASE}/snapshot?request=1`).catch(() => {});
+  await api("/snapshot?request=1").catch(() => {});
   await sleep(1600);
-  const res = await fetch(`${BASE}/snapshot`);
+  const res = await api("/snapshot");
   if (!res.ok) return null;
   const buf = Buffer.from(await res.arrayBuffer());
   const file = join(OUT, `${name}.png`);
@@ -68,7 +76,7 @@ async function snapshot(name) {
 }
 
 async function telemetry() {
-  const d = await (await fetch(`${BASE}/debug`)).json();
+  const d = await (await api("/debug")).json();
   return d.clients?.wall ?? {};
 }
 
@@ -110,12 +118,12 @@ mkdirSync(OUT, { recursive: true });
 const API = BASE;
 const backup = { stats: null, texts: null };
 async function snapshotState() {
-  try { backup.stats = await (await fetch(`${API}/stats`)).json(); } catch {}
-  try { backup.texts = await (await fetch(`${API}/texts?limit=40`)).json(); } catch {}
+  try { backup.stats = await (await api("/stats")).json(); } catch {}
+  try { backup.texts = await (await api("/texts?limit=40")).json(); } catch {}
 }
 async function restoreState() {
-  try { if (backup.stats) await fetch(`${API}/stats`, { method: "POST", body: JSON.stringify(backup.stats) }); } catch {}
-  try { if (backup.texts) await fetch(`${API}/texts`, { method: "POST", body: JSON.stringify(backup.texts) }); } catch {}
+  try { if (backup.stats) await api("/stats", { method: "POST", body: JSON.stringify(backup.stats) }); } catch {}
+  try { if (backup.texts) await api("/texts", { method: "POST", body: JSON.stringify(backup.texts) }); } catch {}
 }
 await snapshotState();
 console.log(`多 agent 并行模拟 → ${BASE}`);

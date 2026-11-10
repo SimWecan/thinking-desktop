@@ -33,6 +33,29 @@
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
 - **跨平台**：macOS / Windows / Linux 均可运行
 
+## 闭源端真实文本（可选，需要辅助功能授权）
+
+Gemini / ChatGPT 不落盘任何对话文本，默认只能取到「工作强度」（CPU）。想拿到真实文本：
+
+1. 编译小工具：`macos/build-axread.sh`（`install.sh` 也会自动编译），产物在 `bin/axread`
+2. 系统设置 → 隐私与安全性 → **辅助功能** → `+` → 选择 `bin/axread` 并勾选
+3. 验证：`curl http://127.0.0.1:7799/ax` 应返回 `{"trusted":true,...}`（未授权时是 `false`，此时连接器会安静降级、只在日志里提示一次）
+4. 重启服务：`launchctl kickstart -k gui/$UID/com.simwecan.thinking-desktop`
+
+授权后每 2 秒读取一次前台窗口里新增的文本（最多 1200 字/条），与其它来源一样进环带/看板。
+
+## 本机令牌
+
+写状态的接口（`/ingest`、`/texts`、`/view`、`/ui`、`/stats`、`/snapshot`、`/debug`、`/selftest`）要求本机令牌：
+
+- 页面访问时服务端会下发 `td_token` Cookie，浏览器/WebView 自动携带
+- 脚本调用读 `data/.token`，放在 `x-td-token` 头里，例如：
+
+```bash
+TOKEN=$(cat data/.token)
+curl -X POST -H "x-td-token: $TOKEN" http://127.0.0.1:7799/ingest -d '{"source":"kimi-desktop","type":"text","payload":{"text":"hello"}}'
+```
+
 ## 配置（可选）
 
 `config/ui.json` 覆盖界面行为，缺省即默认：

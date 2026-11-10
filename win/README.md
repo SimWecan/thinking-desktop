@@ -18,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
 - [ ] 壁纸窗口位于桌面图标之下、不抢焦点、点击可穿透到桌面
 - [ ] 托盘浮窗背景真正透明（用 `TransparencyKey` = 洋红实现，图标里的黑色不会被抠掉）
 - [ ] 托盘展开/收起时窗口高度跟随（页面 `chrome.webview.postMessage({height})`）
-- [ ] 多显示器：当前只覆盖主屏，副屏需要按 `Screen.AllScreens` 各建一个壁纸窗口
+- [x] 多显示器：按 `Screen.AllScreens` 每块屏各建一个壁纸窗口（已实现，未真机验证；插拔/分辨率变化需重启宿主）
 - [ ] 任务计划程序自启 + 崩溃重启（脚本已设 `RestartCount 999 / 每分钟`）
 - [ ] 高 DPI 缩放下的坐标与尺寸（app.manifest 已声明 PerMonitorV2）
 

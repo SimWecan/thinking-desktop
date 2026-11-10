@@ -53,6 +53,8 @@ type ThinkingEvent = {
 - **机位**：`C.camera = 0`，`updateCam` 恒定停在 z=1 中心机位——不再有自动推近/拉远的「特写」；节奏/转速/辉光由页面按事件速率小幅映射（舒适档）。
 - **切换缓动**：halo 里每个来源维护 `cur`（当前强度）与 `lane`（当前通道位置），用指数平滑逼近目标值（亮起 `dt*5`、暗下 `dt*1.8`、通道 `dt*2.6`）；消失的来源先置 `target=0` 留在数组里渐隐，`cur<0.02` 才移除。整帧染色色也按帧插值（`k≈0.06`）。进入待机时 `__tdLightsReset()` 清空光效层。
 - **今日统计落盘**：`data/stats-YYYY-MM-DD.json` 保存 EVENTS、工具分布、各来源计数与上下文计量，启动时若日期一致就载入（跨天自动从 0 开始），SIGTERM 时强制落盘。
+- **AX 读屏（可选）**：`macos/axread.swift` 编译成 `bin/axread`，读取指定 App 前台窗口的 AX 文本树；`connectors/ax-text.mjs` 每 2s 调一次，按前缀差量上报新增文本。未授权时只告警一次并跳过。bundle id：Gemini `com.google.GeminiMacOS`、ChatGPT（本机为 Codex 分发）`com.openai.codex`。
+- **本机令牌**：启动时生成并写入 `data/.token`（0600），写状态接口校验 `x-td-token` 头或 `td_token` Cookie；HTML 页面响应会下发该 Cookie。
 - **Codex 过滤**：`connectors/codex-filter.mjs` 按 target/level 分类（ERROR→error；apply_patch/shell/exec/mcp_tool→tool_call；stream_events/outgoing_message/message_processor→thought），config/http/otel/login 等噪声一律忽略；单轮最多 8 条防刷屏。
 - **停环判定**：客户端以 `workAt`（最后一条非 status 事件）为准，超过 `BUSY_HOLD = 20s` 进入待机；`status.running === 0`（回合结束）立即把 `busyUntil` 归零。`/debug` 暴露 `idleFor / busyIn / hold` 便于排查。
 - **上下文计量**：DSH 的 `assistant/message.data.usage`（inputTokens + cacheReadTokens）配合 `request/context.contextWindow` 算出占用率；窗口缺失时沿用上一次或按来源兜底（DSH 1M）。Kimi 用自己的 `maxUsage` 比例。两者在 `/state.tokens` 里统一成 `{model, used, window, pct}`。

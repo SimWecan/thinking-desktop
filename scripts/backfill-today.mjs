@@ -148,8 +148,14 @@ writeFileSync(outFile, JSON.stringify(final, null, 0));
 
 // 若服务在跑，直接原子替换服务端缓冲（否则它下次写盘会把这里覆盖回去）
 const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
+let TOKEN = process.env.TD_TOKEN || "";
+if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
 try {
-  const r = await fetch(`${BASE}/texts`, { method: "POST", body: JSON.stringify(final) });
+  const r = await fetch(`${BASE}/texts`, {
+    method: "POST",
+    body: JSON.stringify(final),
+    headers: TOKEN ? { "x-td-token": TOKEN } : {},
+  });
   const j = await r.json();
   console.log("服务端缓冲已替换:", j.count, "条");
 } catch {

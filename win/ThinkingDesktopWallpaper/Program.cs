@@ -25,22 +25,29 @@ class WallForm : Form
     }
 }
 
-var wall = new WallForm
+// 每块屏幕一个壁纸窗口（与 macOS 宿主对齐）
+var walls = new List<WallForm>();
+foreach (var screen in Screen.AllScreens)
 {
-    FormBorderStyle = FormBorderStyle.None,
-    StartPosition = FormStartPosition.Manual,
-    Bounds = Screen.PrimaryScreen.Bounds,
-    ShowInTaskbar = false,
-    TopMost = false,
-};
-var wallView = new WebView2 { Dock = DockStyle.Fill };
-wall.Controls.Add(wallView);
-wall.Load += async (_, _) =>
-{
-    await wallView.EnsureCoreWebView2Async();
-    wallView.CoreWebView2.Navigate($"{SERVER}/wall");
-    Win32.ToBottom(wall.Handle);
-};
+    var w = new WallForm
+    {
+        FormBorderStyle = FormBorderStyle.None,
+        StartPosition = FormStartPosition.Manual,
+        Bounds = screen.Bounds,
+        ShowInTaskbar = false,
+        TopMost = false,
+    };
+    var v = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Black };
+    w.Controls.Add(v);
+    w.Load += async (_, _) =>
+    {
+        await v.EnsureCoreWebView2Async();
+        v.CoreWebView2.Navigate($"{SERVER}/wall");
+        Win32.ToBottom(w.Handle);
+    };
+    w.Show();
+    walls.Add(w);
+}
 
 // ---------- 右上角托盘窗口 ----------
 // 透明键用洋红：托盘页的图标里本来就有黑色（Kimi/ChatGPT 的商标），用黑色当透明键会把图标抠出洞
@@ -85,10 +92,9 @@ tray.Load += async (_, _) =>
 
 // 保活：壁纸周期性拉回桌面层（被其它程序压底时恢复）
 var keep = new System.Windows.Forms.Timer { Interval = 5000 };
-keep.Tick += (_, _) => { if (!wall.IsDisposed) Win32.ToBottom(wall.Handle); };
+keep.Tick += (_, _) => { foreach (var w in walls) if (!w.IsDisposed) Win32.ToBottom(w.Handle); };
 keep.Start();
 
-wall.Show();
 tray.Show();
 Application.Run();
 
