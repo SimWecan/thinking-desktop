@@ -53,7 +53,7 @@
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const PAGE_BUILD = "hover-pane-3";   // 自检用：确认壁纸加载的是新页面
+const PAGE_BUILD = "source-lights-4";   // 自检用：确认壁纸加载的是新页面
 const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
 
 const hud = document.getElementById("hud");
@@ -65,48 +65,78 @@ const textpane = document.getElementById("textpane");
 const textLines = [];
 let lastTextAt = 0, textSeq = 0;
 
-// 多来源同屏时，标出这条截流文本是哪个 AI 的
+// 各厂商的专属色：环内外光效 + 文本标签共用同一套
+const SOURCE_COLORS = {
+  "kimi-desktop": "#ffffff",      // 白
+  "deepseek-harness": "#3b82f6",  // 蓝
+  codex: "#a855f7",               // 紫
+  "gemini-desktop": "#ef4444",    // 红
+  "chatgpt-desktop": "#22c55e",   // 绿（未指定，取一个不冲突的）
+};
 const SRC_LABEL = {
   "deepseek-harness": "DSH",
   "kimi-desktop": "Kimi",
-  "codex": "Codex",
+  codex: "Codex",
   "gemini-desktop": "Gemini",
   "chatgpt-desktop": "GPT",
   tail: "LOG",
 };
 
-function pushText(text, source) {
-  const s = String(text || "").replace(/\s+/g, " ").trim();
-  if (s.length < 2) return;
-  const item = { src: SRC_LABEL[source] ?? (source || ""), text: s.slice(0, 160), id: ++textSeq };
-  textLines.push(item);
-  // 同时喂给悬停环带时的「截流 · 真实对话记录」面板（带序号，重复投递会被丢弃）
-  haloMsg({ td: "text", id: item.id, text: s.slice(0, 120) });
-  if (textLines.length > 40) textLines.shift();
+/** 思考日志上墙：raw 保留换行，环带用扁平版；stream=true 的快照会原地替换而不是叠行 */
+function pushText(text, source, kind, stream) {
+  const raw = String(text || "").replace(/\r/g, "").trim();
+  if (raw.length < 2) return;
+  const last = textLines[textLines.length - 1];
+  const grow = stream && last && last.key === source &&
+    (raw.startsWith(last.text) || last.text.startsWith(raw));
+  if (grow) {
+    if (raw.length >= last.text.length) last.text = raw.slice(0, 6000);
+  } else {
+    textLines.push({ src: SRC_LABEL[source] ?? (source || ""), key: source, kind, text: raw.slice(0, 6000) });
+    if (textLines.length > 60) textLines.shift();
+  }
   lastTextAt = Date.now();
-  // 重绘：旧行压暗，末行高亮
+  const flat = raw.replace(/\s+/g, " ");
+  haloMsg({ td: "text", id: ++textSeq, text: flat.slice(0, 220) });
+  renderText();
+  syncPane();
+}
+
+function renderText() {
   textpane.querySelectorAll(".tp-line").forEach((n) => n.remove());
   const frag = document.createDocumentFragment();
-  textLines.slice(-14).forEach((line, i, arr) => {
+  const recent = textLines.slice(-24);
+  recent.forEach((line, i) => {
     const div = document.createElement("div");
-    div.className = "tp-line" + (i < arr.length - 2 ? " dim" : "");
-    if (line.src) {
-      const tag = document.createElement("span");
-      tag.className = "tp-src";
-      tag.textContent = line.src;
-      div.appendChild(tag);
-    }
+    div.className = "tp-line" + (i < recent.length - 2 ? " dim" : "");
+    const tag = document.createElement("span");
+    tag.className = "tp-src";
+    tag.textContent = line.src;
+    tag.style.color = SOURCE_COLORS[line.key] || "rgba(255,255,255,.55)";
+    div.appendChild(tag);
     div.appendChild(document.createTextNode(line.text));
     frag.appendChild(div);
   });
   textpane.appendChild(frag);
-  syncPane();   // 悬停中来了新文本 → 立刻显示/更新
 }
 let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
 let busyUntil = 0;       // status running>0 的短暂宽限
 let standby = null;      // 当前待机位（null=未初始化）
 let overRing = false;    // 鼠标是否停在环带上（决定右侧截流视窗是否出现）
+let haloError = "";      // 光环内 JS 报错回传（壁纸里没有控制台）
 let lastParamPush = 0, stateTimer = 0;
+
+/** 正在工作的来源 → 光环按各自颜色点亮（25s 内有真实事件算在跑） */
+function sendSourceLights() {
+  const list = (sources || [])
+    .filter((x) => x.agoMs < 25000 && x.lastType !== "status")   // 只是「开着」不算在跑
+    .map((x) => ({
+      src: x.source,
+      color: SOURCE_COLORS[x.source] || "#9aa4b2",
+      intensity: Math.min(1, 0.35 + (bySource[x.source] || 0) / 6),
+    }));
+  haloMsg({ td: "sources", list });
+}
 
 function fmtAgo(ms) {
   if (!Number.isFinite(ms)) return "—";
@@ -152,7 +182,7 @@ function pushParams() {
 
 // iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
 function resendText() {
-  textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: line.id, text: line.text }));
+  textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: ++textSeq, text: line.text.replace(/\s+/g, " ").slice(0, 220) }));
 }
 
 halo.addEventListener("load", () => {
@@ -162,6 +192,7 @@ halo.addEventListener("load", () => {
 });
 window.addEventListener("message", (ev) => {
   if (ev.data && ev.data.td === "hover") { overRing = !!ev.data.ring; syncPane(); return; }
+  if (ev.data && ev.data.td === "error") { haloError = `${ev.data.message} @ ${new Date(ev.data.at).toLocaleTimeString()}`; return; }
   if (ev.data && ev.data.td === "ready") {
     standby = null;
     setStandby(currentStandby());
@@ -189,7 +220,7 @@ es.onmessage = (ev) => {
     return;
   }
   workAt = e.ts;
-  if (e.type === "text") { pushText(e.payload.text, e.source); energy = Math.min(energy + 0.12, 1.6); return; }
+  if (e.type === "text") { pushText(e.payload.text, e.source, e.payload.kind, e.payload.stream); energy = Math.min(energy + 0.12, 1.6); return; }
   if (e.type === "tool_call") energy = Math.min(energy + 0.3, 1.6);
   else energy = Math.min(energy + 0.14, 1.6);
 };
@@ -204,6 +235,7 @@ setInterval(async () => {
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
+    sendSourceLights();
     // 自检字段：环带是否已拿到真实文本（跨窗口同源，可直读 iframe 状态）
     let haloState = {};
     try {
@@ -219,7 +251,8 @@ setInterval(async () => {
       method: "POST",
       body: JSON.stringify({
         client: "wall",
-        idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing,
+        idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
+        lights: (sources || []).filter((x) => x.agoMs < 25000 && x.lastType !== "status").map((x) => x.source),
         haloOpacity: getComputedStyle(halo).opacity,
         build: PAGE_BUILD,
         ...haloState,

@@ -55,6 +55,11 @@ test("识别 Kimi 真实格式：用户 / 助手消息 + 工具调用与结果",
   assert.ok(texts.some((t) => t.includes("把这几个 connector 接好")), "用户消息应上墙");
   assert.ok(texts.some((t) => t.includes("先看看目录结构")), "推理文本应上墙");
   assert.ok(texts.some((t) => t.includes("已经全部接通了")), "助手输出应上墙");
+
+  const think = events.find((e) => e.type === "text" && e.payload.kind === "think");
+  assert.ok(think, "推理片段应标注 kind=think");
+  assert.equal(think.payload.stream, true, "推理片段是流式快照");
+  assert.ok(think.payload.text.includes("先看看目录结构"), "整段保留，不截成一句");
 });
 
 test("tool 角色的消息不重复上墙（结果已由 tool.result 覆盖）", async () => {

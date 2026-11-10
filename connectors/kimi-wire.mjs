@@ -27,7 +27,7 @@ export class KimiWireConnector extends Connector {
    * @param {number} [opts.minTextIntervalMs] 截流文本上墙的最小间隔（防刷屏）
    * @param {number} [opts.rescanMs] 新会话文件扫描间隔
    */
-  constructor({ dir, source = "kimi-desktop", minTextIntervalMs = 1500, rescanMs = 20000 }) {
+  constructor({ dir, source = "kimi-desktop", minTextIntervalMs = 600, rescanMs = 20000 }) {
     super(source, "session");
     this.dir = dir;
     this.minTextIntervalMs = minTextIntervalMs;
@@ -104,8 +104,8 @@ export class KimiWireConnector extends Connector {
     switch (obj?.type) {
       case "context.apply_compaction": {
         // 真实文本截流事件：压缩点摘要直接上墙
-        const s = this._snippet(obj.summary ?? obj.note ?? "");
-        if (s) this._emitText(`⟲ 截流 ⇄ ${s}`, true);
+        const s = this._clean(obj.summary ?? obj.note ?? "");
+        if (s) this._emitText(`⟲ 截流 ⇄ ${s}`, { kind: "note", force: true });
         break;
       }
       case "agent.message.appended": {
@@ -115,24 +115,23 @@ export class KimiWireConnector extends Connector {
         if (role !== "user" && role !== "assistant") break; // tool 结果由 tool.result 事件覆盖
         const text = this._contentText(msg?.content);
         if (!text) break;
-        this._emitText(role === "user" ? `› ${text}` : text);
+        this._emitText(role === "user" ? `› ${text}` : text, { kind: role === "user" ? "user" : "output" });
         break;
       }
       case "context.append_message": {
         const role = obj.message?.role;
         const text = this._contentText(obj.message?.content);
         if (!text) break;
-        if (role === "user") this._emitText(`› ${text}`);
-        else if (role === "assistant") this._emitText(text);
+        if (role === "user") this._emitText(`› ${text}`, { kind: "user" });
+        else if (role === "assistant") this._emitText(text, { kind: "output" });
         break;
       }
       case "context.append_loop_event": {
         const ev = obj.event;
         if (ev?.type === "content.part") {
           const part = ev.part;
-          const text = part?.type === "text" ? part.text
-            : part?.type === "think" ? part.think : null;
-          if (text) this._emitText(text);
+          if (part?.type === "think" && part.think) this._emitText(part.think, { kind: "think", stream: true });
+          else if (part?.type === "text" && part.text) this._emitText(part.text, { kind: "output", stream: true });
         } else if (ev?.type === "tool.call") {
           this.emit({ type: "tool_call", payload: { name: ev.name } });
         } else if (ev?.type === "tool.result") {
@@ -151,16 +150,21 @@ export class KimiWireConnector extends Connector {
     return content.map((c) => c?.text).filter(Boolean).join(" ") || null;
   }
 
-  _snippet(raw) {
-    return String(raw).replace(/\s+/g, " ").trim().slice(0, 90);
+  _clean(raw) {
+    const s = String(raw ?? "").replace(/\s+/g, " ").trim();
+    return s.length > 4000 ? `${s.slice(0, 4000)} …` : s;
   }
 
-  _emitText(raw, force = false) {
+  /**
+   * @param {string} raw
+   * @param {{kind?: "think"|"output"|"user"|"note", stream?: boolean, force?: boolean}} [opt]
+   */
+  _emitText(raw, { kind = "output", stream = false, force = false } = {}) {
     const now = Date.now();
     if (!force && now - this._lastTextAt < this.minTextIntervalMs) return;
-    const text = this._snippet(raw);
-    if (text.length < 4) return;
+    const text = this._clean(raw);
+    if (text.length < 2) return;
     this._lastTextAt = now;
-    this.emit({ type: "text", payload: { text } });
+    this.emit({ type: "text", payload: { text, kind, ...(stream ? { stream: true } : {}) } });
   }
 }

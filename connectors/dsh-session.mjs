@@ -7,7 +7,8 @@
  * 一律忽略，避免壁纸被空转事件刷成常亮。
  */
 
-const TEXT_LIMIT = 140;
+const TEXT_LIMIT = 140;      // 报错等短字段
+const THOUGHT_LIMIT = 8000;  // 思考日志：整段保留，只防极端长文
 
 /**
  * @param {any} obj 解析后的会话行
@@ -67,11 +68,22 @@ function fromAssistantMessage(obj) {
     else if (b.type === "tool-call") toolCalls += 1;
   }
 
-  // 有最终输出时上墙输出，否则上墙推理（真·思考过程）
-  const text = output.length ? output.join(" ") : reasoning.join(" ");
-  if (text.trim().length >= 4) return { type: "text", payload: { text: clip(text, TEXT_LIMIT) } };
+  // 「思考日志」优先：推理整段上墙（不再截成一句话）；没有推理时才退回最终输出
+  const think = reasoning.join("\n").trim();
+  const reply = output.join("\n").trim();
+  const text = think || reply;
+  if (text.length >= 2) {
+    return {
+      type: "text",
+      payload: { text: truncate(text, THOUGHT_LIMIT), kind: think ? "think" : "output" },
+    };
+  }
   if (toolCalls > 0) return { type: "thought", payload: { tools: toolCalls } };
   return null;
+}
+
+function truncate(s, n) {
+  return s.length > n ? `${s.slice(0, n)} …` : s;
 }
 
 function clip(s, limit) {

@@ -38,6 +38,7 @@ type ThinkingEvent = {
 ## 呈现规则
 
 - **机位**：`C.camera = 0`，`updateCam` 恒定停在 z=1 中心机位——不再有自动推近/拉远的「特写」；节奏/转速/辉光由页面按事件速率小幅映射（舒适档）。
+- **光效配色**：`kimi-desktop` 白 `#ffffff`、`deepseek-harness` 蓝 `#3b82f6`、`codex` 紫 `#a855f7`、`gemini-desktop` 红 `#ef4444`、`chatgpt-desktop` 绿 `#22c55e`。父页面每秒把「25s 内有真实工作事件」的来源连同颜色/强度发给 halo，halo 用独立覆盖层画每条来源的环带通道辉光 + 环内外彩色粒子；多来源时按 `(i+0.5)/n` 分配到不同半径，互不遮挡。
 - **环形数据块**：思考态用真实截流文本填充（`window.__tdRingText`），0.3s 刷新；每个环槽的版式（分块/配色/索引列）只随机一次并缓存，重绘只换文字，避免整环「沸腾」。闭源 AI 没有文本通道时退回 HALOFLUX 预设动画。
 - **右侧视窗**：只在鼠标停在环带上时出现（halo 用环心 `toScreen(cx,cy)` 与 `R..RO` 做命中判定，600ms 无鼠标事件视为离开），离开立即收起。
 - **鼠标**：仅用于环带命中判定；不做悬停放大/特写。点击由原生宿主全局转发，触发冲击波。
@@ -55,5 +56,5 @@ type ThinkingEvent = {
 - `FileTailConnector`：尾随任意文本文件（日志、jsonl 会话），按行正则提取事件类型。
 - `ZstdJsonlPollConnector`：面向以 zstd 多帧追加写的会话文件（DSH）。递归发现 `dir/workspace/session-*/session.v4.jsonl.zstd`，同时跟踪多个活跃会话；按 size/mtime 判断是否变化，避免每轮全量解码；启动时登记偏移量、不回放历史，文件被重写回滚时不刷屏。
 - `ProcessActivityConnector`：闭源桌面端（Gemini / ChatGPT）没有本地文本通道，用 `/bin/ps` 采样该 App 全部进程的 CPU 合计值作为真实工作信号：超过阈值（默认 8%）即按 1.2s 节流上报 `thought`，低于阈值持续 6s 静默复位；`/health.activity` 暴露最近一次采样值便于调阈值。
-- `summarizeDshLine`（`connectors/dsh-session.mjs`）：把 DSH v4 会话行映射成事件——`assistant/message` 取输出/推理文本 → `text`，`tool/call` / `tool/result` → 对应事件，`turn/*` → `status`，其余元数据行（title、request、permission、sandbox、job、step、delivery-accepted）一律忽略，防止壁纸被空转事件刷成常亮。
+- `summarizeDshLine`（`connectors/dsh-session.mjs`）：把 DSH v4 会话行映射成事件——`assistant/message` 优先取**推理日志**（`reasoning`，整段保留，`kind=think`），没有推理才用最终输出（`kind=output`）→ `text`，`tool/call` / `tool/result` → 对应事件，`turn/*` → `status`，其余元数据行（title、request、permission、sandbox、job、step、delivery-accepted）一律忽略，防止壁纸被空转事件刷成常亮。
 - `KimiWireConnector`：尾随 Kimi 桌面端会话落盘 wire.jsonl（`sessions/<workspace>/conv-xxxx/agents/main/wire.jsonl`），解析 Kimi 3.x 的真实行型：`agent.message.appended`（user/assistant → 真实文本）、`context.append_loop_event` 的 `content.part`（think/text）、`tool.call` / `tool.result`，以及 `context.apply_compaction` 截流摘要；自动跟随最近活跃的会话文件，`stop()` 可干净退出。

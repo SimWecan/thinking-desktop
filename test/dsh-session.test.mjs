@@ -9,7 +9,7 @@ import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 
 const line = (type, data = {}) => ({ type, seq: 1, time: Date.now(), data });
 
-test("assistant/message：有输出优先上墙输出文本", () => {
+test("assistant/message：优先上墙思考日志（reasoning）", () => {
   const ev = summarizeDshLine(line("assistant/message", {
     message: { content: [
       { type: "reasoning", text: "先看看目录结构" },
@@ -17,15 +17,32 @@ test("assistant/message：有输出优先上墙输出文本", () => {
     ] },
   }));
   assert.equal(ev.type, "text");
-  assert.equal(ev.payload.text, "已经修好了 connector");
+  assert.equal(ev.payload.text, "先看看目录结构");
+  assert.equal(ev.payload.kind, "think");
 });
 
-test("assistant/message：只有推理时上墙推理文本，并压成单行", () => {
+test("assistant/message：没有推理时才退回最终输出", () => {
   const ev = summarizeDshLine(line("assistant/message", {
-    message: { content: [{ type: "reasoning", text: "第一行\n\n第二行   有空格" }] },
+    message: { content: [{ type: "text", text: "这是最终回答" }] },
+  }));
+  assert.equal(ev.payload.text, "这是最终回答");
+  assert.equal(ev.payload.kind, "output");
+});
+
+test("长思考日志整段保留，不再截成一句话", () => {
+  const long = "第一步：读取会话文件。".repeat(40);   // 480 字
+  const ev = summarizeDshLine(line("assistant/message", {
+    message: { content: [{ type: "reasoning", text: long }] },
+  }));
+  assert.ok(ev.payload.text.length >= 400, "不应被截断");
+});
+
+test("assistant/message：推理文本保留换行（右侧视窗按原文展示）", () => {
+  const ev = summarizeDshLine(line("assistant/message", {
+    message: { content: [{ type: "reasoning", text: "第一行\n第二行  有空格" }] },
   }));
   assert.equal(ev.type, "text");
-  assert.equal(ev.payload.text, "第一行 第二行 有空格");
+  assert.equal(ev.payload.text, "第一行\n第二行  有空格");
 });
 
 test("assistant/message：纯工具调用不算文本事件", () => {

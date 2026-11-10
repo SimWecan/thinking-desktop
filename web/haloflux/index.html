@@ -1708,6 +1708,7 @@ function syncPanel() {
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
     if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
     if (m.td === 'click') { if (window.__tdClick) window.__tdClick(m.x, m.y); return; }
+    if (m.td === 'sources') { if (window.__tdSources) window.__tdSources(m.list); return; }
     if (m.td === 'text') { // 截流文本 → 悬停镜头面板（环上是否显示由 __tdRingText 决定）
       if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（iframe ready 重发）丢弃
       if (m.id) window.__tdTextId = m.id;
@@ -1715,6 +1716,11 @@ function syncPanel() {
       if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; window.__tdTextVersion++; if (window.__tdStandby) tdRenderStandby(); }
     }
   }, false);
+
+  // 运行时错误回传主页面（壁纸里看不到控制台，出问题要能被 /debug 看见）
+  window.addEventListener('error', (e) => {
+    try { parent.postMessage({ td: 'error', message: String((e && e.message) || 'unknown'), at: Date.now() }, '*'); } catch (err) {}
+  });
 
   // 加载完成后通知主页面同步状态（解决启动早期消息丢失）
   window.addEventListener('load', () => { try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {} });
@@ -1835,6 +1841,7 @@ function syncPanel() {
     cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),
     camZ: +cam.z.toFixed(2), W: Math.round(W), H: Math.round(H), hover: !!window.__tdHoverRing,
     paints: window.__tdTextPaints,
+    lights: (() => { try { return window.__tdLightState ? window.__tdLightState() : null; } catch (e) { return null; } })(),
   });
   window.__tdMouse = function (x, y) {
     hoverSeenAt = Date.now();
@@ -1852,6 +1859,94 @@ function syncPanel() {
       try { parent.postMessage({ td: 'hover', ring: false }, '*'); } catch (e) {}
     }
   }, 250);
+
+
+  /* ---------- 多厂商光效：谁在跑，就用谁的颜色点亮环带内外 ---------- */
+  (function initSourceLights() {
+    const cv = document.createElement('canvas');
+    cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:7';
+    document.body.appendChild(cv);
+    const g = cv.getContext('2d');
+    let dpr = 1;
+    const fit = () => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cv.width = Math.round(innerWidth * dpr);
+      cv.height = Math.round(innerHeight * dpr);
+    };
+    fit();
+    addEventListener('resize', fit);
+
+    const toRgb = (hex) => {
+      const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+      if (!m) return [154, 164, 178];
+      const n = parseInt(m[1], 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+    let lights = [], raf = 0, lastMsg = 0;
+
+    window.__tdLightState = () => ({ count: lights.length, srcs: lights.map((l) => l.src) });
+    window.__tdSources = function (list) {
+      lastMsg = Date.now();
+      const prev = new Map(lights.map((l) => [l.src, l]));
+      lights = (Array.isArray(list) ? list : []).map((x) => {
+        const old = prev.get(x.src);
+        return {
+          src: x.src,
+          rgb: toRgb(x.color),
+          intensity: Math.max(0, Math.min(1, Number(x.intensity) || 0)),
+          dots: old?.dots || Array.from({ length: 22 }, () => ({
+            a: Math.random() * TAU,
+            r: Math.random(),
+            s: (Math.random() - 0.5) * 0.35,
+            ph: Math.random() * TAU,
+            sz: 0.6 + Math.random() * 1.3,
+          })),
+        };
+      });
+      if (!raf) raf = requestAnimationFrame(step);
+    };
+
+    function step(now) {
+      raf = 0;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, cv.width, cv.height);
+      const list = Date.now() - lastMsg > 2500 ? [] : lights;   // 页面停止推送 → 光效收掉
+      if (!list.length) return;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.globalCompositeOperation = 'lighter';
+      const c0 = toScreen(cx, cy);
+      const z = cam.z, band = (RO - R) * z, n = list.length;
+      list.forEach((L, i) => {
+        const frac = n === 1 ? 0.5 : (i + 0.5) / n;                        // 多厂商并行 → 各占一条环带通道
+        const rad = (R + (RO - R) * frac) * z;
+        const w = Math.max(16, band * (n === 1 ? 0.55 : 0.34));
+        const a = L.intensity * (0.55 + 0.45 * Math.sin(now / 1100 + i * 1.7));
+        const [r, gg, b] = L.rgb;
+        const grd = g.createRadialGradient(c0.x, c0.y, Math.max(1, rad - w), c0.x, c0.y, rad + w);
+        grd.addColorStop(0, `rgba(${r},${gg},${b},0)`);
+        grd.addColorStop(0.5, `rgba(${r},${gg},${b},${(0.17 * a).toFixed(3)})`);
+        grd.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+        g.fillStyle = grd;
+        g.beginPath();
+        g.arc(c0.x, c0.y, rad + w, 0, TAU);
+        g.arc(c0.x, c0.y, Math.max(1, rad - w), 0, TAU, true);
+        g.fill('evenodd');
+
+        // 环带内外的彩色粒子
+        for (const d of L.dots) {
+          d.a += d.s * 0.016;
+          const rr = rad * (1 + (d.r - 0.5) * 0.24);
+          const x = c0.x + Math.cos(d.a) * rr, y = c0.y + Math.sin(d.a) * rr;
+          const al = a * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 420 + d.ph)));
+          g.fillStyle = `rgba(${r},${gg},${b},${(0.8 * al).toFixed(3)})`;
+          g.beginPath(); g.arc(x, y, d.sz, 0, TAU); g.fill();
+          g.fillStyle = `rgba(${r},${gg},${b},${(0.16 * al).toFixed(3)})`;
+          g.beginPath(); g.arc(x, y, d.sz * 3.2, 0, TAU); g.fill();
+        }
+      });
+      raf = requestAnimationFrame(step);
+    }
+  })();
 
   /* ---------- 去面板：只留光环本体 ---------- */
   function haloOnly() {
