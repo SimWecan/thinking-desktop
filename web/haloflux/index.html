@@ -2158,8 +2158,13 @@ function syncPanel() {
         alive++;
         const p = age / LIFE, ease = 1 - Math.pow(1 - p, 3);
         const rad = 16 + ease * 300, a = (1 - p) * (1 - p) * 0.5;
+        // 冲击波用当前主色（跟着厂商走），没有活动时退回落日红
+        const tint = window.__tdTint;
+        const cr = tint && tint.a > 0.05 ? Math.round(tint.r) : 228;
+        const cg = tint && tint.a > 0.05 ? Math.round(tint.g) : 87;
+        const cb = tint && tint.a > 0.05 ? Math.round(tint.b) : 46;
         g.beginPath(); g.arc(r.x, r.y, rad, 0, Math.PI * 2);
-        g.strokeStyle = `rgba(228,87,46,${a.toFixed(3)})`;
+        g.strokeStyle = `rgba(${cr},${cg},${cb},${a.toFixed(3)})`;
         g.lineWidth = 0.6 + 2.6 * (1 - p); g.stroke();
         g.beginPath(); g.arc(r.x, r.y, rad * 0.6, 0, Math.PI * 2);
         g.strokeStyle = `rgba(242,239,234,${(a * 0.5).toFixed(3)})`;

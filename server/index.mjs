@@ -61,7 +61,8 @@ let shotLights = null;
 let shotChart = null;
 let shotPanel = null;
 let shotTray = null;
-let shotRipple = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
+let shotRipple = null;
+let shotSavedAt = 0;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
@@ -80,6 +81,46 @@ const TEXT_FILE = join(ROOT, "data", "texts.json");
 let textBacklog = [];
 try { const arr = JSON.parse(readFileSync(TEXT_FILE, "utf8")); if (Array.isArray(arr)) textBacklog = arr.slice(-40); } catch {}
 let textSaveTimer = 0;
+
+// 今日统计落盘：重启/崩溃后 EVENTS、TOOLS、各来源计数不会归零（跨天自动换文件）
+const dayKey = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+const statsFile = () => join(ROOT, "data", `stats-${dayKey()}.json`);
+let statsSaveTimer = 0;
+
+function saveStats() {
+  if (statsSaveTimer) return;
+  statsSaveTimer = setTimeout(() => {
+    statsSaveTimer = 0;
+    try {
+      mkdirSync(join(ROOT, "data"), { recursive: true });
+      writeFileSync(statsFile(), JSON.stringify({
+        date: dayKey(),
+        totalEvents,
+        tools: Object.fromEntries(toolCounts),
+        sources: Object.fromEntries([...sourceStats].map(([k, v]) => [k, { events: v.events, lastEventAt: v.lastEventAt, lastWorkAt: v.lastWorkAt }])),
+        tokens: Object.fromEntries(tokenBySource),
+      }));
+    } catch { /* 落盘失败不影响运行 */ }
+  }, 4000);
+}
+
+function loadStats() {
+  try {
+    const d = JSON.parse(readFileSync(statsFile(), "utf8"));
+    if (d.date !== dayKey()) return;                    // 跨天：新的一天从 0 开始
+    totalEvents = Number(d.totalEvents) || 0;
+    for (const [k, v] of Object.entries(d.tools || {})) toolCounts.set(k, Number(v) || 0);
+    for (const [k, v] of Object.entries(d.sources || {})) {
+      sourceStats.set(k, { events: Number(v.events) || 0, lastEventAt: Number(v.lastEventAt) || 0, lastType: "restored", lastWorkAt: Number(v.lastWorkAt) || 0 });
+    }
+    for (const [k, v] of Object.entries(d.tokens || {})) tokenBySource.set(k, v);
+    console.log(`[stats] 载入今日统计：${totalEvents} 事件 / ${toolCounts.size} 种工具`);
+  } catch { /* 首日或坏文件 */ }
+}
 function saveTextBacklog() {
   if (textSaveTimer) return;
   textSaveTimer = setTimeout(() => {
@@ -143,6 +184,7 @@ function pushEvent(event) {
       at: event.ts,
     });
   }
+  saveStats();
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) {
     try { res.write(payload); } catch { clients.delete(res); }
@@ -329,7 +371,16 @@ for (const c of connectors) {
 // HTTP 服务
 // ---------------------------------------------------------------------------
 
-const wallHtml = readFileSync(join(ROOT, "web", "index.html"), "utf8");
+// 壁纸页按需读盘（按 mtime 缓存）：改前端不用重启服务
+let wallCache = { at: -1, html: "" };
+function wallPage() {
+  const file = join(ROOT, "web", "index.html");
+  try {
+    const st = statSync(file);
+    if (st.mtimeMs !== wallCache.at) wallCache = { at: st.mtimeMs, html: readFileSync(file, "utf8") };
+  } catch { /* 保留上次内容 */ }
+  return wallCache.html;
+}
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
@@ -520,7 +571,7 @@ const server = createServer((req, res) => {
           const panelPng = dec(data.panel);
           const trayPng = dec(data.tray);
           const ripplePng = dec(data.ripple);
-          if (full) { shotPng = full; shotAt = 0; }
+          if (full) { shotPng = full; shotSavedAt = Date.now(); }   // 让 shot 标记自然过期，托盘也要能看到它
           if (slot) shotSlot = slot;
           if (lights) shotLights = lights;
           if (chart) shotChart = chart;
@@ -536,6 +587,10 @@ const server = createServer((req, res) => {
       shotAt = Date.now();
       res.writeHead(200, { "Content-Type": "text/plain" }).end("requested");
       return;
+    }
+    if (shotSavedAt && Date.now() - shotSavedAt > 60_000) {
+      shotPng = shotSlot = shotLights = shotChart = shotPanel = shotTray = shotRipple = null;
+      shotSavedAt = 0;
     }
     const img = url.searchParams.has("slot") ? shotSlot
       : url.searchParams.has("lights") ? shotLights
@@ -590,7 +645,7 @@ const server = createServer((req, res) => {
       "Cache-Control": "no-store, no-cache, must-revalidate",
       Pragma: "no-cache",
     });
-    res.end(wallHtml.replace("__DEBUG__", url.searchParams.has("debug") ? "true" : "false"));
+    res.end(wallPage().replace("__DEBUG__", url.searchParams.has("debug") ? "true" : "false"));
     return;
   }
 
@@ -620,6 +675,10 @@ const server = createServer((req, res) => {
 
   res.writeHead(404).end("not found");
 });
+
+loadStats();
+// 退出时尽量落一次盘（launchd 发 SIGTERM）
+process.on("SIGTERM", () => { if (statsSaveTimer) clearTimeout(statsSaveTimer); try { writeFileSync(statsFile(), JSON.stringify({ date: dayKey(), totalEvents, tools: Object.fromEntries(toolCounts), sources: Object.fromEntries([...sourceStats].map(([k, v]) => [k, { events: v.events, lastEventAt: v.lastEventAt, lastWorkAt: v.lastWorkAt }])), tokens: Object.fromEntries(tokenBySource) })); } catch {} process.exit(0); });
 
 // 启动时从已安装 App 提取官方图标（异步，不阻塞服务）
 buildIcons(ROOT, (m) => console.log(m));

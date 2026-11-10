@@ -38,6 +38,7 @@ type ThinkingEvent = {
 | `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`agentSeries`（每个来源各自的 60s 序列）、`tools`（工具分布 Top8）、`tokens`（按来源的上下文计量：model/used/window/pct）、`totalEvents`、`agents`/`view`（绑定与形态） |
 | `GET /snapshot?panel=1` | 把右侧看板（DOM + 内嵌图表）经 SVG foreignObject 渲染成 PNG，用于无录屏权限时验证 |
 | `GET /icon/<source>.png` | 从本机 .app 提取的厂商官方图标（`@2x` 变体按需生成 512px）；`server/icons.mjs` 负责 ICNS→PNG 与缓存，`config/icons.json` 可手动覆盖 |
+| `GET /selftest?click=1` | 自检：让壁纸在环心连发三次冲击波（配合 `?ripple=1` 快照验证点击链路） |
 | `POST /texts` | 用数组原子替换思考文本缓冲（回填/清理用），同时落盘 `data/texts.json` |
 | `GET /texts?limit=N` | 最近的思考文本，页面启动时回填环带与视窗 |
 | `GET /snapshot?request=1` / `GET /snapshot` | 请求并取回壁纸画布快照（`?slot=1` 单个环槽、`?lights=1` 光效层），无录屏权限时用于验证真实画面 |
@@ -46,6 +47,7 @@ type ThinkingEvent = {
 
 - **机位**：`C.camera = 0`，`updateCam` 恒定停在 z=1 中心机位——不再有自动推近/拉远的「特写」；节奏/转速/辉光由页面按事件速率小幅映射（舒适档）。
 - **切换缓动**：halo 里每个来源维护 `cur`（当前强度）与 `lane`（当前通道位置），用指数平滑逼近目标值（亮起 `dt*5`、暗下 `dt*1.8`、通道 `dt*2.6`）；消失的来源先置 `target=0` 留在数组里渐隐，`cur<0.02` 才移除。整帧染色色也按帧插值（`k≈0.06`）。进入待机时 `__tdLightsReset()` 清空光效层。
+- **今日统计落盘**：`data/stats-YYYY-MM-DD.json` 保存 EVENTS、工具分布、各来源计数与上下文计量，启动时若日期一致就载入（跨天自动从 0 开始），SIGTERM 时强制落盘。
 - **停环判定**：客户端以 `workAt`（最后一条非 status 事件）为准，超过 `BUSY_HOLD = 20s` 进入待机；`status.running === 0`（回合结束）立即把 `busyUntil` 归零。`/debug` 暴露 `idleFor / busyIn / hold` 便于排查。
 - **上下文计量**：DSH 的 `assistant/message.data.usage`（inputTokens + cacheReadTokens）配合 `request/context.contextWindow` 算出占用率；窗口缺失时沿用上一次或按来源兜底（DSH 1M）。Kimi 用自己的 `maxUsage` 比例。两者在 `/state.tokens` 里统一成 `{model, used, window, pct}`。
 - **舞台染色**：父页面把活跃来源（颜色/强度）发给 halo；halo 在 `drawStage` 末尾用 canvas `color` 混合模式按加权混色给整帧染色——只改色相/饱和度、保留亮度，于是白色粒子/光束/环带会整体变成该厂商的颜色（旧 WebKit 不支持时退化为 multiply）。

@@ -149,8 +149,31 @@ final class TrayNav: NSObject, WKNavigationDelegate {
         }
     }
 }
+// HTML 通过 window.webkit.messageHandlers.tray 上报内容高度，宿主据此调整浮窗大小
+final class TrayBridge: NSObject, WKScriptMessageHandler {
+    weak var panel: NSPanel?
+    func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "tray", let body = message.body as? [String: Any],
+              let h = body["height"] as? Double else { return }
+        DispatchQueue.main.async { resizeTray(to: CGFloat(h)) }
+    }
+}
+var trayBridge: TrayBridge?
+
+func resizeTray(to height: CGFloat) {
+    let panel = trayPanel
+    let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+    let vf = screen.visibleFrame
+    let w = panel.frame.width
+    let h = max(52, min(640, height))
+    if abs(panel.frame.height - h) < 1 { return }
+    let frame = NSRect(x: vf.maxX - w - 10, y: vf.maxY - h - 8, width: w, height: h)
+    panel.setFrame(frame, display: true, animate: false)
+    TrayNav.shared.navLog("resize h=\(Int(h))")
+}
+
 private func makeTray() -> NSPanel {
-    let size = NSSize(width: 64, height: 420)
+    let size = NSSize(width: 64, height: 64)
     let screen = NSScreen.main ?? NSScreen.screens[0]
     let vf = screen.visibleFrame
     let frame = NSRect(x: vf.maxX - size.width - 10,
@@ -167,7 +190,11 @@ private func makeTray() -> NSPanel {
     panel.hasShadow = false
     panel.ignoresMouseEvents = false    // 与壁纸相反：托盘接收点击
     panel.hidesOnDeactivate = false
-    let wv = WKWebView(frame: NSRect(origin: .zero, size: size))
+    let cfg = WKWebViewConfiguration()
+    let bridge = TrayBridge()
+    cfg.userContentController.add(bridge, name: "tray")
+    trayBridge = bridge
+    let wv = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: cfg)
     wv.autoresizingMask = [.width, .height]
     wv.navigationDelegate = TrayNav.shared
     wv.isInspectable = true
@@ -182,6 +209,7 @@ private func makeTray() -> NSPanel {
     }
     panel.contentView = wv
     panel.orderFrontRegardless()
+    bridge.panel = panel
     return panel
 }
 let trayPanel = makeTray()

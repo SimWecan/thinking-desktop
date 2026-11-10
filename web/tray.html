@@ -40,11 +40,6 @@
   .icon.sel { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
   .icon.hidden { display: none; }
 
-  .lbl { position: absolute; right: 46px; top: 50%; transform: translateY(-50%) translateX(4px);
-    background: rgba(10,12,16,.9); border: 1px solid rgba(255,255,255,.16);
-    padding: 3px 8px; border-radius: 5px; color: #cfd2d8; white-space: nowrap; opacity: 0;
-    pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
-  .icon:hover .lbl { opacity: 1; transform: translateY(-50%) translateX(0); }
 
   /* —— 各家商标图的思考动效：只用位移/缩放/旋转，保持 logo 原样 —— */
   .icon.think.m-float img { animation: floaty 3.4s ease-in-out infinite; }
@@ -68,6 +63,15 @@
 
   /* 综合形态：多枚商标叠成的四环标记（不是厂商 logo，是「全部」入口） */
   #composite .ringset { position: relative; width: 30px; height: 30px; }
+  #composite .solo { display: none; width: 30px; height: 30px; border-radius: 7px; }
+  #composite .solo-mono { display: none; }
+  #composite.solo-mode .ringset { display: none; }
+  #composite.solo-mode .solo { display: block; filter: none; }
+  #composite.solo-mode .solo-mono { display: flex; width: 30px; height: 30px; border-radius: 7px;
+    align-items: center; justify-content: center; font: 600 11px/1 ui-monospace, monospace;
+    color: rgba(255,255,255,.75); border: 1px solid rgba(255,255,255,.2); }
+  #composite.solo-mode.no-icon .solo { display: none; }
+  #composite.solo-mode:not(.no-icon) .solo-mono { display: none; }
   #composite .r { position: absolute; inset: 0; border-radius: 50%;
     border: 1.4px dashed rgba(255,255,255,.5); animation: spin 12s linear infinite; }
   #composite .r.b { inset: 6px; animation-duration: 8s; animation-direction: reverse; opacity: .65; }
@@ -83,7 +87,8 @@
     <div class="ringset">
       <div class="r"></div><div class="r b"></div><div class="r c"></div>
     </div>
-    <div class="lbl">综合形态 · 全部 agent</div>
+    <img class="solo" alt="" draggable="false">
+    <span class="solo-mono"></span>
   </div>
 </div>
 <script>
@@ -113,6 +118,7 @@ function iconUrl(source, scale = 1) {
 }
 
 function build() {
+  reportHeight();
   for (const a of agents) {
     if (!a.enabled) { icons.get(a.source)?.remove(); icons.delete(a.source); continue; }
     let el = icons.get(a.source);
@@ -120,9 +126,8 @@ function build() {
       el = document.createElement("div");
       el.className = "icon " + (MOTION[a.anim] || "m-pulse");
       el.dataset.src = a.source;
-      el.innerHTML =
-        `<img class="logo" alt="" src="/icon/${a.source}.png" srcset="/icon/${a.source}@2x.png 2x" draggable="false">` +
-        `<div class="lbl"></div>`;
+      el.innerHTML = `<img class="logo" alt="" src="/icon/${a.source}.png" srcset="/icon/${a.source}@2x.png 2x" draggable="false">`;
+      el.title = a.name || a.source;
       // 没有本地商标图（比如只有 CLI 的 Codex）→ 中性字母牌，不伪造 logo
       const img = el.querySelector("img");
       img.addEventListener("error", () => {
@@ -141,13 +146,30 @@ function build() {
     el.classList.toggle("think", !!a.thinking);
     el.classList.toggle("hidden", !expanded);
     el.classList.toggle("sel", view === a.source);
-    el.querySelector(".lbl").textContent =
-      (a.name || a.source) + (a.thinking ? " · 思考中" : "") + (view === a.source ? " · 当前形态" : "");
+    el.title = (a.name || a.source) + (a.thinking ? " · 思考中" : "") + (view === a.source ? " · 当前形态" : "");
   }
-  composite.classList.toggle("think", agents.some((a) => a.enabled && a.thinking));
+  const solo = view !== "all" ? agents.find((x) => x.source === view) : null;
+  composite.classList.toggle("solo-mode", !!solo);
   composite.classList.toggle("sel", view === "all");
-  composite.querySelector(".lbl").textContent =
-    view === "all" ? "综合形态 · 全部 agent" : `综合形态（当前：${SRC_NAME(view)}）`;
+  if (solo) {
+    composite.style.setProperty("--c", solo.color);
+    composite.classList.toggle("think", !!solo.thinking);
+    composite.title = `${solo.name || solo.source} · 当前形态（点击展开）`;
+    const img = composite.querySelector(".solo");
+    const mono = composite.querySelector(".solo-mono");
+    mono.textContent = solo.short || solo.source.slice(0, 2).toUpperCase();
+    if (img.dataset.src !== solo.source) {
+      img.dataset.src = solo.source;
+      composite.classList.remove("no-icon");
+      img.onerror = () => composite.classList.add("no-icon");
+      img.src = `/icon/${solo.source}.png`;
+      img.srcset = `/icon/${solo.source}@2x.png 2x`;
+    }
+  } else {
+    composite.classList.remove("no-icon");
+    composite.classList.toggle("think", agents.some((a) => a.enabled && a.thinking));
+    composite.title = "综合形态 · 全部 agent";
+  }
 }
 
 async function select(agent) {
@@ -155,6 +177,19 @@ async function select(agent) {
   await fetch("/view", { method: "POST", body: JSON.stringify({ agent }) });
   build();
 }
+
+let reportTimer = 0;
+function reportHeight() {
+  clearTimeout(reportTimer);
+  reportTimer = setTimeout(() => {
+    const el = document.getElementById("tray");
+    const h = Math.ceil(el.getBoundingClientRect().height) + 2;
+    document.documentElement.style.height = h + "px";
+    document.body.style.height = h + "px";
+    try { window.webkit?.messageHandlers?.tray?.postMessage({ height: h }); } catch (e) {}
+  }, 30);
+}
+addEventListener("resize", reportHeight);
 
 composite.onclick = async () => {
   if (!expanded) { expanded = true; build(); return; }   // 单击综合按钮：展开侧栏
@@ -181,8 +216,8 @@ async function shot() {
     clone.querySelectorAll(".icon").forEach((n, i) => { if (liveColors[i]) n.style.color = liveColors[i]; });
 
     // 图片转 data URL（SVG 图片渲染不允许外链）
-    const liveImgs = Array.from(el.querySelectorAll("img.logo"));
-    const cloneImgs = Array.from(clone.querySelectorAll("img.logo"));
+    const liveImgs = Array.from(el.querySelectorAll("img"));
+    const cloneImgs = Array.from(clone.querySelectorAll("img"));
     for (let i = 0; i < liveImgs.length; i++) {
       const src = liveImgs[i];
       try {
