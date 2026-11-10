@@ -38,8 +38,21 @@ Lively Wallpaper / Wallpaper Engine
 node server/index.mjs          # 启动数据服务，监听 127.0.0.1:7799
 
 # 浏览器打开 http://127.0.0.1:7799 预览效果
-# Lively Wallpaper → 添加壁纸 → URL → http://127.0.0.1:7799/wall
 ```
+
+### macOS 一键安装（自启 + 桌面壁纸）
+
+```bash
+macos/install.sh
+```
+
+- 安装 launchd 服务 `com.simwecan.thinking-desktop`：登录自动启动数据服务，崩溃 10 秒后自动拉起
+- 编译 `Thinking Desktop Wallpaper.app`：原生 WKWebView 桌面级壁纸宿主（桌面图标之下、全屏铺满、多屏自适应、插拔屏自动重建）
+- 管理：`launchctl kickstart -k gui/$UID/com.simwecan.thinking-desktop`（重启服务）／`launchctl bootout gui/$UID/com.simwecan.thinking-desktop`（卸载自启）
+
+### Windows
+
+数据服务跨平台可用；壁纸层用 Lively Wallpaper：添加壁纸 → URL → `http://127.0.0.1:7799/wall`。
 
 ## 目录
 

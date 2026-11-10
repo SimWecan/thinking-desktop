@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.simwecan.thinking-desktop</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>__ROOT__/server/index.mjs</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+
+  <!-- 登录即启动，异常退出自动拉起 -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- 崩溃后 10 秒内重启 -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>__ROOT__/logs/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/logs/server.err.log</string>
+</dict>
+</plist>
