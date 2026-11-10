@@ -31,6 +31,11 @@ final class WallpaperView: NSView {
         addSubview(wv)
         webView = wv
     }
+
+    /// 壁纸窗口点击穿透收不到鼠标事件：由全局监听器换算成本视图坐标后转发给页面
+    func forwardMouse(x: CGFloat, y: CGFloat) {
+        webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
+    }
 }
 
 private func makeWindow(on screen: NSScreen) -> WallpaperWindow {
@@ -70,5 +75,23 @@ let watcher = ScreenWatcher()
 NotificationCenter.default.addObserver(
     watcher, selector: #selector(ScreenWatcher.screensChanged(_:)),
     name: NSApplication.didChangeScreenParametersNotification, object: nil)
+
+// 全局鼠标转发：桌面壁纸点击穿透，页面靠此获得悬停位置做特写放大（30ms 节流）
+var lastMouseSend: TimeInterval = 0
+let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+    matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { event in
+    let now = Date().timeIntervalSince1970
+    guard now - lastMouseSend > 0.03, let pt = event.cgEvent?.location else { return }
+    lastMouseSend = now
+    for win in windows {
+        let f = win.frame
+        let x = pt.x - f.origin.x
+        let y = pt.y - f.origin.y // 屏幕与 NSView 均为左下角原点
+        if x >= 0, x <= f.width, y >= 0, y <= f.height {
+            (win.contentView as? WallpaperView)?.forwardMouse(x: x, y: y)
+        }
+    }
+}
+_ = mouseMonitor
 
 app.run()

@@ -86,7 +86,7 @@ function spawnSyncZstd(path) {
 }
 
 /** 默认行摘要：按文本特征推断事件类型 */
-function defaultSummarize(obj, raw) {
+export function defaultSummarize(obj, raw) {
   const text = raw.toLowerCase();
   let type = "thought";
   if (text.includes('"error"') || text.includes("exception")) type = "error";

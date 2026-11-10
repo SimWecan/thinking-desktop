@@ -10,6 +10,7 @@ export const EVENT_TYPES = [
   "token",        // token 计量
   "error",        // 报错
   "status",       // 状态变化（开始/结束任务等）
+  "text",         // 截流到的思考/输出文本片段（开源 AI 本地落盘内容）
 ];
 
 export class Connector {

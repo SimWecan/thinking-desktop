@@ -1626,15 +1626,12 @@ function syncPanel() {
 /* Thinking Desktop bridge — 个人非商业二创
    原作: HALOFLUX by Ryder191 (RYDER CODE / Ms MAIKEBAIs CAT)
    Source: https://github.com/Ryder191/haloflux · PolyForm Noncommercial
-   客制化：去掉全部面板小窗口（只留光环本体）、壁纸静音、事件驱动参数、待机暂停 */
+   客制化：去面板只留光环 / 静音 / 待机全停 / 思考文本截流上墙 / 鼠标特写 */
 (function () {
   'use strict';
-  window.__wpPaused = true; // 初始待机，由主页面唤起
-  // 加载完成后通知主页面同步状态（解决启动早期消息丢失）
-  window.addEventListener('load', () => {
-    try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {}
-  });
-  setTimeout(() => { try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {} }, 600);
+
+  /* ---------- 待机全停 / 唤起 ---------- */
+  window.__wpPaused = true; // 无 AI 活动时：内部粒子、喷射、圆环全部停止
 
   window.addEventListener('message', (ev) => {
     let m;
@@ -1642,11 +1639,77 @@ function syncPanel() {
     if (!m || m.td === undefined) return;
     if (m.td === 'pause') { window.__wpPaused = !!m.value; return; }
     if (m.td === 'set') { try { setParam(m.key, m.value, true); } catch (e) {} return; }
-    if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} }
+    if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
+    if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
+    if (m.td === 'text') { // 截流文本 → 环上数据块
+      const s = String(m.text || '').replace(/\s+/g, ' ').trim();
+      if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; }
+    }
   }, false);
 
-  // 客制化：隐藏 header KPI 与底部 panels，只保留光环画面
-  // （沿用 wp.js applyUI 的做法：脱离布局+不可见，保持画布尺寸防止绘制卡死）
+  // 加载完成后通知主页面同步状态（解决启动早期消息丢失）
+  window.addEventListener('load', () => { try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {} });
+  setTimeout(() => { try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {} }, 600);
+
+  /* ---------- 思考文本截流上墙（开源 AI；闭源 AI 无文本 → 预设动画） ---------- */
+  window.__tdText = [];
+  window.__tdTextDirty = false;
+  const _code = BLOCKS.code, _para = BLOCKS.para;
+
+  function tdRows(c, x0, x1, y0, y1, t, font) {
+    // 用截流文本逐行填充；宽度不够自动截断换行
+    c.font = font;
+    const cw = 2.15, maxChars = Math.max(8, ((x1 - x0) / cw) | 0);
+    let y = y0, bi = 0;
+    while (y < y1 - 3.5 && bi < 300) {
+      let s = window.__tdText[bi % window.__tdText.length]; bi++;
+      if (!s) break;
+      while (s.length && y < y1 - 3.5) {
+        c.fillStyle = rgba(t, 0.75);
+        c.fillText(s.slice(0, maxChars), x0, y);
+        s = s.slice(maxChars);
+        y += 4.6;
+      }
+    }
+  }
+
+  BLOCKS.code = function (c, x0, x1, y0, y1, t) {
+    if (!window.__tdText.length) return _code(c, x0, x1, y0, y1, t); // 闭源 AI：预设动画
+    let y = header(c, x0, x1, y0, t);
+    tdRows(c, x0, x1, y, y1, t, '500 3.5px ' + FONT);
+  };
+  BLOCKS.para = function (c, x0, x1, y0, y1, t) {
+    if (!window.__tdText.length) return _para(c, x0, x1, y0, y1, t);
+    tdRows(c, x0, x1, y0 + 1, y1, t, '500 3.3px ' + FONT);
+  };
+
+  // 新文本到达 → 下一帧重绘全部环槽
+  (function flushLoop() {
+    if (window.__tdTextDirty && !window.__wpPaused) {
+      window.__tdTextDirty = false;
+      try { slots.forEach((s) => { s.c = null; }); } catch (e) {}
+    }
+    requestAnimationFrame(flushLoop);
+  })();
+
+  /* ---------- 鼠标特写：常态全览，悬停区域推近放大 ---------- */
+  let hoverOn = false, hx = 0, hy = 0, hoverAt = 0;
+  window.__tdMouse = function (x, y) { hoverOn = true; hx = x; hy = y; hoverAt = Date.now(); };
+  setInterval(() => { if (hoverOn && Date.now() - hoverAt > 200) hoverOn = false; }, 120);
+
+  const _updateCam = updateCam;
+  updateCam = function () {
+    _updateCam();
+    if (window.__wpPaused || !hoverOn) return;
+    cam.z += (2.0 - cam.z) * 0.08;
+    const hw = W / (2 * cam.z), hh = H / (2 * cam.z);
+    const tx = Math.max(hw, Math.min(W - hw, hx));
+    const ty = Math.max(hh, Math.min(H - hh, hy));
+    cam.x += (tx - cam.x) * 0.14;
+    cam.y += (ty - cam.y) * 0.14;
+  };
+
+  /* ---------- 去面板：只留光环本体 ---------- */
   function haloOnly() {
     const app = document.querySelector('.app');
     document.querySelectorAll('header, .panels').forEach((el) => {
@@ -1662,11 +1725,11 @@ function syncPanel() {
   }
   [0, 400, 1200, 3000].forEach((t) => setTimeout(haloOnly, t));
 
-  // 壁纸静音
+  /* ---------- 静音 ---------- */
   function mute() { if (window.__bgm) { try { window.__bgm.set(false); } catch (e) { return false; } return true; } return false; }
   [400, 1200, 3000, 6000].forEach((t) => setTimeout(mute, t));
 
-  // 版权署名（许可要求保留）
+  /* ---------- 版权署名（许可要求保留） ---------- */
   const credit = document.createElement('div');
   credit.textContent = 'HALOFLUX by Ryder191 · github.com/Ryder191/haloflux';
   credit.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:9;font:10px ui-monospace,monospace;color:rgba(207,210,216,.4);pointer-events:none;letter-spacing:.5px';

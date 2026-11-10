@@ -14,7 +14,7 @@ import { FileTailConnector } from "../connectors/file-tail.mjs";
 import { SqlitePollConnector } from "../connectors/sqlite-poll.mjs";
 import { JsonStorePollConnector } from "../connectors/json-store-poll.mjs";
 import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
-import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
+import { ZstdJsonlPollConnector, defaultSummarize as defaultZstdEvent } from "../connectors/zstd-jsonl-poll.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const IDLE_AFTER_MS = 4000;
@@ -142,7 +142,33 @@ const has = (p) => existsSync(p);
 {
   const dir = join(HOME, ".dsh", "sessions");
   if (has(dir)) {
-    connectors.push(new ZstdJsonlPollConnector({ source: "deepseek-harness", dir }));
+    connectors.push(new ZstdJsonlPollConnector({
+      source: "deepseek-harness",
+      dir,
+      // 开源 AI：截流会话文本上墙展示（闭源 AI 无此通道，光环显示预设动画）
+      summarize: (obj, raw) => {
+        const snippets = [];
+        const dig = (v, depth) => {
+          if (snippets.length >= 2 || depth > 5 || v == null) return;
+          if (typeof v === "string" && v.trim().length >= 12 && !/^[{[]/.test(v.trim())) {
+            snippets.push(v.replace(/\s+/g, " ").trim().slice(0, 90));
+            return;
+          }
+          if (Array.isArray(v)) { for (const it of v.slice(0, 4)) dig(it, depth + 1); return; }
+          if (typeof v === "object") {
+            for (const k of ["content", "text", "thinking", "message", "delta", "output"]) {
+              if (v[k] !== undefined) dig(v[k], depth + 1);
+            }
+          }
+        };
+        if (obj) dig(obj, 0);
+        else if (raw.length >= 12) snippets.push(raw.replace(/\s+/g, " ").slice(0, 90));
+        if (snippets.length) {
+          return { type: "text", payload: { text: snippets.join(" · ") } };
+        }
+        return defaultZstdEvent(obj, raw);
+      },
+    }));
   }
   connectors.push(new ProcessWatchConnector({
     source: "deepseek-harness",
