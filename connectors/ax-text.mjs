@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { Connector } from "./base.mjs";
 
 export class AxTextConnector extends Connector {
@@ -47,31 +47,32 @@ export class AxTextConnector extends Connector {
   }
 
   _poll() {
-    let out = "";
-    try {
-      out = execFileSync(this.bin, [this.bundleId], { encoding: "utf8", timeout: 4000, maxBuffer: 2 * 1024 * 1024 });
-    } catch {
-      return; // 工具执行失败（被系统拒绝等）→ 本轮跳过
-    }
-    let data;
-    try { data = JSON.parse(out); } catch { return; }
-    if (!data.trusted) {
-      if (!this._warned) {
-        this._warned = true;
-        console.warn(`[${this.source}] 未获得辅助功能授权，AX 读屏不可用（系统设置 → 隐私与安全性 → 辅助功能 → 添加 bin/axread）`);
+    if (this._busy) return;   // 上一轮还没结束就跳过，绝不叠加
+    this._busy = true;
+    // 异步执行：axread 被系统拒绝/卡死时（超时 4s）不会阻塞服务的事件循环
+    execFile(this.bin, [this.bundleId], { encoding: "utf8", timeout: 4000, maxBuffer: 2 * 1024 * 1024 }, (err, out) => {
+      this._busy = false;
+      if (err) return; // 工具执行失败（被系统拒绝等）→ 本轮跳过
+      let data;
+      try { data = JSON.parse(out); } catch { return; }
+      if (!data.trusted) {
+        if (!this._warned) {
+          this._warned = true;
+          console.warn(`[${this.source}] 未获得辅助功能授权，AX 读屏不可用（系统设置 → 隐私与安全性 → 辅助功能 → 添加 bin/axread）`);
+        }
+        return;
       }
-      return;
-    }
-    const text = String(data.apps?.[this.bundleId] || "");
-    if (!text) return;
+      const text = String(data.apps?.[this.bundleId] || "");
+      if (!text) return;
 
-    let delta = "";
-    if (this._last && text.startsWith(this._last)) delta = text.slice(this._last.length);
-    else if (text !== this._last) delta = text.slice(-300);   // 窗口/会话切换：只取末尾一段
-    this._last = text;
+      let delta = "";
+      if (this._last && text.startsWith(this._last)) delta = text.slice(this._last.length);
+      else if (text !== this._last) delta = text.slice(-300);   // 窗口/会话切换：只取末尾一段
+      this._last = text;
 
-    const clean = delta.replace(/\s+/g, " ").trim();
-    if (clean.length < this.minDelta) return;
-    this.emit({ type: "text", payload: { text: clean.slice(0, 1200), kind: "ax" } });
+      const clean = delta.replace(/\s+/g, " ").trim();
+      if (clean.length < this.minDelta) return;
+      this.emit({ type: "text", payload: { text: clean.slice(0, 1200), kind: "ax" } });
+    });
   }
 }

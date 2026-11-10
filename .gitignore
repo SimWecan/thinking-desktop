@@ -8,3 +8,4 @@ config/agents.json
 .verify/
 data/
 config/icons.json
+config/ui.json

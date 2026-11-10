@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.simwecan.thinking-desktop-wallpaper</string>
+  <!-- 直接跑 .app 里的可执行文件（而不是 open），KeepAlive 才能盯住进程本体：
+       崩溃/被杀后 10s 自动拉起，登录时自动启动 -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__ROOT__/Thinking Desktop Wallpaper.app/Contents/MacOS/thinking-desktop-wallpaper</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>__ROOT__/logs/wallpaper.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/logs/wallpaper.err.log</string>
+</dict>
+</plist>

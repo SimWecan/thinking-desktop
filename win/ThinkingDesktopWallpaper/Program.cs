@@ -25,6 +25,21 @@ class WallForm : Form
     }
 }
 
+// 托盘窗口：TOOLWINDOW 样式——不出现在 Alt-Tab / 任务切换里
+class TrayForm : Form
+{
+    const int WS_EX_TOOLWINDOW = 0x80;
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_TOOLWINDOW;
+            return cp;
+        }
+    }
+}
+
 // 每块屏幕一个壁纸窗口（与 macOS 宿主对齐）
 var walls = new List<WallForm>();
 foreach (var screen in Screen.AllScreens)
@@ -52,7 +67,7 @@ foreach (var screen in Screen.AllScreens)
 // ---------- 右上角托盘窗口 ----------
 // 透明键用洋红：托盘页的图标里本来就有黑色（Kimi/ChatGPT 的商标），用黑色当透明键会把图标抠出洞
 var KEY = Color.Magenta;
-var tray = new Form
+var tray = new TrayForm
 {
     FormBorderStyle = FormBorderStyle.None,
     StartPosition = FormStartPosition.Manual,

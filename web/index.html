@@ -182,13 +182,16 @@ const textLines = [];
 let lastTextAt = 0, textSeq = 0;
 
 // 各厂商的专属色：环内外光效 + 文本标签共用同一套（调色盘可覆盖）
+// 与 server/agents.mjs 的 VENDOR_PRESETS 保持一致——/agents 拉取失败时的兜底色
+// 也必须和注册表相同，否则粒子颜色会闪变
 const SOURCE_COLORS = {
-  "kimi-desktop": "#ffffff",
-  "deepseek-harness": "#3b82f6",
-  codex: "#a855f7",
-  "gemini-desktop": "#ef4444",
-  "chatgpt-desktop": "#22c55e",
-  "claude-desktop": "#d97757",
+  "deepseek-harness": "#4D6BFE",
+  "kimi-desktop": "#2E9BFF",
+  "gemini-desktop": "#8AB4F8",
+  "chatgpt-desktop": "#10A37F",
+  "claude-desktop": "#D97757",
+  "anthropic": "#D97757",
+  codex: "#8B5CF6",
 };
 const SRC_LABEL = {
   "deepseek-harness": "DSH",
@@ -197,6 +200,7 @@ const SRC_LABEL = {
   "gemini-desktop": "Gemini",
   "chatgpt-desktop": "GPT",
   "claude-desktop": "Claude",
+  "anthropic": "ClaudeCode",
   tail: "LOG",
 };
 

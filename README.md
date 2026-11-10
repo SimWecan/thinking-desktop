@@ -25,7 +25,7 @@
 - **桌面软件化（agent 绑定 + 调色盘 + 托盘）**：
   - **绑定管理**：`http://127.0.0.1:7799/config.html` 配置页自动探测本机已装的 AI 桌面端（macOS 路径探测），逐个绑定/解绑；绑定后打通通道检测运行状态、拉取日志
   - **调色盘**：配置页选中任一已绑定 agent，弹出 12 色色板 + 自定义取色器，设定该 agent 运行时粒子特效/光效的专属颜色（持久化到 `config/agents.json`）
-  - **右上角托盘**：壁纸运行时桌面右上角出现可展开图标条（透明悬浮，仅图标、无底色）；默认为**综合形态**（多 agent 并行时多粒子特效同时展示，任一 agent 思考时综合环加速旋转），点击展开为已绑定 agent 的厂商图标——未使用为静态，思考中则为厂商专属动态：DeepSeek 鲸鱼上下游跃、Kimi 流星划过、Gemini 闪烁、Claude 四角伸缩、ChatGPT 呼吸光晕、Codex 轨道点
+  - **右上角托盘**：壁纸运行时桌面右上角出现可展开图标条（透明悬浮，仅图标、无底色）；默认为**综合形态**（多 agent 并行时多粒子特效同时展示，任一 agent 思考时综合环加速旋转），点击展开为已绑定 agent 的图标——图标直接从本机安装的 .app 提取**官方商标图**（提取不到的显示字母牌，不伪造 logo）：空闲时灰化静止，思考时按厂商各自的动效运动（DeepSeek 漂浮、Kimi 上下浮动、Gemini 旋转闪烁、ChatGPT 呼吸、Claude 旋转、Codex 脉动）并点亮该厂商专属色的光晕
   - **单一/综合切换**：单击综合图标展开侧栏；点任意厂商图标即切换为该 agent 的单一粒子形态并**收回侧栏**；收回后综合按钮直接显示**当前选中的厂商图标**（全部形态时显示三环标记）；再点综合图标回到综合形态并收回（右键可只展开/收起）
 - **Windows 原生宿主**：`win/` 提供 .NET 8 + WebView2 原生壁纸宿主（置底、点击穿透、托盘浮窗）与 `install.ps1` 自启安装脚本（⚠️ 代码已编写但未经 Windows 真机编译验证）
 - **零第三方依赖**：服务端仅使用 Node.js 标准库（DSH 会话解码复用系统 `zstd` 命令）
@@ -120,6 +120,7 @@ macos/install.sh
 ```
 
 - 安装 launchd 服务 `com.simwecan.thinking-desktop`：登录自动启动数据服务，崩溃 10 秒后自动拉起
+- 安装壁纸自启 `com.simwecan.thinking-desktop-wallpaper`：直接守护壁纸 App 进程本体，登录自动启动、崩溃 10 秒自愈（App 内有单实例守卫，手动 `open` 不会叠出第二层壁纸）
 - 编译 `Thinking Desktop Wallpaper.app`：原生 WKWebView 桌面级壁纸宿主（桌面图标之下、全屏铺满、多屏自适应、插拔屏自动重建）
 - 管理：`launchctl kickstart -k gui/$UID/com.simwecan.thinking-desktop`（重启服务）／`launchctl bootout gui/$UID/com.simwecan.thinking-desktop`（卸载自启）
 

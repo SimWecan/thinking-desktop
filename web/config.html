@@ -128,7 +128,12 @@ function openPalette(a) {
     swatches.appendChild(d);
   }
   customColor.value = a.color;
-  customColor.oninput = () => { /* 实时预览 */ document.querySelector(`[data-src="${a.source}"]`); };
+  // 实时预览：拖动取色器时列表里的色点立即跟着变（保存仍要点选/松手触发）
+  customColor.oninput = () => {
+    const idx = agents.findIndex((x) => x.source === a.source);
+    const dot = list.children[idx]?.querySelector(".dot");
+    if (dot) dot.style.background = customColor.value;
+  };
   customColor.onchange = () => { save(editing.source, { color: customColor.value }); closePalette(); };
   palette.classList.add("show");
 }

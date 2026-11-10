@@ -10,6 +10,11 @@ import WebKit
 
 let WALL_URL = "http://127.0.0.1:7799/wall"
 
+// 单实例守卫：launchd KeepAlive 与手动 open 可能并存，重复实例会叠两层壁纸窗口
+if NSRunningApplication.runningApplications(withBundleIdentifier: "com.simwecan.thinking-desktop-wallpaper").count > 1 {
+    exit(0)
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // 无 Dock 图标，不占焦点
 
@@ -122,31 +127,15 @@ _ = clickMonitor
 // 右上角托盘：可展开的 agent 切换图标（独立浮窗，接收点击）
 final class TrayNav: NSObject, WKNavigationDelegate {
     static let shared = TrayNav()
-    let logURL = URL(fileURLWithPath: "/Users/sim/Documents/MCPServer/Thinking Desktop/logs/tray.log")
-    func navLog(_ s: String) {
-        let line = "\(Date()) \(s)\n"
-        if let h = try? FileHandle(forWritingTo: logURL) {
-            h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
-        } else {
-            try? line.data(using: .utf8)?.write(to: logURL)
-        }
-    }
-    func webView(_ wv: WKWebView, didFinish nav: WKNavigation!) {
-        navLog("didFinish url=\(wv.url?.absoluteString ?? "?")")
-    }
-    func webView(_ wv: WKWebView, didFail nav: WKNavigation!, withError e: Error) {
-        navLog("didFail err=\(e.localizedDescription)")
-        // 失败则 2s 后重试一次
+    private let trayURL = URL(string: "http://127.0.0.1:7799/tray.html")!
+    func webView(_ wv: WKWebView, didFail nav: WKNavigation!, withError e: Error) { retry(wv) }
+    func webView(_ wv: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError e: Error) { retry(wv) }
+    /// 服务尚未起来（开机竞态）或网络抖动：2s 后重试；已加载成功则不动
+    private func retry(_ wv: WKWebView) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if wv.url == nil || wv.url?.absoluteString.contains("tray.html") != true {
-                wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/tray.html")!))
+            if wv.url?.host != "127.0.0.1" {
+                wv.load(URLRequest(url: self.trayURL))
             }
-        }
-    }
-    func webView(_ wv: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError e: Error) {
-        navLog("didFailProvisional err=\(e.localizedDescription)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/tray.html")!))
         }
     }
 }
@@ -184,7 +173,6 @@ func resizeTray(to height: CGFloat) {
     if abs(panel.frame.height - h) < 1 { return }
     let frame = NSRect(x: vf.maxX - w - 10, y: vf.maxY - h - 8, width: w, height: h)
     panel.setFrame(frame, display: true, animate: false)
-    TrayNav.shared.navLog("resize h=\(Int(h))")
 }
 
 private func makeTray() -> NSPanel {
@@ -199,7 +187,8 @@ private func makeTray() -> NSPanel {
                         backing: .buffered,
                         defer: false)
     panel.level = .floating             // 浮于普通窗口之上，可随时点
-    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+    // fullScreenAuxiliary：全屏 App 的空间里也保持可见（否则全屏看视频时托盘消失）
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.hasShadow = false

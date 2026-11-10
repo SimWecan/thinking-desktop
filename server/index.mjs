@@ -86,6 +86,14 @@ let shotRipple = null;
 let shotSavedAt = 0;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
+// SSE 心跳：浏览器崩溃/断网时 TCP 半开连接不触发 close，靠周期写注释帧暴露死连接并清理，
+// 否则 clients 集合只增不减，state() 序列化与推送都白白遍历。
+const sseHeartbeat = setInterval(() => {
+  for (const res of clients) {
+    try { res.write(": ping\n\n"); } catch { clients.delete(res); }
+  }
+}, 30_000);
+sseHeartbeat.unref?.();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
 const sourceStats = new Map();
 const secBuckets = new Map();   // 每秒事件数（画速率曲线）
@@ -435,8 +443,20 @@ function wallPage() {
 // 但浏览器里的任意网页都能向它发请求）。同源页面通常不带 Origin，带了就必须是本机。
 const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/config"]);
 const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+const MAX_BODY = 12 * 1024 * 1024;   // POST 体上限（canvas 快照 base64 较大，12MB 足够）
 
 const server = createServer((req, res) => {
+  // Host 头校验：只接受回环地址。挡 DNS rebinding——恶意网站把域名解析到 127.0.0.1
+  // 后借浏览器之手读 /stream、/state 里的本机 AI 思考文本。
+  if (!LOCAL_HOST.test(String(req.headers.host || ""))) {
+    res.writeHead(403, { "Content-Type": "text/plain" }).end("forbidden host");
+    return;
+  }
+  if (req.method === "POST" && Number(req.headers["content-length"] || 0) > MAX_BODY) {
+    res.writeHead(413).end("payload too large");
+    return;
+  }
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
 
   const mutating = MUTATING_PATHS.has(url.pathname) && (
@@ -455,11 +475,12 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === "/stream") {
+    // 注意：不要加 Access-Control-Allow-Origin——事件流里有本机 AI 的真实思考文本，
+    // 加 * 等于允许任意网页跨域读取。所有正常客户端都与页面同源，无需 CORS。
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*",
     });
     res.write(`data: ${JSON.stringify({ type: "hello", state: state() })}\n\n`);
     clients.add(res);
@@ -501,7 +522,7 @@ const server = createServer((req, res) => {
       });
       return;
     }
-    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ agents: agents.agents(sourceStats), view: agents.view, shot: Date.now() - shotAt < 3000 }));
     return;
   }
@@ -525,7 +546,7 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === "/state") {
-    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(state()));
     return;
   }
@@ -726,7 +747,7 @@ const server = createServer((req, res) => {
       const e = byName.get(s.source);
       if (e) Object.assign(e, { events: s.events, lastType: s.lastType, agoMs: s.agoMs });
     }
-    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       ok: true,
       uptimeMs: Math.round(process.uptime() * 1000),
@@ -831,6 +852,16 @@ const server = createServer((req, res) => {
 
   res.writeHead(404).end("not found");
 });
+
+// 日志轮转：launchd 重定向的 stdout/stderr 只增不减；超过 5MB 截断只留末尾 200KB
+try {
+  const logFile = join(ROOT, "logs", "server.log");
+  if (statSync(logFile).size > 5 * 1024 * 1024) {
+    const tail = readFileSync(logFile, "utf8").slice(-200 * 1024);
+    writeFileSync(logFile, tail);
+    console.log("[log] server.log 超过 5MB，已截断保留末尾 200KB");
+  }
+} catch { /* 日志文件不存在等情况忽略 */ }
 
 loadStats();
 // 退出时尽量落一次盘（launchd 发 SIGTERM）
