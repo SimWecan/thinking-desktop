@@ -15,6 +15,7 @@ import { FileTailConnector } from "../connectors/file-tail.mjs";
 import { SqlitePollConnector } from "../connectors/sqlite-poll.mjs";
 import { JsonStorePollConnector } from "../connectors/json-store-poll.mjs";
 import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
+import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
@@ -37,7 +38,7 @@ const zstdAvailable = (() => {
 
 const events = [];
 const MAX_EVENTS = 500;
-let clientDebug = {};
+const clientDebug = new Map();   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
@@ -195,11 +196,14 @@ const has = (p) => existsSync(p);
   }));
 }
 
-// 4) Gemini 桌面版：数据全在二进制库里，用进程守护
+// 4) Gemini 桌面版：闭源、对话只在服务端 + WKWebView 内存里，没有本地文本
+//    进程守护 → 启动/退出；活动度（CPU）→ 真实「正在思考/输出」信号
 connectors.push(new ProcessWatchConnector({ source: "gemini-desktop", processName: "Gemini" }));
+connectors.push(new ProcessActivityConnector({ source: "gemini-desktop", match: "/Gemini.app/", cpuThreshold: 8 }));
 
-// 5) ChatGPT 桌面版：进程守护（当前未运行，启动即接管）
+// 5) ChatGPT 桌面版：同上（未启动时活动度自然静默）
 connectors.push(new ProcessWatchConnector({ source: "chatgpt-desktop", processName: "ChatGPT" }));
+connectors.push(new ProcessActivityConnector({ source: "chatgpt-desktop", match: "/ChatGPT.app/", cpuThreshold: 8 }));
 
 // 6) 开发用：THINKING_DESKTOP_TAIL=<日志文件> 尾随任意日志
 if (process.env.THINKING_DESKTOP_TAIL) {
@@ -247,14 +251,19 @@ const server = createServer((req, res) => {
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {
-      try { clientDebug = { ...JSON.parse(body), at: Date.now() }; } catch {}
+      const ua = String(req.headers["user-agent"] ?? "").slice(0, 70);
+      try {
+        const data = JSON.parse(body);
+        const key = String(data.client || ua || "unknown");
+        clientDebug.set(key, { ...data, at: Date.now(), ua });
+      } catch {}
       res.writeHead(200).end("ok");
     });
     return;
   }
   if (url.pathname === "/debug") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(clientDebug));
+    res.end(JSON.stringify({ at: Date.now(), clients: Object.fromEntries(clientDebug) }));
     return;
   }
 
@@ -264,22 +273,45 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // 自检：connector 是否真的接到数据（每个来源最后一次真实事件的时间）
+  // 自检：每个 AI 桌面端的连接方式 + 最后一次真实事件（区分「注册了」和「真的接到数据」）
   if (url.pathname === "/health") {
+    const sources = state().sources;
+    const byName = new Map();
+    for (const c of connectors) {
+      const e = byName.get(c.source) ?? { source: c.source, kinds: [], events: 0, lastType: null, agoMs: null };
+      if (!e.kinds.includes(c.kind)) e.kinds.push(c.kind);
+      byName.set(c.source, e);
+    }
+    for (const s of sources) {
+      const e = byName.get(s.source);
+      if (e) Object.assign(e, { events: s.events, lastType: s.lastType, agoMs: s.agoMs });
+    }
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify({
       ok: true,
       uptimeMs: Math.round(process.uptime() * 1000),
       zstd: zstdAvailable,
-      connectors: [...new Set(connectors.map((c) => c.source))],
-      sources: state().sources,
+      connectors: [...byName.values()],
+      // 闭源端：最近一次 CPU 采样（用来确认活动度检测真的在跑、阈值是否合适）
+      activity: connectors.filter((c) => c.kind === "activity").map((c) => ({
+        source: c.source,
+        match: c.match,
+        threshold: c.cpuThreshold,
+        ...c.last,
+      })),
     }));
     return;
   }
 
   // 壁纸与预览：同一页面；?debug=1 显示状态面板
   if (url.pathname === "/" || url.pathname === "/wall") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    console.log(`[page] ${url.pathname} ${url.search || ""}`.trimEnd());
+    // 壁纸宿主是常驻 WKWebView，必须禁缓存，否则改了页面要重装 App 才生效
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+    });
     res.end(wallHtml.replace("__DEBUG__", url.searchParams.has("debug") ? "true" : "false"));
     return;
   }
@@ -311,6 +343,6 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  /       预览（加 ?debug=1 显示状态面板）`);
   console.log(`  /wall   壁纸地址（Lively / Wallpaper Engine 使用）`);
   console.log(`  /stream SSE 事件流 · /state JSON 状态 · /health 自检`);
-  console.log(`已注册 connector: ${connectors.map((c) => c.source).join(", ") || "（无）"}`);
+  console.log(`已注册 connector: ${connectors.map((c) => `${c.source}(${c.kind})`).join(", ") || "（无）"}`);
   console.log(`zstd: ${zstdAvailable ? "ok" : "缺失（DSH 会话截流不可用）"}`);
 });

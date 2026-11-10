@@ -8,14 +8,14 @@
 ## 特性
 
 - **双形态壁纸**：
-  - **待机** — HALOFLUX **环带停止转动**：环内网纹与环带本体保留原地定格，环内外的粒子特效（流光、彗星、光斑、远景粒子）全部消失。采用按需渲染：退出 rAF 循环，由鼠标/文本/尺寸变化事件直接触发重绘（WKWebView 被窗口遮挡时 rAF 会被系统完全节流）；重建画布后自动补帧，不会再黑屏
-  - **思考** — 检测到 agent 开始工作：环带恢复转动、粒子特效重新出现（rAF 循环重启），AI 活动越剧烈节拍越快、光束越亮；全部空闲 30 秒后环带停止进入待机
-- **交互**：思考形态悬停区域特写放大；**待机形态把鼠标挪到环带上，该处环带局部放大，并弹出「截流 · 真实对话记录」面板展示最近的真实截流文本**（落日红高亮弧段锚定悬停点）；点击产生冲击波。浏览器预览 `http://127.0.0.1:7799` 原生生效；桌面壁纸点击穿透，由原生宿主全局转发鼠标位置与点击（点击桌面任意位置也会激起冲击波）。预览可用 `?force=idle` / `?force=active` 强制指定形态
-- **真实文本截流上墙**：开源 AI（DeepSeek Harness 会话、Kimi 桌面端 wire.jsonl 落盘内容）的真实输出与上下文压缩事件直接显示在右侧视窗，每行标注来源（`DSH` / `Kimi` / `Codex`）；闭源 AI 无本地文本通道时显示预设动画
-- **多源接入**：统一抽象 Connector，接入 Codex / Kimi / DeepSeek Harness / Gemini / ChatGPT 桌面端等本机 AI 软件的事件流
+  - **待机** — HALOFLUX **环带停止转动**：环内网纹与环带本体保留原地定格（环上留着最后一次截流文本），环内外的粒子特效（流光、彗星、光斑、远景粒子）全部消失。采用按需渲染：退出 rAF 循环，由文本/尺寸变化事件直接触发重绘（WKWebView 被窗口遮挡时 rAF 会被系统完全节流）；重建画布后自动补帧，不会再黑屏
+  - **思考** — 检测到 agent 开始工作：环带恢复转动、粒子特效重新出现（rAF 循环重启），**环带数据块换成真实截流文本**，AI 活动越剧烈节拍越快、光束越亮；全部空闲 30 秒后环带停止进入待机
+- **交互**：**鼠标不与环带互动**（不做悬停放大 / 特写），点击才产生冲击波——桌面壁纸点击穿透，由原生宿主全局转发点击坐标，点桌面任意位置都会激起涟漪。文本只通过**右侧发散视窗**展示（白框透明底白字、从光环向右滑入，每行标注来源）。浏览器预览 `http://127.0.0.1:7799` 原生生效；预览可用 `?force=idle` / `?force=active` 强制指定形态
+- **真实文本截流上墙**：开源 AI（DeepSeek Harness 会话、Kimi 桌面端 wire.jsonl 落盘内容）的真实输出与上下文压缩事件同时进**环带数据块**与**右侧视窗**，每行标注来源（`DSH` / `Kimi` / `Codex`）；闭源 AI 无本地文本通道时环带退回预设动画
+- **多源接入（每个都真接到数据）**：统一抽象 Connector，本机四个 AI 桌面端全部接入——DSH / Kimi 走会话文件真实文本，Gemini / ChatGPT 走「进程守护 + CPU 活动度」真实工作信号（它们不落盘任何对话文本，只能取强度，取不到文本）
 - **事件驱动**：token/工具/状态事件 → 强度提升 + 涟漪；报错 → 泛红
 - **零第三方依赖**：服务端仅使用 Node.js 标准库（DSH 会话解码复用系统 `zstd` 命令）
-- **可自检**：`/health` 返回每个来源最后一次真实事件，能直接区分「connector 注册了」和「connector 真的接到数据」
+- **可自检**：`npm run links` / `/health` 给出每个 AI 桌面端的连接通道、事件数、最后事件时间与闭源端实时 CPU，能直接区分「connector 注册了」和「connector 真的接到数据」
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
 - **跨平台**：macOS / Windows / Linux 均可运行
 
@@ -45,8 +45,9 @@ node server/index.mjs          # 启动数据服务，监听 127.0.0.1:7799
 # 浏览器打开 http://127.0.0.1:7799 预览效果（?debug=1 打开状态面板）
 
 # 自检 / 测试
-curl -s http://127.0.0.1:7799/health   # 各来源最后事件时间、zstd 是否可用
-npm test                                # connector + 事件映射的单元测试
+npm run links                           # 每个 AI 桌面端：数据通道 / 事件数 / 最后事件 / 实时 CPU
+curl -s http://127.0.0.1:7799/health    # 同上，原始 JSON（含 zstd 状态）
+npm test                                # connector + 事件映射 + 活动度解析的单元测试
 ```
 
 ### macOS 一键安装（自启 + 桌面壁纸）
@@ -75,7 +76,9 @@ macos/install.sh
 | `connectors/zstd-jsonl-poll.mjs` | Zstd 压缩 JSONL 会话轮询（DeepSeek Harness `~/.dsh/sessions`）：递归发现多层目录、同时跟踪多个活跃会话、按 size/mtime 增量解码、启动不回放历史 |
 | `connectors/dsh-session.mjs` | DSH v4 会话行 → 统一事件：只上报真实的推理文本/工具调用/报错，忽略 title、request、job 等元数据行 |
 | `connectors/process-watch.mjs` | 桌面端进程守护（Gemini / ChatGPT / DSH 状态变化） |
-| `web/index.html` | 壁纸可视化页（思考粒子海） |
+| `connectors/process-activity.mjs` | 闭源端真实活动度：`ps` 采样该 App 全部进程的 CPU，超过阈值即上报「正在工作」（Gemini / ChatGPT 没有本地文本，只能取强度） |
+| `web/index.html` | 壁纸页（光环 iframe + 右侧发散文本视窗 + 状态 HUD） |
+| `scripts/links.mjs` | 连接自检 CLI（`npm run links`）：每个来源的通道 / 事件数 / 最后事件 / 实时 CPU |
 | `docs/ARCHITECTURE.md` | 架构与事件协议详细说明 |
 | `test/` | `node --test` 单元测试（connector 增量消费、事件映射） |
 
@@ -83,16 +86,17 @@ macos/install.sh
 
 | 来源 | 数据通道 | 事件 |
 |---|---|---|
-| Codex | `~/.codex/logs_2.sqlite` 轮询 | 工具调用 / 报错 / 推理 |
-| Kimi 桌面端 | `kimi-agent` JSON stores 轮询 | token 用量 / 会话状态 / 文件编辑 |
 | DeepSeek Harness | `~/.dsh/sessions/<workspace>/session-*/session.v4.jsonl.zstd` 解码 + 进程守护 | 推理文本 / 工具调用 / 结果 / 运行状态 |
-| Gemini 桌面版 | 进程守护（数据不落盘文本日志） | 启动 / 退出 |
-| ChatGPT 桌面版 | 进程守护（启动即自动接管） | 启动 / 退出 |
+| Kimi 桌面端 | `wire.jsonl` 会话尾随 + `kimi-agent` JSON stores | 真实输出 / 截流摘要 / 工具调用 / token 与状态 |
+| Gemini 桌面版 | 进程守护 + CPU 活动度（无本地文本通道） | 启动 / 退出 / **工作中（按 CPU）** |
+| ChatGPT 桌面版 | 进程守护 + CPU 活动度（无本地文本通道） | 启动 / 退出 / **工作中（按 CPU）** |
+| Codex | `~/.codex/logs_2.sqlite` 轮询 | 工具调用 / 报错 / 推理（CLI 未用时自然静默） |
 
 ## 路线图
 
 - [ ] Claude Code 会话连接器（`~/.claude/projects/**/jsonl`，装上加即生效）
-- [ ] ChatGPT 桌面版 UI Automation 深度状态
+- [ ] 闭源端真实文本：GUI 端 Accessibility（AX）读屏方案（需授权辅助功能，作为可选增强）
+- [x] 闭源端真实活动度（CPU 采样，Gemini / ChatGPT 已接入）
 - [ ] 面板 HUD：当前任务、今日 token、事件速率、工具分布
 - [ ] 用量账本（读本地 cost 记录）
 - [x] 开机自启与崩溃自愈（launchd，`macos/install.sh`）

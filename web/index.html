@@ -8,7 +8,7 @@
   · 待机 —— tdSetStandby(true)：环带原地停止，环内/环外粒子特效消失，环上保留截流文本
   · 活动 —— tdSetStandby(false)：环带转动、粒子特效重现，强度随事件速率
   · 文本 —— 右侧视窗逐行显示开源 AI 的截流文本（标注来源），悬停环带时同步进「截流 · 真实对话记录」面板
-  · 鼠标 —— 悬停环带局部放大查看文字（桌面端由原生宿主转发全局鼠标）
+  · 点击 —— 原生宿主全局转发点击坐标，环带上激起冲击波（不接受悬停交互）
 -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #08090b; }
@@ -53,6 +53,7 @@
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
+const PAGE_BUILD = "ring-text-2026-11-10";   // 自检用：确认壁纸加载的是新页面
 const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
 
 const hud = document.getElementById("hud");
@@ -115,10 +116,7 @@ function fmtAgo(ms) {
 
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
-// 桌面壁纸点击穿透收不到鼠标：由原生宿主转发全局鼠标位置（预览页直接用原生 mousemove）
-window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
-addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
-// 桌面壁纸点击穿透，由原生宿主全局转发点击坐标 → 光环冲击波
+// 桌面壁纸点击穿透，由原生宿主全局转发点击坐标 → 光环冲击波（悬停不再与环带互动）
 window.__tdClick = (x, y) => haloMsg({ td: "click", x, y });
 addEventListener("mousedown", (e) => window.__tdClick(e.clientX, e.clientY));
 
@@ -195,11 +193,24 @@ setInterval(async () => {
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
+    // 自检字段：环带是否已拿到真实文本（跨窗口同源，可直读 iframe 状态）
+    let haloState = {};
+    try {
+      const w = halo.contentWindow;
+      haloState = {
+        haloText: (w.__tdText || []).length,
+        ringText: !!w.__tdRingText,
+        haloRaf: !!w.__tdRafOn,
+      };
+    } catch (err) { haloState = { haloError: String((err && err.message) || err) }; }
     fetch("/debug", {
       method: "POST",
       body: JSON.stringify({
+        client: "wall",
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3),
         haloOpacity: getComputedStyle(halo).opacity,
+        build: PAGE_BUILD,
+        ...haloState,
       }),
     }).catch(() => {});
   } catch {}

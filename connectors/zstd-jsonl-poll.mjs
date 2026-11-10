@@ -37,7 +37,7 @@ export class ZstdJsonlPollConnector extends Connector {
     maxBurst = 40,
     summarize,
   }) {
-    super(source);
+    super(source, "session");
     this.dir = dir;
     this.intervalMs = intervalMs;
     this.maxDepth = maxDepth;

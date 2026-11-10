@@ -14,7 +14,7 @@ export class ProcessWatchConnector extends Connector {
    * @param {number} [opts.intervalMs] 默认 3000
    */
   constructor({ source, processName, intervalMs = 3000 }) {
-    super(source);
+    super(source, "process");
     this.processName = processName;
     this.intervalMs = intervalMs;
     this._running = null; // null=未知

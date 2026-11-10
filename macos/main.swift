@@ -27,14 +27,14 @@ final class WallpaperView: NSView {
         let config = WKWebViewConfiguration()
         let wv = WKWebView(frame: bounds, configuration: config)
         wv.autoresizingMask = [.width, .height]
-        wv.load(URLRequest(url: URL(string: WALL_URL)!))
+        // 常驻壁纸页：强制绕过本地缓存，改完前端重启宿主即生效
+        let req = URLRequest(
+            url: URL(string: WALL_URL)!,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: 30)
+        wv.load(req)
         addSubview(wv)
         webView = wv
-    }
-
-    /// 壁纸窗口点击穿透收不到鼠标事件：由全局监听器换算成本视图坐标后转发给页面
-    func forwardMouse(x: CGFloat, y: CGFloat) {
-        webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 
     /// 全局点击转发：待机圆环的冲击波互动（点击穿透下唯一的点击来源）
@@ -80,24 +80,6 @@ let watcher = ScreenWatcher()
 NotificationCenter.default.addObserver(
     watcher, selector: #selector(ScreenWatcher.screensChanged(_:)),
     name: NSApplication.didChangeScreenParametersNotification, object: nil)
-
-// 全局鼠标转发：桌面壁纸点击穿透，页面靠此获得悬停位置做特写放大（30ms 节流）
-var lastMouseSend: TimeInterval = 0
-let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
-    matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { event in
-    let now = Date().timeIntervalSince1970
-    guard now - lastMouseSend > 0.03, let pt = event.cgEvent?.location else { return }
-    lastMouseSend = now
-    for win in windows {
-        let f = win.frame
-        let x = pt.x - f.origin.x
-        let y = f.height - (pt.y - f.origin.y) // NSView 左下原点 → 页面左上原点
-        if x >= 0, x <= f.width, y >= 0, y <= f.height {
-            (win.contentView as? WallpaperView)?.forwardMouse(x: x, y: y)
-        }
-    }
-}
-_ = mouseMonitor
 
 // 全局点击转发：待机圆环点击冲击波（壁纸窗口 ignoresMouseEvents，只能靠全局监听）
 let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { event in

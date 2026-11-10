@@ -1461,7 +1461,6 @@ frame = function frame(now) {
     if (ready && (!window.__tdStandbyDrawn || window.__tdStandbyDirty)) {
       window.__tdStandbyDrawn = true; window.__tdStandbyDirty = false;
       last = performance.now(); origFrame(last);   // dt=0：时间冻结，环带原地停转
-      if (window.__tdDrawHoverLens) window.__tdDrawHoverLens();
     }
     return;   // 关键：不再 requestAnimationFrame，等待外部事件唤醒
   }
@@ -1649,7 +1648,7 @@ function syncPanel() {
 /* Thinking Desktop bridge — 个人非商业二创
    原作: HALOFLUX by Ryder191 (RYDER CODE / Ms MAIKEBAIs CAT)
    Source: https://github.com/Ryder191/haloflux · PolyForm Noncommercial
-   客制化：去面板只留光环 / 静音 / 待机全停 / 思考文本截流上墙 / 鼠标特写 */
+   客制化：去面板只留光环 / 静音 / 待机全停 / 真实思考文本上环 / 全局点击冲击波 */
 (function () {
   'use strict';
 
@@ -1664,7 +1663,6 @@ function syncPanel() {
     window.__tdStandbyDirty = false;
     last = performance.now();
     origFrame(last);               // dt=0 → drawStage 内时间冻结
-    if (window.__tdDrawHoverLens) window.__tdDrawHoverLens();
   }
   window.__tdRenderStandby = tdRenderStandby;   // 供 resizeAll 等主脚本场景直接调用
 
@@ -1690,60 +1688,6 @@ function syncPanel() {
   // 待机帧周期性自检刷新（捕获窗口尺寸变化 / 新截流文本；rAF 挂起时也要能自刷）
   setInterval(() => { if (window.__tdStandby) { window.__tdStandbyDirty = true; tdRenderStandby(); } }, 3000);
 
-  /* ---------- 待机悬停镜头：鼠标挪到环带上 → 局部放大 + 展示截流对话 ---------- */
-  window.__tdHover = null;
-  window.__tdDrawHoverLens = function () {
-    const h = window.__tdHover;
-    if (!h || !window.__tdText.length) return;
-    const c0 = toScreen(cx, cy), z = cam.z;
-    const ri = R * z, ro = RO * z;
-    const mx = h.x - c0.x, my = h.y - c0.y;
-    const d = Math.hypot(mx, my) || 1;
-    const mid = (ri + ro) / 2, half = (ro - ri) / 2;
-    if (Math.abs(d - mid) > half + 12) return;   // 不在环带上，不响应
-
-    const a0 = Math.atan2(my, mx), halfA = 0.72, k = 1.55;   // 局部放大倍数
-    // 以悬停点为锚：放大带中心仍压在悬停点上，弧段从原环带位置向外膨胀，
-    // 而不是以环心等比缩放（环心贴屏幕左缘，等比缩放会让红弧整体飞出环带）
-    const rbo = d + half * k, rbi = Math.max(20, d - half * k);
-
-    S.save();
-    S.setTransform(DPR, 0, 0, DPR, 0, 0);
-    // 扇区压暗底盘（衬托镜头）
-    S.beginPath(); S.arc(c0.x, c0.y, rbo, a0 - halfA, a0 + halfA);
-    S.arc(c0.x, c0.y, rbi, a0 + halfA, a0 - halfA, true); S.closePath();
-    S.fillStyle = 'rgba(6,7,10,0.38)'; S.fill();
-    // 放大后的环带内外缘弧线 + 两侧辐条（落日红 #E4572E）
-    S.beginPath(); S.arc(c0.x, c0.y, rbo, a0 - halfA, a0 + halfA);
-    S.moveTo(c0.x + Math.cos(a0 - halfA) * rbi, c0.y + Math.sin(a0 - halfA) * rbi);
-    S.arc(c0.x, c0.y, rbi, a0 - halfA, a0 + halfA);
-    S.moveTo(c0.x + Math.cos(a0 + halfA) * rbi, c0.y + Math.sin(a0 + halfA) * rbi);
-    S.lineTo(c0.x + Math.cos(a0 + halfA) * rbo, c0.y + Math.sin(a0 + halfA) * rbo);
-    S.strokeStyle = 'rgba(228,87,46,0.28)'; S.lineWidth = 5; S.stroke();
-    S.strokeStyle = 'rgba(228,87,46,0.9)'; S.lineWidth = 1.5; S.stroke();
-
-    // 朝向环心的文本面板：真实截流对话记录
-    const lines = window.__tdText.slice(-6).reverse().map((s) => (s.length > 40 ? s.slice(0, 40) + '…' : s));
-    const pw = Math.min(340, Math.max(220, rbi * 1.1));
-    const ph = 30 + lines.length * 15 + 10;
-    let px = c0.x - (mx / d) * (ri * 0.38) - pw / 2;
-    let py = c0.y - (my / d) * (ri * 0.38) - ph / 2;
-    px = Math.max(8, Math.min(W - pw - 8, px));
-    py = Math.max(8, Math.min(H - ph - 8, py));
-    S.beginPath();
-    if (S.roundRect) S.roundRect(px, py, pw, ph, 8); else S.rect(px, py, pw, ph);
-    S.fillStyle = 'rgba(28,26,36,0.9)'; S.fill();
-    S.strokeStyle = 'rgba(242,239,234,0.18)'; S.lineWidth = 1; S.stroke();
-    S.fillStyle = '#E4572E'; S.font = '600 11px ui-monospace, monospace';
-    S.fillText('⟲ 截流 · 真实对话记录', px + 12, py + 18);
-    S.font = '10px ui-monospace, monospace';
-    lines.forEach((s, i) => {
-      S.fillStyle = i === 0 ? 'rgba(242,239,234,0.95)' : 'rgba(242,239,234,0.62)';
-      S.fillText(s, px + 12, py + 36 + i * 15);
-    });
-    S.restore();
-  };
-
   window.addEventListener('message', (ev) => {
     let m;
     try { m = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data; } catch (e) { return; }
@@ -1752,7 +1696,6 @@ function syncPanel() {
     if (m.td === 'standby') { tdSetStandby(!!m.value); return; }
     if (m.td === 'set') { try { setParam(m.key, m.value, true); } catch (e) {} return; }
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
-    if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
     if (m.td === 'click') { if (window.__tdClick) window.__tdClick(m.x, m.y); return; }
     if (m.td === 'text') { // 截流文本 → 悬停镜头面板（环上是否显示由 __tdRingText 决定）
       if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（iframe ready 重发）丢弃
@@ -1769,8 +1712,8 @@ function syncPanel() {
   /* ---------- 思考文本截流上墙（开源 AI；闭源 AI 无文本 → 预设动画） ---------- */
   window.__tdText = [];
   window.__tdTextDirty = false;
-  // 环上是否用截流文本替换预设动画：Thinking Desktop 关闭（文本只进悬停镜头面板）
-  window.__tdRingText = false;
+  // 环上数据块用真实截流文本填充（闭源 AI 没有文本时才退回预设动画）
+  window.__tdRingText = true;
   const _code = BLOCKS.code, _para = BLOCKS.para;
 
   function tdRows(c, x0, x1, y0, y1, t, font) {
@@ -1808,27 +1751,6 @@ function syncPanel() {
     }
     requestAnimationFrame(flushLoop);
   })();
-
-  /* ---------- 鼠标特写：常态全览，悬停区域推近放大 ---------- */
-  let hoverOn = false, hx = 0, hy = 0, hoverAt = 0;
-  window.__tdMouse = function (x, y) {
-    hoverOn = true; hx = x; hy = y; hoverAt = Date.now();
-    window.__tdHover = { x, y };
-    if (window.__tdStandby) tdRenderStandby();   // 待机态：挪到环带上 → 局部放大 + 截流面板
-  };
-  setInterval(() => { if (hoverOn && Date.now() - hoverAt > 200) hoverOn = false; }, 120);
-
-  const _updateCam = updateCam;
-  updateCam = function (dt) {
-    _updateCam(dt);
-    if (window.__wpPaused || !hoverOn) return;
-    cam.z += (2.0 - cam.z) * 0.08;
-    const hw = W / (2 * cam.z), hh = H / (2 * cam.z);
-    const tx = Math.max(hw, Math.min(W - hw, hx));
-    const ty = Math.max(hh, Math.min(H - hh, hy));
-    cam.x += (tx - cam.x) * 0.14;
-    cam.y += (ty - cam.y) * 0.14;
-  };
 
   /* ---------- 去面板：只留光环本体 ---------- */
   function haloOnly() {

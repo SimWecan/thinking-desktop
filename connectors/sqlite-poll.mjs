@@ -19,7 +19,7 @@ export class SqlitePollConnector extends Connector {
    * @param {number} [opts.maxBatch]    每轮最多上报条数，默认 20
    */
   constructor({ source, path, table, mapType, payload, intervalMs = 2000, maxBatch = 20 }) {
-    super(source);
+    super(source, "sqlite");
     this.path = path;
     this.table = table;
     this.mapType = mapType;

@@ -6,7 +6,8 @@
  * 本连接器尾随「最近活跃」的 wire.jsonl，把真实事件归一化为统一事件协议：
  *
  *   context.apply_compaction        → text（⟲ 截流摘要，即真实文本截流上墙）
- *   context.append_message          → text（用户 › / 助手输出）
+ *   agent.message.appended          → text（用户 › / 助手输出；Kimi 3.x 的真实落盘格式）
+ *   context.append_message          → text（旧版本格式，保留兼容）
  *   context.append_loop_event       → text（think/text 片段）/ tool_call / tool_result
  *
  * 与 dsh 的 zstd-jsonl 连接器同理：只读取本机已落盘内容，不触碰网络与凭证。
@@ -27,7 +28,7 @@ export class KimiWireConnector extends Connector {
    * @param {number} [opts.rescanMs] 新会话文件扫描间隔
    */
   constructor({ dir, source = "kimi-desktop", minTextIntervalMs = 1500, rescanMs = 20000 }) {
-    super(source);
+    super(source, "session");
     this.dir = dir;
     this.minTextIntervalMs = minTextIntervalMs;
     this.rescanMs = rescanMs;
@@ -44,6 +45,13 @@ export class KimiWireConnector extends Connector {
     this._scan();
     this._timer = setInterval(() => this._scan(), this.rescanMs);
     console.log(`[${this.source}] wire tailing ${this._file ?? "(waiting for session)"}`);
+  }
+
+  stop() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = null;
+    if (this._watcher) { try { this._watcher.close(); } catch { /* 已关闭 */ } }
+    this._watcher = null;
   }
 
   /** 找到最近修改的 wire.jsonl；变化时切换尾随对象 */
@@ -98,6 +106,16 @@ export class KimiWireConnector extends Connector {
         // 真实文本截流事件：压缩点摘要直接上墙
         const s = this._snippet(obj.summary ?? obj.note ?? "");
         if (s) this._emitText(`⟲ 截流 ⇄ ${s}`, true);
+        break;
+      }
+      case "agent.message.appended": {
+        // Kimi 3.x 实际落盘：message.message.role = user / assistant / tool
+        const msg = obj.message?.message;
+        const role = msg?.role;
+        if (role !== "user" && role !== "assistant") break; // tool 结果由 tool.result 事件覆盖
+        const text = this._contentText(msg?.content);
+        if (!text) break;
+        this._emitText(role === "user" ? `› ${text}` : text);
         break;
       }
       case "context.append_message": {

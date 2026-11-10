@@ -18,7 +18,7 @@ export class JsonStorePollConnector extends Connector {
    *   避免应用重写相同内容时误报活动）
    */
   constructor({ source, path, summarize, intervalMs = 2000, contentBased = false }) {
-    super(source);
+    super(source, "json");
     this.path = path;
     this.summarize = summarize;
     this.intervalMs = intervalMs;

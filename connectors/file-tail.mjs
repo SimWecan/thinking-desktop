@@ -14,7 +14,7 @@ export class FileTailConnector extends Connector {
    * @param {Array<{pattern: RegExp, type: string, payload?: (m: RegExpMatchArray) => object}>} opts.rules
    */
   constructor({ source, path, rules }) {
-    super(source);
+    super(source, "file");
     this.path = path;
     this.rules = rules;
     this._offset = 0;

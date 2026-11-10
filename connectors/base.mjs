@@ -16,9 +16,11 @@ export const EVENT_TYPES = [
 export class Connector {
   /**
    * @param {string} source 来源标识，如 "claude-code"
+   * @param {string} [kind] 数据通道类型：session/file/sqlite/json/process/activity
    */
-  constructor(source) {
+  constructor(source, kind = "unknown") {
     this.source = source;
+    this.kind = kind;
     /** @type {(e: object) => void} */
     this.onEvent = null;
   }
