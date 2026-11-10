@@ -156,7 +156,7 @@ function captureShot() {
 /** 正在工作的来源 → 光环按各自颜色点亮（25s 内有真实事件算在跑） */
 function sendSourceLights() {
   const list = (sources || [])
-    .filter((x) => x.agoMs < 25000 && x.lastType !== "status")   // 只是「开着」不算在跑
+    .filter((x) => x.agoMs < 12000 && x.lastType !== "status")   // 只是「开着」不算在跑；12s 没动静就淡出
     .map((x) => ({
       src: x.source,
       color: SOURCE_COLORS[x.source] || "#9aa4b2",
@@ -292,7 +292,7 @@ setInterval(async () => {
         client: "wall",
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
         textPushes,
-        lights: (sources || []).filter((x) => x.agoMs < 25000 && x.lastType !== "status").map((x) => x.source),
+        lights: (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status").map((x) => x.source),
         haloOpacity: getComputedStyle(halo).opacity,
         build: PAGE_BUILD,
         ...haloState,

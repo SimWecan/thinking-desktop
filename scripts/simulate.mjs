@@ -112,6 +112,26 @@ results.push(await phase("2-+codex", ["kimi-desktop", "codex"]));
 results.push(await phase("3-+gemini", ["kimi-desktop", "codex", "gemini-desktop"]));
 results.push(await phase("4-all", ["kimi-desktop", "codex", "gemini-desktop", "chatgpt-desktop"]));
 
+// 切换平滑度：采样 halo 里各来源的当前强度，看是不是「缓动」而不是硬跳
+async function sampleLights(seconds, tag) {
+  const rows = [];
+  const until = Date.now() + seconds * 1000;
+  while (Date.now() < until) {
+    const t = await telemetry();
+    const cur = t.haloGeom?.lights?.cur || [];
+    rows.push({ at: Date.now(), cur });
+    await sleep(400);
+  }
+  console.log(`\n[${tag}] 光源强度采样`);
+  for (const r of rows) {
+    console.log("  " + r.cur.map(([src, c, lane]) => `${src.slice(0, 6)}=${c}(lane ${lane})`).join("  "));
+  }
+  return rows;
+}
+
+console.log("\n=== 切换平滑度 ===");
+const trace = await sampleLights(Number(process.env.SIM_FADE_SECONDS || 8), "淡出采样");
+
 const bad = results.filter((r) => r.missing.length);
 console.log(`\n=== 结论 ===`);
 console.log(`阶段数 ${results.length}，耗时 ${Math.round((Date.now() - t0) / 1000)}s`);

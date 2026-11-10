@@ -1683,6 +1683,7 @@ function syncPanel() {
     window.__wpPaused = on;
     window.__tdStandbyDirty = true;
     if (on) {
+      if (window.__tdLightsReset) window.__tdLightsReset();
       // 清残留粒子缓冲：待机首帧就是干净的「停住的环带」
       try { trailC.x.setTransform(1, 0, 0, 1, 0, 0); trailC.x.clearRect(0, 0, trailC.width, trailC.height); } catch (e) {}
       try { comets.length = 0; } catch (e) {}
@@ -1942,51 +1943,90 @@ function syncPanel() {
       const n = parseInt(m[1], 16);
       return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
     };
-    let lights = [], raf = 0, lastMsg = 0, frames = 0, draws = 0, lastErr = '';
+    const ORDER = { 'kimi-desktop': 0, 'deepseek-harness': 1, codex: 2, 'gemini-desktop': 3, 'chatgpt-desktop': 4 };
+    const orderOf = (src) => (ORDER[src] ?? 9);
 
-    window.__tdLightState = () => ({ count: lights.length, srcs: lights.map((l) => l.src), frames, draws, lastErr, size: [cv.width, cv.height] });
-    window.__tdTintState = () => (window.__tdTintList || []).map((t) => t.src);
+    let lights = [], raf = 0, lastMsg = 0, frames = 0, draws = 0, lastErr = '';
+    let lastStepAt = 0;
+
+    window.__tdLightState = () => ({
+      count: lights.filter((l) => l.cur > 0.02).length,
+      srcs: lights.filter((l) => l.cur > 0.02).map((l) => l.src),
+      cur: lights.map((l) => [l.src, +l.cur.toFixed(2), +l.lane.toFixed(2)]),
+      frames, draws, lastErr, size: [cv.width, cv.height],
+    });
+    window.__tdLightsNow = () => lights.filter((l) => l.cur > 0.01).map((l) => ({ rgb: l.rgb, cur: l.cur }));
+    // 进入待机：rAF 会停，光效层必须清空，不然半透明的光斑会冻在冻结帧上
+    window.__tdLightsReset = function () {
+      lights = [];
+      if (raf) { try { cancelAnimationFrame(raf); } catch (e) {} raf = 0; }
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, cv.width, cv.height);
+      lastStepAt = 0;
+    };
+
+    // 新来源从 0 淡入；消失的来源留在数组里淡出，cur 归零才移除
     window.__tdSources = function (list) {
       lastMsg = Date.now();
-      const prev = new Map(lights.map((l) => [l.src, l]));
-      const ORDER = { 'kimi-desktop': 0, 'deepseek-harness': 1, codex: 2, 'gemini-desktop': 3, 'chatgpt-desktop': 4 };
-      const arr = (Array.isArray(list) ? list : []).slice()
-        .sort((a, b) => (ORDER[a.src] ?? 9) - (ORDER[b.src] ?? 9));
-      lights = arr.map((x) => {
-        const old = prev.get(x.src);
-        return {
-          src: x.src,
-          rgb: toRgb(x.color),
-          intensity: Math.max(0, Math.min(1, Number(x.intensity) || 0)),
-          dots: old?.dots || Array.from({ length: 36 }, () => ({
-            a: Math.random() * TAU,
-            r: Math.random(),
-            s: (Math.random() - 0.5) * 0.5,
-            ph: Math.random() * TAU,
-            sz: 0.9 + Math.random() * 1.8,
-          })),
-        };
-      });
-      window.__tdTintList = lights.map((l) => ({ src: l.src, rgb: l.rgb, intensity: l.intensity }));
+      const arr = (Array.isArray(list) ? list : []).slice().sort((a, b) => orderOf(a.src) - orderOf(b.src));
+      const seen = new Set(arr.map((x) => x.src));
+      for (const L of lights) if (!seen.has(L.src)) L.target = 0;
+      for (const x of arr) {
+        let L = lights.find((l) => l.src === x.src);
+        if (!L) {
+          L = {
+            src: x.src, rgb: toRgb(x.color), cur: 0, target: 0,
+            lane: 0.5, laneTarget: 0.5,
+            dots: Array.from({ length: 36 }, () => ({
+              a: Math.random() * TAU,
+              r: Math.random(),
+              s: (Math.random() - 0.5) * 0.5,
+              ph: Math.random() * TAU,
+              sz: 0.9 + Math.random() * 1.8,
+            })),
+          };
+          lights.push(L);
+        }
+        L.rgb = toRgb(x.color);
+        L.target = Math.max(0.05, Math.min(1, Number(x.intensity) || 0.5));
+      }
+      // 通道位置随「在场数」平滑重排（1 个居中，2 个 1/3、2/3…）
+      const active = lights.filter((l) => l.target > 0).sort((a, b) => orderOf(a.src) - orderOf(b.src));
+      active.forEach((L, i) => { L.laneTarget = (i + 0.5) / active.length; });
       if (!raf) raf = requestAnimationFrame(step);
     };
 
     function step(now) {
       raf = 0;
       frames++;
+      const dt = Math.min(0.05, lastStepAt ? (now - lastStepAt) / 1000 : 0.016);
+      lastStepAt = now;
+      if (Date.now() - lastMsg > 3000) for (const L of lights) L.target = 0;
+
+      // 指数平滑：亮度淡入淡出、通道位置滑动，切换时不硬跳
+      const kl = Math.min(1, dt * 2.6);
+      for (const L of lights) {
+        const rising = L.target > L.cur;
+        const k = Math.min(1, dt * (rising ? 5 : 1.8));   // 亮起快、暗下去慢
+        L.cur += (L.target - L.cur) * k;
+        L.lane += (L.laneTarget - L.lane) * kl;
+      }
+      lights = lights.filter((L) => L.target > 0 || L.cur > 0.02);
+
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, cv.width, cv.height);
-      const list = Date.now() - lastMsg > 2500 ? [] : lights;   // 页面停止推送 → 光效收掉
-      if (!list.length) return;
+      if (!lights.length) { lastStepAt = 0; return; }
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.globalCompositeOperation = 'lighter';
+
       const c0 = toScreen(cx, cy);
-      const z = cam.z, band = (RO - R) * z, n = list.length;
-      list.forEach((L, i) => {
-        const frac = n === 1 ? 0.5 : (i + 0.5) / n;                        // 多厂商并行 → 各占一条环带通道
-        const rad = (R + (RO - R) * frac) * z;
-        const w = Math.max(10, band * (n === 1 ? 0.55 : 0.52 / n));   // 多条时收窄，避免相邻通道糊成一片
-        const a = L.intensity * (0.55 + 0.45 * Math.sin(now / 1100 + i * 1.7));
+      const z = cam.z, band = (RO - R) * z, n = lights.length;
+      for (let i = 0; i < n; i++) {
+        const L = lights[i];
+        if (L.cur < 0.01) continue;
+        const rad = (R + (RO - R) * L.lane) * z;
+        const w = Math.max(10, band * (n === 1 ? 0.55 : 0.52 / n));
+        const a = L.cur * (0.55 + 0.45 * Math.sin(now / 1100 + i * 1.7));
         const [r, gg, b] = L.rgb;
         const grd = g.createRadialGradient(c0.x, c0.y, Math.max(1, rad - w), c0.x, c0.y, rad + w);
         grd.addColorStop(0, `rgba(${r},${gg},${b},0)`);
@@ -1998,7 +2038,6 @@ function syncPanel() {
         g.arc(c0.x, c0.y, rad + w, 0, TAU);
         g.arc(c0.x, c0.y, Math.max(1, rad - w), 0, TAU, true);
         g.fill('evenodd');
-        // 通道中心一条细亮线，让每条来源的颜色有明确边界
         g.beginPath();
         g.arc(c0.x, c0.y, rad, 0, TAU);
         g.strokeStyle = `rgba(${r},${gg},${b},${(0.85 * a).toFixed(3)})`;
@@ -2006,51 +2045,55 @@ function syncPanel() {
         g.stroke();
         draws++;
 
-        // 环带内外的彩色粒子
         for (const d of L.dots) {
-          d.a += d.s * 0.016;
-          const rr = rad + (d.r - 0.5) * band * 1.35;   // 环带内外都有
+          d.a += d.s * dt;
+          const rr = rad + (d.r - 0.5) * band * 1.35;
           const x = c0.x + Math.cos(d.a) * rr, y = c0.y + Math.sin(d.a) * rr;
-          const al = a * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 420 + d.ph)));
+          const al = L.cur * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 420 + d.ph)));
           g.fillStyle = `rgba(${r},${gg},${b},${(1 * al).toFixed(3)})`;
           g.beginPath(); g.arc(x, y, d.sz, 0, TAU); g.fill();
           g.fillStyle = `rgba(${r},${gg},${b},${(0.34 * al).toFixed(3)})`;
           g.beginPath(); g.arc(x, y, d.sz * 4.5, 0, TAU); g.fill();
         }
-      });
+      }
       raf = requestAnimationFrame(step);
     }
-    try { window.__tdStepProbe = 1; } catch (e) { lastErr = String(e); }
   })();
 
-  /* ---------- 厂商配色：把整个舞台按「谁在跑」染色（粒子/光束/环带一起） ---------- */
-  // 用 canvas 的 color 混合模式：只改变色相/饱和度，保留亮度——白粒子会变成该厂商的色，
-  // 背景依旧是黑。多厂商并行时按强度加权混色，环带另有各自的分道辉光。
+  /* ---------- 厂商配色：整帧按主色染色（粒子/光束/环带一起），颜色平滑过渡 ---------- */
   const _drawStage = drawStage;
+  window.__tdTint = { r: 255, g: 255, b: 255, a: 0 };
   drawStage = function (dt) {
     _drawStage(dt);
     let tints = [];
-    try { tints = (window.__tdTintList || []); } catch (e) { tints = []; }
-    if (!tints.length) return;
-    // 取「强度 × 饱和度」最高的厂商当主色：多厂商堆一起时不会混成一团灰，
-    // 其它厂商的颜色由环带上的分道辉光负责展示。
-    let best = tints[0], bestScore = -1;
-    for (const t of tints) {
-      const mx = Math.max(1, ...t.rgb), mn = Math.min(...t.rgb);
-      const sat = (mx - mn) / mx;
-      const score = Math.max(0.05, t.intensity ?? 0.5) * (1 + sat * 2.5);
-      if (score > bestScore) { bestScore = score; best = t; }
+    try { tints = window.__tdLightsNow ? window.__tdLightsNow() : []; } catch (e) { tints = []; }
+    const cur = window.__tdTint;
+    let tr = cur.r, tg = cur.g, tb = cur.b, ta = 0;
+    if (tints.length) {
+      // 主色：强度 × 饱和度最高者（白色不抢镜），多厂商时不会混成一团灰
+      let best = tints[0], bestScore = -1;
+      for (const t of tints) {
+        const mx = Math.max(1, ...t.rgb), mn = Math.min(...t.rgb);
+        const score = Math.max(0.05, t.cur) * (1 + ((mx - mn) / mx) * 2.5);
+        if (score > bestScore) { bestScore = score; best = t; }
+      }
+      tr = best.rgb[0]; tg = best.rgb[1]; tb = best.rgb[2];
+      ta = Math.min(0.9, 0.6 + 0.3 * Math.min(1, best.cur));
     }
-    const [r, g, b] = best.rgb;
-    const alpha = Math.min(0.9, 0.6 + 0.3 * Math.min(1, best.intensity ?? 0.5));
+    const k = 0.06;   // 每帧向目标靠拢 → 约 0.5s 换完一次色
+    cur.r += (tr - cur.r) * k;
+    cur.g += (tg - cur.g) * k;
+    cur.b += (tb - cur.b) * k;
+    cur.a += (ta - cur.a) * k;
+    if (cur.a < 0.01) return;
+    const r = Math.round(cur.r), gg = Math.round(cur.g), b = Math.round(cur.b);
     S.save();
     S.setTransform(DPR, 0, 0, DPR, 0, 0);
     if ('color' === (S.globalCompositeOperation = 'color')) {
-      S.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+      S.fillStyle = `rgba(${r},${gg},${b},${cur.a.toFixed(2)})`;
     } else {
-      // 旧 WebKit 不支持 color 混合时退化为 multiply，至少不会盖住画面
       S.globalCompositeOperation = 'multiply';
-      S.fillStyle = `rgba(${r},${g},${b},0.55)`;
+      S.fillStyle = `rgba(${r},${gg},${b},0.55)`;
     }
     S.fillRect(0, 0, W, H);
     S.restore();
