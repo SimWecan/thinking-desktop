@@ -13,7 +13,7 @@
  */
 
 import { readdirSync, statSync, existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { Connector } from "./base.mjs";
 
@@ -48,6 +48,7 @@ export class ZstdJsonlPollConnector extends Connector {
     /** @type {Map<string, {seen: number, size: number, mtimeMs: number}>} */
     this._states = new Map();
     this._timer = null;
+    this._busy = false;
   }
 
   start() {
@@ -55,7 +56,7 @@ export class ZstdJsonlPollConnector extends Connector {
       console.warn(`[${this.source}] dir not found: ${this.dir}`);
       return;
     }
-    this._poll(); // 首次轮询只登记偏移量，不回放历史
+    this._poll(); // 首次轮询只登记偏移量，不回放历史（解码是流式的，见 _decodeTail）
     this._timer = setInterval(() => this._poll(), this.intervalMs);
     this._timer.unref?.();
     console.log(`[${this.source}] watching ${this.dir} (depth≤${this.maxDepth})`);
@@ -88,59 +89,92 @@ export class ZstdJsonlPollConnector extends Connector {
     return out.sort((a, b) => a.mtimeMs - b.mtimeMs);
   }
 
-  _decode(path) {
-    const { status, stdout, error, stderr } = spawnSyncZstd(path);
-    if (status !== 0) {
-      if (!this._warned) {
-        this._warned = true;
-        const why = error?.message || String(stderr ?? "").trim() || `exit ${status}`;
-        console.warn(`[${this.source}] zstd 解码失败（${why}），检查 zstd 是否已安装`);
+  /**
+   * 流式解码，只保留最后 keepLines 行 + 总行数。
+   * 会话文件会持续增长（DSH 单会话已到 10MB+），整段 spawnSync 每次轮询都要分配
+   * 十几 MB 字符串，常驻内存会冲到 300MB；这里改成边读边丢，内存只跟 keepLines 有关。
+   */
+  _decodeTail(path, keepLines) {
+    return new Promise((resolve) => {
+      let proc;
+      try { proc = spawn("zstd", ["-q", "-d", "-c", path]); } catch (e) {
+        resolve({ lines: [], total: 0, error: e });
+        return;
       }
-      return [];
-    }
-    return stdoutLines(stdout);
+      const tail = [];
+      let total = 0, buf = "", failed = false, stderr = "";
+      proc.stdout.setEncoding("utf8");
+      proc.stdout.on("data", (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, idx);
+          buf = buf.slice(idx + 1);
+          total++;
+          tail.push(line);
+          if (tail.length > keepLines) tail.shift();
+        }
+      });
+      proc.stderr.setEncoding("utf8");
+      proc.stderr.on("data", (d) => { stderr += d; });
+      proc.on("error", (e) => { failed = true; resolve({ lines: [], total: 0, error: e }); });
+      proc.on("close", (code) => {
+        if (failed) return;
+        if (buf.trim()) {
+          total++;
+          tail.push(buf);
+          if (tail.length > keepLines) tail.shift();
+        }
+        resolve({ lines: tail, total, error: code === 0 ? null : new Error(stderr.trim() || `exit ${code}`) });
+      });
+    });
   }
 
-  _poll() {
-    const files = this._scan();
-    const alive = new Set(files.map((f) => f.path));
-    for (const p of this._states.keys()) if (!alive.has(p)) this._states.delete(p);
+  async _poll() {
+    if (this._busy) return;   // 解码未完成就跳过这一轮，避免堆积
+    this._busy = true;
+    try {
+      const files = this._scan();
+      const alive = new Set(files.map((f) => f.path));
+      for (const p of this._states.keys()) if (!alive.has(p)) this._states.delete(p);
 
-    for (const f of files) {
-      const st = this._states.get(f.path);
-      if (!st) {
-        // 首次见到：只登记，跳过历史内容（含服务重启前已存在的会话）
-        this._states.set(f.path, { seen: this._decode(f.path).length, size: f.size, mtimeMs: f.mtimeMs });
-        continue;
+      for (const f of files) {
+        const st = this._states.get(f.path);
+        if (st && st.size === f.size && st.mtimeMs === f.mtimeMs) continue; // 未变化，免解码
+
+        const { lines, total, error } = await this._decodeTail(f.path, this.maxBurst * 4);
+        if (error) {
+          if (!this._warned) {
+            this._warned = true;
+            console.warn(`[${this.source}] zstd 解码失败（${error.message}），检查 zstd 是否已安装`);
+          }
+          continue;
+        }
+        if (!st) {
+          // 首次见到：只登记偏移量，跳过历史内容（含服务重启前已存在的会话）
+          this._states.set(f.path, { seen: total, size: f.size, mtimeMs: f.mtimeMs });
+          continue;
+        }
+        st.size = f.size;
+        st.mtimeMs = f.mtimeMs;
+        if (total < st.seen) { st.seen = total; continue; }          // 文件被重写/回滚
+        const skip = Math.max(0, st.seen - (total - lines.length));   // 尾巴里的偏移
+        const fresh = lines.slice(skip);
+        st.seen = total;
+        for (const line of fresh.slice(-this.maxBurst)) {
+          let obj = null;
+          try { obj = JSON.parse(line); } catch { /* 半行/坏行 */ }
+          let summary = null;
+          try { summary = this.summarize(obj, line); } catch { summary = null; }
+          if (Array.isArray(summary)) { for (const s of summary) if (s) this.emit(s); }
+          else if (summary) this.emit(summary);
+        }
       }
-      if (st.size === f.size && st.mtimeMs === f.mtimeMs) continue; // 未变化，免解码
-      const lines = this._decode(f.path);
-      st.size = f.size;
-      st.mtimeMs = f.mtimeMs;
-      if (lines.length < st.seen) { st.seen = lines.length; continue; } // 文件被重写/回滚
-      const fresh = lines.slice(st.seen);
-      st.seen = lines.length;
-      for (const line of fresh.slice(-this.maxBurst)) {
-        let obj = null;
-        try { obj = JSON.parse(line); } catch { /* 半行/坏行 */ }
-        let summary = null;
-        try { summary = this.summarize(obj, line); } catch { summary = null; }
-        if (Array.isArray(summary)) { for (const s of summary) if (s) this.emit(s); }
-        else if (summary) this.emit(summary);
-      }
+    } finally {
+      this._busy = false;
     }
   }
 }
-
-function spawnSyncZstd(path) {
-  // 限制单次解码体积，避免超大会话把内存打满；encoding 必须给，否则拿到 Buffer 无法按行切分
-  return spawnSync("zstd", ["-q", "-d", "-c", path], {
-    maxBuffer: 64 * 1024 * 1024,
-    encoding: "utf8",
-  });
-}
-
-const stdoutLines = (s) => String(s ?? "").split("\n").filter(Boolean);
 
 /** 默认行摘要：按文本特征推断事件类型 */
 export function defaultSummarize(obj, raw) {
