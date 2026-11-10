@@ -38,6 +38,7 @@ type ThinkingEvent = {
 | `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`agentSeries`（每个来源各自的 60s 序列）、`tools`（工具分布 Top8）、`tokens`（按来源的上下文计量：model/used/window/pct）、`totalEvents`、`agents`/`view`（绑定与形态） |
 | `GET /snapshot?panel=1` | 把右侧看板（DOM + 内嵌图表）经 SVG foreignObject 渲染成 PNG，用于无录屏权限时验证 |
 | `GET /icon/<source>.png` | 从本机 .app 提取的厂商官方图标（`@2x` 变体按需生成 512px）；`server/icons.mjs` 负责 ICNS→PNG 与缓存，`config/icons.json` 可手动覆盖 |
+| `POST /texts` | 用数组原子替换思考文本缓冲（回填/清理用），同时落盘 `data/texts.json` |
 | `GET /texts?limit=N` | 最近的思考文本，页面启动时回填环带与视窗 |
 | `GET /snapshot?request=1` / `GET /snapshot` | 请求并取回壁纸画布快照（`?slot=1` 单个环槽、`?lights=1` 光效层），无录屏权限时用于验证真实画面 |
 

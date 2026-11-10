@@ -442,6 +442,36 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 回填/清理思考文本：POST 一个数组直接替换服务端缓冲（原子，避免和正在写入的事件抢文件）
+  if (url.pathname === "/texts" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      try {
+        const arr = JSON.parse(body);
+        if (!Array.isArray(arr)) throw new Error("not an array");
+        textBacklog = arr
+          .filter((e) => e && e.source && typeof e.text === "string")
+          .map((e) => ({
+            source: String(e.source).slice(0, 40),
+            ts: Number(e.ts) || Date.now(),
+            text: String(e.text).slice(0, 6000),
+            kind: e.kind ? String(e.kind) : undefined,
+          }))
+          .sort((a, b) => a.ts - b.ts)
+          .slice(-40);
+        try {
+          mkdirSync(dirname(TEXT_FILE), { recursive: true });
+          writeFileSync(TEXT_FILE, JSON.stringify(textBacklog));
+        } catch { /* 落盘失败不影响内存 */ }
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, count: textBacklog.length }));
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "text/plain" }).end("bad request");
+      }
+    });
+    return;
+  }
+
   // 最近的思考文本：页面一启动就能把环带/视窗填满，不用等下一次事件
   if (url.pathname === "/texts") {
     const limit = Math.max(1, Math.min(40, Number(url.searchParams.get("limit")) || 12));

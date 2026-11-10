@@ -9,7 +9,8 @@
     "test": "node --test test/*.test.mjs",
     "links": "node scripts/links.mjs",
     "simulate": "node scripts/simulate.mjs",
-    "simulate:transition": "node scripts/simulate-transition.mjs"
+    "simulate:transition": "node scripts/simulate-transition.mjs",
+    "backfill": "node scripts/backfill-today.mjs"
   },
   "engines": {
     "node": ">=20"

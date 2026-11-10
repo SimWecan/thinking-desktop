@@ -140,4 +140,6 @@ console.log(`\n=== 结论 ===`);
 console.log(`阶段数 ${results.length}，耗时 ${Math.round((Date.now() - t0) / 1000)}s`);
 console.log(bad.length ? `有 ${bad.length} 个阶段未点亮预期来源` : `所有预期来源都已同时点亮`);
 console.log(`快照目录: ${OUT}`);
+console.log(`提示：模拟事件只写入本次运行的内存统计与 data/texts.json；`);
+console.log(`      清理用 \`npm run backfill\`（回填今日真实会话）并重启服务。`);
 process.exit(bad.length ? 1 : 0);
