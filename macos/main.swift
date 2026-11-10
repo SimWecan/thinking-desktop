@@ -91,7 +91,7 @@ let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
     for win in windows {
         let f = win.frame
         let x = pt.x - f.origin.x
-        let y = pt.y - f.origin.y // 屏幕与 NSView 均为左下角原点
+        let y = f.height - (pt.y - f.origin.y) // NSView 左下原点 → 页面左上原点
         if x >= 0, x <= f.width, y >= 0, y <= f.height {
             (win.contentView as? WallpaperView)?.forwardMouse(x: x, y: y)
         }
@@ -105,7 +105,7 @@ let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown])
     for win in windows {
         let f = win.frame
         let x = pt.x - f.origin.x
-        let y = pt.y - f.origin.y
+        let y = f.height - (pt.y - f.origin.y) // 同上：翻成页面坐标
         if x >= 0, x <= f.width, y >= 0, y <= f.height {
             (win.contentView as? WallpaperView)?.forwardClick(x: x, y: y)
         }

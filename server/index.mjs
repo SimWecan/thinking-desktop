@@ -7,6 +7,7 @@
 
 import { createServer } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join, dirname, normalize, extname, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,8 @@ import { FileTailConnector } from "../connectors/file-tail.mjs";
 import { SqlitePollConnector } from "../connectors/sqlite-poll.mjs";
 import { JsonStorePollConnector } from "../connectors/json-store-poll.mjs";
 import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
-import { ZstdJsonlPollConnector, defaultSummarize as defaultZstdEvent } from "../connectors/zstd-jsonl-poll.mjs";
+import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
+import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
@@ -23,6 +25,11 @@ const RATE_WINDOW_MS = 10_000;
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
+
+// zstd 只在 DSH 会话截流用得到；提前探测，缺了就在启动日志里明确告警
+const zstdAvailable = (() => {
+  try { return spawnSync("zstd", ["--version"], { encoding: "utf8" }).status === 0; } catch { return false; }
+})();
 
 // ---------------------------------------------------------------------------
 // 事件汇聚
@@ -33,12 +40,19 @@ const MAX_EVENTS = 500;
 let clientDebug = {};
 let lastEventAt = 0;
 const clients = new Set();
+/** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
+const sourceStats = new Map();
 
 function pushEvent(event) {
   console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
   lastEventAt = event.ts;
+  const st = sourceStats.get(event.source) ?? { events: 0, lastEventAt: 0, lastType: "" };
+  st.events += 1;
+  st.lastEventAt = event.ts;
+  st.lastType = event.type;
+  sourceStats.set(event.source, st);
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) {
     try { res.write(payload); } catch { clients.delete(res); }
@@ -60,6 +74,13 @@ function state() {
     rate: Math.round(rate * 100) / 100,
     byType,
     bySource,
+    // 每个来源最后一次真实事件：用于确认某个 connector 是真的接到数据，而不是只注册成功
+    sources: [...sourceStats.entries()].map(([source, s]) => ({
+      source,
+      events: s.events,
+      lastType: s.lastType,
+      agoMs: now - s.lastEventAt,
+    })),
     recent: events.slice(-20),
   };
 }
@@ -157,32 +178,15 @@ const has = (p) => existsSync(p);
 {
   const dir = join(HOME, ".dsh", "sessions");
   if (has(dir)) {
+    if (!zstdAvailable) {
+      // 没装 zstd 时轮询会永远拿不到内容，要吵出来而不是静默空转
+      console.warn("[deepseek-harness] 未找到 zstd 命令，DSH 会话截流不可用（brew install zstd）");
+    }
     connectors.push(new ZstdJsonlPollConnector({
       source: "deepseek-harness",
       dir,
       // 开源 AI：截流会话文本上墙展示（闭源 AI 无此通道，光环显示预设动画）
-      summarize: (obj, raw) => {
-        const snippets = [];
-        const dig = (v, depth) => {
-          if (snippets.length >= 2 || depth > 5 || v == null) return;
-          if (typeof v === "string" && v.trim().length >= 12 && !/^[{[]/.test(v.trim())) {
-            snippets.push(v.replace(/\s+/g, " ").trim().slice(0, 90));
-            return;
-          }
-          if (Array.isArray(v)) { for (const it of v.slice(0, 4)) dig(it, depth + 1); return; }
-          if (typeof v === "object") {
-            for (const k of ["content", "text", "thinking", "message", "delta", "output"]) {
-              if (v[k] !== undefined) dig(v[k], depth + 1);
-            }
-          }
-        };
-        if (obj) dig(obj, 0);
-        else if (raw.length >= 12) snippets.push(raw.replace(/\s+/g, " ").slice(0, 90));
-        if (snippets.length) {
-          return { type: "text", payload: { text: snippets.join(" · ") } };
-        }
-        return defaultZstdEvent(obj, raw);
-      },
+      summarize: summarizeDshLine,
     }));
   }
   connectors.push(new ProcessWatchConnector({
@@ -260,6 +264,19 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 自检：connector 是否真的接到数据（每个来源最后一次真实事件的时间）
+  if (url.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({
+      ok: true,
+      uptimeMs: Math.round(process.uptime() * 1000),
+      zstd: zstdAvailable,
+      connectors: [...new Set(connectors.map((c) => c.source))],
+      sources: state().sources,
+    }));
+    return;
+  }
+
   // 壁纸与预览：同一页面；?debug=1 显示状态面板
   if (url.pathname === "/" || url.pathname === "/wall") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -293,6 +310,7 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`Thinking Desktop → http://127.0.0.1:${PORT}`);
   console.log(`  /       预览（加 ?debug=1 显示状态面板）`);
   console.log(`  /wall   壁纸地址（Lively / Wallpaper Engine 使用）`);
-  console.log(`  /stream SSE 事件流 · /state JSON 状态`);
+  console.log(`  /stream SSE 事件流 · /state JSON 状态 · /health 自检`);
   console.log(`已注册 connector: ${connectors.map((c) => c.source).join(", ") || "（无）"}`);
+  console.log(`zstd: ${zstdAvailable ? "ok" : "缺失（DSH 会话截流不可用）"}`);
 });

@@ -1,11 +1,12 @@
 {
   "name": "thinking-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "把本机所有大模型桌面端软件的思考过程具像化为实时桌面壁纸",
   "type": "module",
   "main": "server/index.mjs",
   "scripts": {
-    "start": "node server/index.mjs"
+    "start": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20"

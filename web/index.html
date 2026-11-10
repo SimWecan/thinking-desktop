@@ -7,7 +7,7 @@
   单一运行界面（HALOFLUX 光环，web/haloflux/）：
   · 待机 —— tdSetStandby(true)：环带原地停止，环内/环外粒子特效消失，环上保留截流文本
   · 活动 —— tdSetStandby(false)：环带转动、粒子特效重现，强度随事件速率
-  · 环上文本 —— 开源 AI 截流真实思考文本；闭源 AI 预设动画
+  · 文本 —— 右侧视窗逐行显示开源 AI 的截流文本（标注来源），悬停环带时同步进「截流 · 真实对话记录」面板
   · 鼠标 —— 悬停环带局部放大查看文字（桌面端由原生宿主转发全局鼠标）
 -->
 <style>
@@ -40,6 +40,10 @@
   }
   #textpane .tp-line { white-space: pre-wrap; word-break: break-all; }
   #textpane .tp-line.dim { color: rgba(255,255,255,.45); }
+  #textpane .tp-src {
+    display: inline-block; min-width: 34px; margin-right: 6px;
+    font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,.5);
+  }
 </style>
 </head>
 <body>
@@ -55,15 +59,28 @@ const hud = document.getElementById("hud");
 const halo = document.getElementById("halo");
 
 // ---------------- 状态 ----------------
-let energy = 0, rate = 0, byType = {}, bySource = {};
+let energy = 0, rate = 0, byType = {}, bySource = {}, sources = [];
 const textpane = document.getElementById("textpane");
 const textLines = [];
-let lastTextAt = 0;
+let lastTextAt = 0, textSeq = 0;
 
-function pushText(text) {
+// 多来源同屏时，标出这条截流文本是哪个 AI 的
+const SRC_LABEL = {
+  "deepseek-harness": "DSH",
+  "kimi-desktop": "Kimi",
+  "codex": "Codex",
+  "gemini-desktop": "Gemini",
+  "chatgpt-desktop": "GPT",
+  tail: "LOG",
+};
+
+function pushText(text, source) {
   const s = String(text || "").replace(/\s+/g, " ").trim();
   if (s.length < 2) return;
-  textLines.push(s.slice(0, 160));
+  const item = { src: SRC_LABEL[source] ?? (source || ""), text: s.slice(0, 160), id: ++textSeq };
+  textLines.push(item);
+  // 同时喂给悬停环带时的「截流 · 真实对话记录」面板（带序号，重复投递会被丢弃）
+  haloMsg({ td: "text", id: item.id, text: s.slice(0, 120) });
   if (textLines.length > 40) textLines.shift();
   lastTextAt = Date.now();
   // 重绘：旧行压暗，末行高亮
@@ -72,7 +89,13 @@ function pushText(text) {
   textLines.slice(-14).forEach((line, i, arr) => {
     const div = document.createElement("div");
     div.className = "tp-line" + (i < arr.length - 2 ? " dim" : "");
-    div.textContent = line;
+    if (line.src) {
+      const tag = document.createElement("span");
+      tag.className = "tp-src";
+      tag.textContent = line.src;
+      div.appendChild(tag);
+    }
+    div.appendChild(document.createTextNode(line.text));
     frag.appendChild(div);
   });
   textpane.appendChild(frag);
@@ -82,11 +105,22 @@ let busyUntil = 0;       // status running>0 的短暂宽限
 let standby = null;      // 当前待机位（null=未初始化）
 let lastParamPush = 0, stateTimer = 0;
 
+function fmtAgo(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  if (ms < 1000) return "刚刚";
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
+
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
 // 桌面壁纸点击穿透收不到鼠标：由原生宿主转发全局鼠标位置（预览页直接用原生 mousemove）
 window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
 addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
+// 桌面壁纸点击穿透，由原生宿主全局转发点击坐标 → 光环冲击波
+window.__tdClick = (x, y) => haloMsg({ td: "click", x, y });
+addEventListener("mousedown", (e) => window.__tdClick(e.clientX, e.clientY));
 
 /** 待机 ⇄ 活动：同一张光环界面，环带停/转、粒子隐/现 */
 function setStandby(on) {
@@ -109,6 +143,10 @@ function pushParams() {
 }
 
 // iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
+function resendText() {
+  textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: line.id, text: line.text }));
+}
+
 halo.addEventListener("load", () => {
   standby = null;
   setStandby(currentStandby());
@@ -119,6 +157,7 @@ window.addEventListener("message", (ev) => {
     standby = null;
     setStandby(currentStandby());
     pushParams();
+    resendText();
   }
 });
 
@@ -132,7 +171,7 @@ const es = new EventSource("/stream");
 es.onmessage = (ev) => {
   const e = JSON.parse(ev.data);
   if (e.type === "hello") {
-    rate = e.state.rate; byType = e.state.byType; bySource = e.state.bySource;
+    rate = e.state.rate; byType = e.state.byType; bySource = e.state.bySource; sources = e.state.sources || [];
     workAt = e.state.lastEventAt;
     return;
   }
@@ -141,7 +180,7 @@ es.onmessage = (ev) => {
     return;
   }
   workAt = e.ts;
-  if (e.type === "text") { pushText(e.payload.text); energy = Math.min(energy + 0.12, 1.6); return; }
+  if (e.type === "text") { pushText(e.payload.text, e.source); energy = Math.min(energy + 0.12, 1.6); return; }
   if (e.type === "tool_call") energy = Math.min(energy + 0.3, 1.6);
   else energy = Math.min(energy + 0.14, 1.6);
 };
@@ -155,7 +194,7 @@ setInterval(async () => {
   energy *= 0.995;
   try {
     const s = await (await fetch("/state")).json();
-    rate = s.rate; byType = s.byType; bySource = s.bySource;
+    rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
     fetch("/debug", {
       method: "POST",
       body: JSON.stringify({
@@ -173,6 +212,7 @@ setInterval(async () => {
         `<b>Thinking Desktop</b> · ${idle ? "待机 · 圆环停止" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
         `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
+        `<br>最近事件: ${sources.map((x) => `${x.source} ${fmtAgo(x.agoMs)}`).join(" · ") || "—"}` +
         `<br><span style="opacity:.7">悬停圆带 → 局部放大查看截流文本</span>`;
     }
   }

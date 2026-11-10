@@ -1753,7 +1753,10 @@ function syncPanel() {
     if (m.td === 'set') { try { setParam(m.key, m.value, true); } catch (e) {} return; }
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
     if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
-    if (m.td === 'text') { // 截流文本 → 环上数据块
+    if (m.td === 'click') { if (window.__tdClick) window.__tdClick(m.x, m.y); return; }
+    if (m.td === 'text') { // 截流文本 → 悬停镜头面板（环上是否显示由 __tdRingText 决定）
+      if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（iframe ready 重发）丢弃
+      if (m.id) window.__tdTextId = m.id;
       const s = String(m.text || '').replace(/\s+/g, ' ').trim();
       if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; if (window.__tdStandby) tdRenderStandby(); }
     }
@@ -1766,6 +1769,8 @@ function syncPanel() {
   /* ---------- 思考文本截流上墙（开源 AI；闭源 AI 无文本 → 预设动画） ---------- */
   window.__tdText = [];
   window.__tdTextDirty = false;
+  // 环上是否用截流文本替换预设动画：Thinking Desktop 关闭（文本只进悬停镜头面板）
+  window.__tdRingText = false;
   const _code = BLOCKS.code, _para = BLOCKS.para;
 
   function tdRows(c, x0, x1, y0, y1, t, font) {
@@ -1786,12 +1791,12 @@ function syncPanel() {
   }
 
   BLOCKS.code = function (c, x0, x1, y0, y1, t) {
-    if (!window.__tdText.length) return _code(c, x0, x1, y0, y1, t); // 闭源 AI：预设动画
+    if (!window.__tdText.length || !window.__tdRingText) return _code(c, x0, x1, y0, y1, t); // 预设动画
     let y = header(c, x0, x1, y0, t);
     tdRows(c, x0, x1, y, y1, t, '500 3.5px ' + FONT);
   };
   BLOCKS.para = function (c, x0, x1, y0, y1, t) {
-    if (!window.__tdText.length) return _para(c, x0, x1, y0, y1, t);
+    if (!window.__tdText.length || !window.__tdRingText) return _para(c, x0, x1, y0, y1, t);
     tdRows(c, x0, x1, y0 + 1, y1, t, '500 3.3px ' + FONT);
   };
 
@@ -1844,6 +1849,53 @@ function syncPanel() {
   /* ---------- 静音 ---------- */
   function mute() { if (window.__bgm) { try { window.__bgm.set(false); } catch (e) { return false; } return true; } return false; }
   [400, 1200, 3000, 6000].forEach((t) => setTimeout(mute, t));
+
+
+  /* ---------- 点击冲击波：壁纸窗口点击穿透，点击由原生宿主全局转发 ---------- */
+  (function initRipple() {
+    const cv = document.createElement('canvas');
+    cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:8';
+    document.body.appendChild(cv);
+    const g = cv.getContext('2d');
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const fit = () => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cv.width = Math.round(innerWidth * dpr);
+      cv.height = Math.round(innerHeight * dpr);
+    };
+    fit();
+    addEventListener('resize', fit);
+    const ripples = [];
+    let raf = 0;
+    const LIFE = 1200;
+    window.__tdClick = function (x, y) {
+      ripples.push({ x, y, t: performance.now() });
+      if (ripples.length > 8) ripples.shift();
+      if (!raf) raf = requestAnimationFrame(step);
+    };
+    function step(now) {
+      raf = 0;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      let alive = 0;
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        const r = ripples[i], age = now - r.t;
+        if (age > LIFE) { ripples.splice(i, 1); continue; }
+        alive++;
+        const p = age / LIFE, ease = 1 - Math.pow(1 - p, 3);
+        const rad = 16 + ease * 300, a = (1 - p) * (1 - p) * 0.5;
+        g.beginPath(); g.arc(r.x, r.y, rad, 0, Math.PI * 2);
+        g.strokeStyle = `rgba(228,87,46,${a.toFixed(3)})`;
+        g.lineWidth = 0.6 + 2.6 * (1 - p); g.stroke();
+        g.beginPath(); g.arc(r.x, r.y, rad * 0.6, 0, Math.PI * 2);
+        g.strokeStyle = `rgba(242,239,234,${(a * 0.5).toFixed(3)})`;
+        g.lineWidth = 1; g.stroke();
+      }
+      if (alive) raf = requestAnimationFrame(step);
+      else { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); }
+    }
+  })();
 
   /* ---------- 版权署名（许可要求保留） ---------- */
   const credit = document.createElement('div');

@@ -11,10 +11,11 @@
   - **待机** — HALOFLUX **环带停止转动**：环内网纹与环带本体保留原地定格，环内外的粒子特效（流光、彗星、光斑、远景粒子）全部消失。采用按需渲染：退出 rAF 循环，由鼠标/文本/尺寸变化事件直接触发重绘（WKWebView 被窗口遮挡时 rAF 会被系统完全节流）；重建画布后自动补帧，不会再黑屏
   - **思考** — 检测到 agent 开始工作：环带恢复转动、粒子特效重新出现（rAF 循环重启），AI 活动越剧烈节拍越快、光束越亮；全部空闲 30 秒后环带停止进入待机
 - **交互**：思考形态悬停区域特写放大；**待机形态把鼠标挪到环带上，该处环带局部放大，并弹出「截流 · 真实对话记录」面板展示最近的真实截流文本**（落日红高亮弧段锚定悬停点）；点击产生冲击波。浏览器预览 `http://127.0.0.1:7799` 原生生效；桌面壁纸点击穿透，由原生宿主全局转发鼠标位置与点击（点击桌面任意位置也会激起冲击波）。预览可用 `?force=idle` / `?force=active` 强制指定形态
-- **真实文本截流上墙**：开源 AI（DeepSeek Harness 会话、Kimi 桌面端 wire.jsonl 落盘内容）的真实输出与上下文压缩事件直接显示在光环数据块上；闭源 AI 无本地文本通道时显示预设动画
+- **真实文本截流上墙**：开源 AI（DeepSeek Harness 会话、Kimi 桌面端 wire.jsonl 落盘内容）的真实输出与上下文压缩事件直接显示在右侧视窗，每行标注来源（`DSH` / `Kimi` / `Codex`）；闭源 AI 无本地文本通道时显示预设动画
 - **多源接入**：统一抽象 Connector，接入 Codex / Kimi / DeepSeek Harness / Gemini / ChatGPT 桌面端等本机 AI 软件的事件流
 - **事件驱动**：token/工具/状态事件 → 强度提升 + 涟漪；报错 → 泛红
-- **零第三方依赖**：服务端仅使用 Node.js 标准库
+- **零第三方依赖**：服务端仅使用 Node.js 标准库（DSH 会话解码复用系统 `zstd` 命令）
+- **可自检**：`/health` 返回每个来源最后一次真实事件，能直接区分「connector 注册了」和「connector 真的接到数据」
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
 - **跨平台**：macOS / Windows / Linux 均可运行
 
@@ -41,7 +42,11 @@ Lively Wallpaper / Wallpaper Engine
 # 需要 Node.js 20+
 node server/index.mjs          # 启动数据服务，监听 127.0.0.1:7799
 
-# 浏览器打开 http://127.0.0.1:7799 预览效果
+# 浏览器打开 http://127.0.0.1:7799 预览效果（?debug=1 打开状态面板）
+
+# 自检 / 测试
+curl -s http://127.0.0.1:7799/health   # 各来源最后事件时间、zstd 是否可用
+npm test                                # connector + 事件映射的单元测试
 ```
 
 ### macOS 一键安装（自启 + 桌面壁纸）
@@ -67,10 +72,12 @@ macos/install.sh
 | `connectors/file-tail.mjs` | 通用文件尾随连接器（监听任意日志/会话文件） |
 | `connectors/sqlite-poll.mjs` | SQLite 只增日志表轮询（Codex 等） |
 | `connectors/json-store-poll.mjs` | JSON 状态文件轮询（Kimi 桌面端 kimi-agent stores） |
-| `connectors/zstd-jsonl-poll.mjs` | Zstd 压缩 JSONL 会话轮询（DeepSeek Harness `~/.dsh/sessions`） |
+| `connectors/zstd-jsonl-poll.mjs` | Zstd 压缩 JSONL 会话轮询（DeepSeek Harness `~/.dsh/sessions`）：递归发现多层目录、同时跟踪多个活跃会话、按 size/mtime 增量解码、启动不回放历史 |
+| `connectors/dsh-session.mjs` | DSH v4 会话行 → 统一事件：只上报真实的推理文本/工具调用/报错，忽略 title、request、job 等元数据行 |
 | `connectors/process-watch.mjs` | 桌面端进程守护（Gemini / ChatGPT / DSH 状态变化） |
 | `web/index.html` | 壁纸可视化页（思考粒子海） |
 | `docs/ARCHITECTURE.md` | 架构与事件协议详细说明 |
+| `test/` | `node --test` 单元测试（connector 增量消费、事件映射） |
 
 ## 本机已接入
 
@@ -78,7 +85,7 @@ macos/install.sh
 |---|---|---|
 | Codex | `~/.codex/logs_2.sqlite` 轮询 | 工具调用 / 报错 / 推理 |
 | Kimi 桌面端 | `kimi-agent` JSON stores 轮询 | token 用量 / 会话状态 / 文件编辑 |
-| DeepSeek Harness | `~/.dsh/sessions/*.jsonl.zstd` 解码 + 进程守护 | 会话事件 / 运行状态 |
+| DeepSeek Harness | `~/.dsh/sessions/<workspace>/session-*/session.v4.jsonl.zstd` 解码 + 进程守护 | 推理文本 / 工具调用 / 结果 / 运行状态 |
 | Gemini 桌面版 | 进程守护（数据不落盘文本日志） | 启动 / 退出 |
 | ChatGPT 桌面版 | 进程守护（启动即自动接管） | 启动 / 退出 |
 
@@ -88,7 +95,8 @@ macos/install.sh
 - [ ] ChatGPT 桌面版 UI Automation 深度状态
 - [ ] 面板 HUD：当前任务、今日 token、事件速率、工具分布
 - [ ] 用量账本（读本地 cost 记录）
-- [ ] 自动选屏与开机自启脚本（launchd）
+- [x] 开机自启与崩溃自愈（launchd，`macos/install.sh`）
+- [x] DSH 会话截流（多层目录 + 多会话并行 + 元数据行过滤）
 - [ ] 演示录制脚本
 
 ## 许可
