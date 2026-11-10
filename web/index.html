@@ -7,79 +7,180 @@
   单一运行界面（HALOFLUX 光环，web/haloflux/）：
   · 待机 —— tdSetStandby(true)：环带原地停止，环内/环外粒子特效消失，环上保留截流文本
   · 活动 —— tdSetStandby(false)：环带转动、粒子特效重现，强度随事件速率
-  · 文本 —— 右侧视窗逐行显示开源 AI 的截流文本（标注来源），悬停环带时同步进「截流 · 真实对话记录」面板
-  · 悬停 —— 鼠标停在环带上才弹出右侧截流视窗（不做放大/特写）；点击激起冲击波
+  · 右侧面板 —— 悬停环带时出现的实时看板：速率曲线 / 各 agent 活跃度 / 工具分布 / 上下文计量 / 思考流
+  · 右上角仪表 —— 常驻的迷你速率曲线 + 活跃厂商色点（不打扰桌面）
 -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #08090b; }
   #halo { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; z-index: 1; }
   #hud {
-    position: fixed; left: 16px; bottom: 14px; z-index: 2;
+    position: fixed; left: 16px; bottom: 14px; z-index: 3;
     font: 11px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
     color: #9fb4d0; opacity: 0; transition: opacity .4s; pointer-events: none;
     text-shadow: 0 1px 4px #000;
   }
   #hud b { color: #e8f1ff; }
-  /* 截流文本视窗：白色边框、透明底、白色文字；从光环向右发散滑入 */
+
+  /* ---------- 右上角常驻迷你仪表 ---------- */
+  #mini {
+    position: fixed; right: 26px; top: 22px; z-index: 2;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    pointer-events: none; opacity: .42; transition: opacity .5s ease;
+    font: 10px/1.3 ui-monospace, "SF Mono", Menlo, monospace;
+    color: rgba(255,255,255,.75); text-shadow: 0 1px 3px #000;
+  }
+  #mini.hide { opacity: 0; }
+  #mini .row { display: flex; align-items: center; gap: 6px; }
+  #mini b { font-size: 13px; color: #fff; font-weight: 600; }
+  #mini canvas { display: block; }
+  #mini .dots { display: flex; gap: 4px; }
+  #mini .dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.25);
+    box-shadow: 0 0 6px currentColor; }
+
+  /* ---------- 右侧看板（悬停环带时出现） ---------- */
+  #panel {
+    position: fixed; right: 26px; top: 50%; z-index: 2;
+    width: min(392px, 36vw); max-height: 78vh;
+    transform: translate(26px, -50%); opacity: 0;
+    transition: transform .55s cubic-bezier(.2,.8,.2,1), opacity .45s ease;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,.22);
+    border-radius: 6px;
+    background: linear-gradient(180deg, rgba(10,12,17,.72), rgba(10,12,17,.58));
+    -webkit-backdrop-filter: blur(9px) saturate(120%);
+    backdrop-filter: blur(9px) saturate(120%);
+    box-shadow: 0 18px 60px rgba(0,0,0,.55);
+    pointer-events: none;
+    font: 10px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: rgba(255,255,255,.82);
+  }
+  #panel.show { transform: translate(0, -50%); opacity: 1; }
+
+  #panel .pn-head { display: flex; align-items: baseline; justify-content: space-between; letter-spacing: 1.6px; }
+  #panel .pn-head b { font-size: 10px; font-weight: 600; color: #fff; }
+  #panel .pn-head span { font-size: 9px; color: rgba(255,255,255,.5); }
+
+  #panel .pn-rate { display: flex; align-items: flex-end; gap: 12px; }
+  #panel .pn-rate .num { display: flex; align-items: baseline; gap: 4px; min-width: 74px; }
+  #panel .pn-rate .num b { font-size: 26px; line-height: 1; font-weight: 500; color: #fff; font-variant-numeric: tabular-nums; }
+  #panel .pn-rate .num small { font-size: 9px; color: rgba(255,255,255,.45); }
+  #panel .pn-rate canvas { flex: 1; display: block; min-width: 0; }
+  #panel .pn-stats { display: flex; gap: 14px; margin-top: -2px; color: rgba(255,255,255,.45); font-size: 9px; }
+  #panel .pn-stats b { color: rgba(255,255,255,.8); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  #panel h4 {
+    margin: 0 0 6px; font-size: 8px; font-weight: 600; letter-spacing: 2px;
+    color: rgba(255,255,255,.42); border-bottom: 1px solid rgba(255,255,255,.1); padding-bottom: 4px;
+  }
+  #panel .pn-block { display: flex; flex-direction: column; }
+  #panel .pn-block.grow { min-height: 0; flex: 1 1 auto; }
+
+  #panel .ag { display: grid; grid-template-columns: 8px 1fr 46px 40px 42px; align-items: center; gap: 7px; padding: 2px 0; }
+  #panel .ag .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  #panel .ag:not(.off) .dot { animation: dotPulse 2.4s ease-in-out infinite; }
+  @keyframes dotPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  #panel .ag .name { color: rgba(255,255,255,.85); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #panel .ag .bar { height: 3px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; }
+  #panel .ag .bar i { display: block; height: 100%; background: currentColor; border-radius: 2px; transition: width .5s ease; }
+  #panel .ag .age { text-align: right; color: rgba(255,255,255,.4); font-size: 9px; }
+  #panel .ag .cnt { text-align: right; color: rgba(255,255,255,.62); font-variant-numeric: tabular-nums; }
+  #panel .ag.off { opacity: .38; }
+
+  #panel .tool { display: grid; grid-template-columns: 1fr 34px; gap: 8px; align-items: center; padding: 1px 0; }
+  #panel .tool .tn { color: rgba(255,255,255,.7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #panel .tool .tv { text-align: right; color: rgba(255,255,255,.5); font-size: 9px; }
+  #panel .tool .tb { grid-column: 1 / -1; height: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+  #panel .tool .tb i { display: block; height: 100%; background: rgba(255,255,255,.55); }
+  #panel .empty { color: rgba(255,255,255,.3); font-size: 9px; }
+
+  #panel .ctx { display: flex; flex-direction: column; gap: 3px; }
+  #panel .ctx .row { display: flex; justify-content: space-between; color: rgba(255,255,255,.62); }
+  #panel .ctx .bar { height: 2px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+  #panel .ctx .bar i { display: block; height: 100%; background: rgba(255,255,255,.5); }
+
+  /* 思考流：在面板内部滚动区，最新在底部 */
   #textpane {
-    position: fixed; right: 28px; top: 50%; z-index: 2;
-    width: min(380px, 34vw); max-height: 62vh;
-    transform: translate(60px, -50%); opacity: 0;
-    transition: transform .7s cubic-bezier(.2,.8,.2,1), opacity .7s ease;
-    border: 1px solid rgba(255,255,255,.85); border-radius: 2px;
-    background: transparent;
-    padding: 12px 14px; pointer-events: none;
-    font: 11px/1.75 ui-monospace, "SF Mono", Menlo, monospace;
-    color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9);
-    overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+    min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    font: 10px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: rgba(255,255,255,.9);
   }
-  #textpane.show { transform: translate(0, -50%); opacity: 1; }
-  #textpane .tp-head {
-    font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.6);
-    border-bottom: 1px solid rgba(255,255,255,.35); padding-bottom: 6px; margin-bottom: 8px;
-  }
-  #textpane .tp-line { white-space: pre-wrap; word-break: break-all; }
-  #textpane .tp-line.dim { color: rgba(255,255,255,.45); }
+  #textpane .tp-line { white-space: pre-wrap; word-break: break-word; }
+  #textpane .tp-line.dim { color: rgba(255,255,255,.42); }
   #textpane .tp-src {
     display: inline-block; min-width: 34px; margin-right: 6px;
-    font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,.5);
+    font-size: 8px; letter-spacing: 1px; opacity: .9;
   }
 </style>
 </head>
 <body>
 <iframe id="halo"></iframe>
-<div id="textpane"><div class="tp-head">THOUGHT STREAM</div></div>
+
+<div id="mini">
+  <canvas id="mini-spark"></canvas>
+  <div class="row"><span class="dots" id="mini-dots"></span><b id="mini-rate">0.0</b><span>ev/s</span></div>
+</div>
+
+<aside id="panel">
+  <div class="pn-head"><b>THINKING DESKTOP</b><span id="pn-view">ALL AGENTS</span></div>
+  <div class="pn-rate">
+    <div class="num"><b id="pn-rate">0.0</b><small>ev/s</small></div>
+    <canvas id="pn-spark"></canvas>
+  </div>
+  <div class="pn-stats" id="pn-stats"></div>
+  <div class="pn-block"><h4>AGENTS</h4><div id="pn-agents"></div></div>
+  <div class="pn-block"><h4>TOOLS</h4><div id="pn-tools"></div></div>
+  <div class="pn-block"><h4>CONTEXT</h4><div id="pn-ctx"></div></div>
+  <div class="pn-block grow"><h4>THOUGHT STREAM</h4><div id="textpane"></div></div>
+</aside>
+
 <div id="hud"></div>
+
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const PAGE_BUILD = "page-5";   // 自检用：确认壁纸加载的是新页面
-const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
+const PAGE_BUILD = "panel-6";   // 自检用：确认壁纸加载的是新页面
+const BUSY_HOLD = 30000;        // 任一来源 30 秒内有真实工作信号 → 活动态
 
 const hud = document.getElementById("hud");
+const panel = document.getElementById("panel");
+const mini = document.getElementById("mini");
+const textpane = document.getElementById("textpane");
+const pnRate = document.getElementById("pn-rate");
+const pnView = document.getElementById("pn-view");
+const pnAgents = document.getElementById("pn-agents");
+const pnTools = document.getElementById("pn-tools");
+const pnCtx = document.getElementById("pn-ctx");
+const miniRate = document.getElementById("mini-rate");
+const miniDots = document.getElementById("mini-dots");
+const spark = document.getElementById("pn-spark");
+const miniSpark = document.getElementById("mini-spark");
+
 addEventListener("error", (e) => {
   fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: String(e.message || e.error), src: String((e.filename || "").split("/").pop()) + ":" + e.lineno }) }).catch(() => {});
 });
 addEventListener("unhandledrejection", (e) => {
-  fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: "rejection: " + String(e.reason && e.reason.message || e.reason) }) }).catch(() => {});
+  fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: "rejection: " + String((e.reason && e.reason.message) || e.reason) }) }).catch(() => {});
 });
+
 const halo = document.getElementById("halo");
 // 每次加载都带时间戳，避免 WKWebView 用旧缓存的 halo 页面（改了前端却不生效的元凶）
 halo.src = "/haloflux/?t=" + Date.now();
 
 // ---------------- 状态 ----------------
 let energy = 0, rate = 0, byType = {}, bySource = {}, sources = [];
-const textpane = document.getElementById("textpane");
+let series = [], tools = [], tokens = null, totalEvents = 0;
 const textLines = [];
 let lastTextAt = 0, textSeq = 0;
 
-// 各厂商的专属色：环内外光效 + 文本标签共用同一套
+// 各厂商的专属色：环内外光效 + 文本标签共用同一套（调色盘可覆盖）
 const SOURCE_COLORS = {
-  "kimi-desktop": "#ffffff",      // 白
-  "deepseek-harness": "#3b82f6",  // 蓝
-  codex: "#a855f7",               // 紫
-  "gemini-desktop": "#ef4444",    // 红
-  "chatgpt-desktop": "#22c55e",   // 绿（未指定，取一个不冲突的）
+  "kimi-desktop": "#ffffff",
+  "deepseek-harness": "#3b82f6",
+  codex: "#a855f7",
+  "gemini-desktop": "#ef4444",
+  "chatgpt-desktop": "#22c55e",
+  "claude-desktop": "#d97757",
 };
 const SRC_LABEL = {
   "deepseek-harness": "DSH",
@@ -87,6 +188,7 @@ const SRC_LABEL = {
   codex: "Codex",
   "gemini-desktop": "Gemini",
   "chatgpt-desktop": "GPT",
+  "claude-desktop": "Claude",
   tail: "LOG",
 };
 
@@ -108,7 +210,6 @@ function pushText(text, source, kind, stream) {
   }
   lastTextAt = Date.now();
   const flat = raw.replace(/\s+/g, " ").slice(0, 220);
-  // 流式快照是「同一条越写越长」：让光环替换上一条，而不是把半截话重复铺满环带
   if (grow) {
     last.id = ++textSeq;
     haloMsg({ td: "text", id: last.id, text: flat, replace: true });
@@ -116,62 +217,176 @@ function pushText(text, source, kind, stream) {
     haloMsg({ td: "text", id: textLines[textLines.length - 1].id, text: flat });
   }
   renderText();
-  syncPane();
+  syncPanel();
 }
 
 function renderText() {
   textpane.querySelectorAll(".tp-line").forEach((n) => n.remove());
   const frag = document.createDocumentFragment();
-  const recent = textLines.slice(-24);
+  const recent = textLines.slice(-20);
   recent.forEach((line, i) => {
     const div = document.createElement("div");
     div.className = "tp-line" + (i < recent.length - 2 ? " dim" : "");
     const tag = document.createElement("span");
     tag.className = "tp-src";
     tag.textContent = line.src;
-    tag.style.color = SOURCE_COLORS[line.key] || "rgba(255,255,255,.55)";
+    tag.style.color = colorOf(line.key);
     div.appendChild(tag);
     div.appendChild(document.createTextNode(line.text));
     frag.appendChild(div);
   });
   textpane.appendChild(frag);
 }
+
 let view = "all";        // all=综合形态；其它=单一 agent 形态（托盘选择）
 let agentsList = [];
-let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
-let busyUntil = 0;       // status running>0 的短暂宽限
-let standby = null;      // 当前待机位（null=未初始化）
-let overRing = false;    // 鼠标是否停在环带上（决定右侧截流视窗是否出现）
-let haloError = "";      // 光环内 JS 报错回传（壁纸里没有控制台）
+let workAt = 0;
+let busyUntil = 0;
+let standby = null;
+let overRing = false;
+let haloError = "";
 let lastParamPush = 0, stateTimer = 0;
 
-/** 自检截图：把光环画布快照回传服务端（壁纸没有录屏权限时也能看到实际画面） */
-let lastShotAt = 0;
-function captureShot() {
-  if (Date.now() - lastShotAt < 1500) return;
-  lastShotAt = Date.now();
-  try {
-    const w = halo.contentWindow;
-    const png = w.__tdSnapshot && w.__tdSnapshot();
-    const slot = w.__tdSlotShot && w.__tdSlotShot();
-    const lights = w.__tdLightsShot && w.__tdLightsShot();
-    if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ png, slot, lights }) }).catch(() => {});
-  } catch (err) {
-    haloError = String((err && err.message) || err);
-  }
+/** agent 配置色（调色盘选择）优先于内置色 */
+function colorOf(source) {
+  const a = agentsList.find((x) => x.source === source);
+  return (a && a.color) || SOURCE_COLORS[source] || "rgba(255,255,255,.55)";
 }
 
-/** 正在工作的来源 → 光环按各自颜色点亮（25s 内有真实事件算在跑） */
-function sendSourceLights() {
-  let list = (sources || [])
-    .filter((x) => x.agoMs < 12000 && x.lastType !== "status")   // 只是「开着」不算在跑；12s 没动静就淡出
-    .map((x) => ({
-      src: x.source,
-      color: colorOf(x.source),
-      intensity: Math.min(1, 0.35 + (bySource[x.source] || 0) / 6),
-    }));
-  if (view !== "all") list = list.filter((x) => x.src === view).map((x) => ({ ...x, intensity: 1 }));
-  haloMsg({ td: "sources", list });
+// ---------------- 右侧看板 ----------------
+function sizeCanvas(cv, h) {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = cv.clientWidth || cv.parentElement.clientWidth || 200;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+    cv.style.height = h + "px";
+  }
+  return dpr;
+}
+
+/** 速率曲线：面积 + 折线 + 末点高亮 */
+function drawSpark(cv, data, color, opts = {}) {
+  if (!cv || !cv.isConnected) return;
+  const h = opts.height || 54;
+  const dpr = sizeCanvas(cv, h);
+  const w = cv.width / dpr;
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+  if (!data.length) return;
+  const max = Math.max(1, ...data);
+  const step = w / Math.max(1, data.length - 1);
+  const y = (v) => h - 4 - (v / max) * (h - 8);
+
+  // 基线
+  x.strokeStyle = "rgba(255,255,255,.08)";
+  x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, h - 3.5); x.lineTo(w, h - 3.5); x.stroke();
+
+  // 面积
+  const grad = x.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, hexA(color, 0.34));
+  grad.addColorStop(1, hexA(color, 0.02));
+  x.beginPath();
+  x.moveTo(0, h - 3.5);
+  data.forEach((v, i) => x.lineTo(i * step, y(v)));
+  x.lineTo(w, h - 3.5);
+  x.closePath();
+  x.fillStyle = grad;
+  x.fill();
+
+  // 折线
+  x.beginPath();
+  data.forEach((v, i) => (i ? x.lineTo(i * step, y(v)) : x.moveTo(0, y(v))));
+  x.strokeStyle = hexA(color, 0.92);
+  x.lineWidth = 1.2;
+  x.stroke();
+
+  // 末点
+  const lastV = data[data.length - 1];
+  x.beginPath(); x.arc(w - 1, y(lastV), 2.2, 0, Math.PI * 2);
+  x.fillStyle = hexA(color, 1); x.fill();
+}
+
+function hexA(color, a) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(color || ""));
+  if (!m) return `rgba(255,255,255,${a})`;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+function agentActivity(src) {
+  return bySource[src] || 0;
+}
+
+function renderPanel() {
+  pnRate.textContent = rate.toFixed(1);
+  miniRate.textContent = rate.toFixed(1);
+  pnView.textContent = view === "all" ? "ALL AGENTS" : (SRC_LABEL[view] || view).toUpperCase();
+
+  const accent = view === "all" ? "#ffffff" : colorOf(view);
+  drawSpark(spark, series, accent, { height: 54 });
+  drawSpark(miniSpark, series, accent, { height: 26 });
+
+  // agents
+  const list = (agentsList || []).filter((a) => a.enabled !== false && (view === "all" || a.source === view));
+  const maxEvents = Math.max(1, ...list.map((a) => a.events || 0));
+  pnAgents.innerHTML = "";
+  if (!list.length) pnAgents.innerHTML = `<div class="empty">未绑定 agent</div>`;
+  for (const a of list) {
+    const act = agentActivity(a.source);
+    const row = document.createElement("div");
+    row.className = "ag" + (a.thinking ? "" : " off");
+    row.style.color = a.color;
+    row.innerHTML =
+      `<span class="dot"></span>` +
+      `<span class="name">${a.name || a.source}</span>` +
+      `<span class="bar"><i style="width:${Math.round(((a.events || 0) / maxEvents) * 100)}%"></i></span>` +
+      `<span class="cnt">${a.events || 0}</span>` +
+      `<span class="age">${a.thinking ? "active" : fmtAgo(a.agoMs)}</span>`;
+    pnAgents.appendChild(row);
+  }
+
+  // stats 行
+  const enabled = (agentsList || []).filter((a) => a.enabled !== false).length;
+  document.getElementById("pn-stats").innerHTML =
+    `<span>EVENTS <b>${totalEvents}</b></span>` +
+    `<span>TOOLS <b>${tools.length}</b></span>` +
+    `<span>AGENTS <b>${enabled}</b></span>`;
+
+  // tools
+  const tmax = Math.max(1, ...tools.map((t) => t.count));
+  pnTools.innerHTML = tools.length ? "" : `<div class="empty">暂无工具调用</div>`;
+  for (const t of tools.slice(0, 5)) {
+    const row = document.createElement("div");
+    row.className = "tool";
+    row.innerHTML =
+      `<span class="tn">${t.name}</span><span class="tv">${t.count}</span>` +
+      `<span class="tb"><i style="width:${Math.round((t.count / tmax) * 100)}%"></i></span>`;
+    pnTools.appendChild(row);
+  }
+
+  // context
+  pnCtx.innerHTML = "";
+  if (tokens && tokens.model) {
+    const pct = Math.max(0, Math.min(1, Number(tokens.usage) || 0));
+    pnCtx.innerHTML =
+      `<div class="row"><span>${tokens.model}</span><span>${(pct * 100).toFixed(0)}% ctx</span></div>` +
+      `<div class="bar"><i style="width:${Math.round(pct * 100)}%"></i></div>`;
+  } else {
+    pnCtx.innerHTML = `<div class="empty">暂无上下文计量</div>`;
+  }
+
+  // mini dots
+  const lit = (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status");
+  miniDots.innerHTML = lit.slice(0, 6).map((x) => `<span class="dot" style="background:${colorOf(x.source)}"></span>`).join("");
+}
+
+function syncPanel() {
+  const show = overRing;
+  panel.classList.toggle("show", show);
+  mini.classList.toggle("hide", show);
 }
 
 function fmtAgo(ms) {
@@ -182,20 +397,16 @@ function fmtAgo(ms) {
   return `${Math.round(ms / 3_600_000)}h`;
 }
 
-function syncPane() {
-  textpane.classList.toggle("show", overRing && textLines.length > 0);
-}
-
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
-// 悬停：原生宿主转发全局鼠标位置 → 光环只判断「是否停在环带上」，不做任何放大/特写
+// 悬停：原生宿主转发全局鼠标位置 → 光环只判断「是否停在环带上」
 window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
 addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
 // 点击穿透：原生宿主转发全局点击坐标 → 光环冲击波
 window.__tdClick = (x, y) => haloMsg({ td: "click", x, y });
 addEventListener("mousedown", (e) => window.__tdClick(e.clientX, e.clientY));
 
-/** 待机 ⇄ 活动：同一张光环界面，环带停/转、粒子隐/现 */
+/** 待机 ⇄ 活动 */
 function setStandby(on) {
   if (standby === on) return;
   standby = on;
@@ -203,12 +414,11 @@ function setStandby(on) {
   setTimeout(() => { if (standby === on) haloMsg({ td: "standby", value: on }); }, 800);
 }
 
-/** 活动强度 → HALOFLUX 参数 */
+/** 活动强度 → HALOFLUX 参数（舒适档） */
 function pushParams() {
   const now = Date.now();
   if (now - lastParamPush < 1000) return;
   lastParamPush = now;
-  // 舒适档：节奏/转速/辉光都压在小幅波动区间，事件再密也不「发疯」
   const r = Math.min(rate, 2), e = Math.min(energy, 1);
   haloMsg({ td: "set", key: "tempo", value: +(0.55 + r * 0.06 + e * 0.05).toFixed(2) });
   haloMsg({ td: "set", key: "ringSpeed", value: +(0.42 + r * 0.05 + e * 0.04).toFixed(2) });
@@ -216,7 +426,7 @@ function pushParams() {
   haloMsg({ td: "set", key: "glow", value: +(1.02 + e * 0.12).toFixed(2) });
 }
 
-// 启动即回填最近的思考文本（否则刚开机/重启壁纸时环带是空的，只能等下一次事件）
+// 启动即回填最近的思考文本
 (async function seedTexts() {
   try {
     const list = await (await fetch("/texts?limit=14")).json();
@@ -224,9 +434,7 @@ function pushParams() {
   } catch {}
 })();
 
-// iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
 function resendText() {
-  // 重发沿用原始 id：光环按 id 去重，不会因为 ready 发两次就把同一段铺两遍
   textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: line.id, text: line.text.replace(/\s+/g, " ").slice(0, 220) }));
 }
 
@@ -236,7 +444,7 @@ halo.addEventListener("load", () => {
   pushParams();
 });
 window.addEventListener("message", (ev) => {
-  if (ev.data && ev.data.td === "hover") { overRing = !!ev.data.ring; syncPane(); return; }
+  if (ev.data && ev.data.td === "hover") { overRing = !!ev.data.ring; syncPanel(); return; }
   if (ev.data && ev.data.td === "error") { haloError = `${ev.data.message} @ ${new Date(ev.data.at).toLocaleTimeString()}`; return; }
   if (ev.data && ev.data.td === "ready") {
     standby = null;
@@ -250,27 +458,104 @@ function currentStandby() {
   const now = Date.now();
   if (view !== "all") {
     const a = agentsList.find((x) => x.source === view);
-    if (a) return !a.thinking; // 单一形态：只看该 agent
+    if (a) return !a.thinking;
   }
   return now - workAt > BUSY_HOLD && now > busyUntil;
 }
 
-/** agent 配置色（调色盘选择）优先于内置色 */
-function colorOf(source) {
-  const a = agentsList.find((x) => x.source === source);
-  return (a && a.color) || SOURCE_COLORS[source] || "#9aa4b2";
+/** 正在工作的来源 → 光环按各自颜色点亮 */
+function sendSourceLights() {
+  let list = (sources || [])
+    .filter((x) => x.agoMs < 12000 && x.lastType !== "status")
+    .map((x) => ({
+      src: x.source,
+      color: colorOf(x.source),
+      intensity: Math.min(1, 0.35 + (bySource[x.source] || 0) / 6),
+    }));
+  if (view !== "all") list = list.filter((x) => x.src === view).map((x) => ({ ...x, intensity: 1 }));
+  haloMsg({ td: "sources", list });
 }
 
-// ---------------- SSE：AI 事件驱动 ----------------
+/** 把右侧看板（DOM）渲染成图片：外框 + canvas 图表一起，用于没有录屏权限的自检 */
+async function panelShot() {
+  try {
+    const rect = panel.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const clone = panel.cloneNode(true);
+    const srcCanvases = panel.querySelectorAll("canvas");
+    const dstCanvases = clone.querySelectorAll("canvas");
+    for (let i = 0; i < srcCanvases.length; i++) {
+      const img = document.createElement("img");
+      img.setAttribute("src", srcCanvases[i].toDataURL("image/png"));
+      img.setAttribute("width", String(srcCanvases[i].clientWidth));
+      img.setAttribute("height", String(srcCanvases[i].clientHeight));
+      img.setAttribute("style", `display:block;width:${srcCanvases[i].clientWidth}px;height:${srcCanvases[i].clientHeight}px`);
+      dstCanvases[i].replaceWith(img);
+    }
+    clone.style.width = "100%";
+    clone.style.boxSizing = "border-box";
+    clone.style.position = "static";
+    clone.style.transform = "none";
+    clone.style.opacity = "1";
+    clone.style.maxHeight = "none";
+    clone.classList.add("show");
+    const css = Array.from(document.querySelectorAll("style")).map((n) => n.textContent).join("\n");
+    const html = new XMLSerializer().serializeToString(clone);
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${rect.width}" height="${rect.height}">` +
+      `<foreignObject x="0" y="0" width="${rect.width}" height="${rect.height}">` +
+      `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${rect.width}px;box-sizing:border-box"><style>${css}</style>${html}</div>` +
+      `</foreignObject></svg>`;
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = res;
+      img.onerror = () => rej(new Error("svg render failed"));
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    });
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(rect.width * 2);
+    cv.height = Math.round(rect.height * 2);
+    const cx = cv.getContext("2d");
+    // 垫一层深色底，模拟壁纸上的实际观感（面板本身是半透明的）
+    cx.fillStyle = "#0a0c11";
+    cx.fillRect(0, 0, cv.width, cv.height);
+    cx.drawImage(img, 0, 0, cv.width, cv.height);
+    window.__panelShotInfo = { rect: [Math.round(rect.width), Math.round(rect.height)], out: [cv.width, cv.height] };
+    return cv.toDataURL("image/png");
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 自检截图 */
+let lastShotAt = 0;
+async function captureShot() {
+  if (Date.now() - lastShotAt < 1500) return;
+  lastShotAt = Date.now();
+  try {
+    const w = halo.contentWindow;
+    const png = w.__tdSnapshot && w.__tdSnapshot();
+    const slot = w.__tdSlotShot && w.__tdSlotShot();
+    const lights = w.__tdLightsShot && w.__tdLightsShot();
+    const chart = spark && spark.toDataURL ? spark.toDataURL("image/png") : null;
+    const panelPng = await panelShot();
+    if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ png, slot, lights, chart, panel: panelPng }) }).catch(() => {});
+  } catch (err) {
+    haloError = String((err && err.message) || err);
+  }
+}
+
+// ---------------- SSE ----------------
 const es = new EventSource("/stream");
 es.onmessage = (ev) => {
   const e = JSON.parse(ev.data);
   if (e.type === "hello") {
     rate = e.state.rate; byType = e.state.byType; bySource = e.state.bySource; sources = e.state.sources || [];
+    series = e.state.series || series;
     workAt = e.state.lastEventAt;
     return;
   }
-  if (e.type === "view") { view = e.payload.agent || "all"; return; }  // 托盘切换：不算工作信号
+  if (e.type === "view") { view = e.payload.agent || "all"; return; }
   if (e.type === "status") {
     if (e.payload && e.payload.running > 0) busyUntil = e.ts + 15000;
     return;
@@ -284,22 +569,26 @@ es.onmessage = (ev) => {
   if (e.type === "tool_call") energy = Math.min(energy + 0.3, 1.6);
   else energy = Math.min(energy + 0.14, 1.6);
 };
-es.onerror = () => { /* 断线由 EventSource 自动重连 */ };
+es.onerror = () => { /* EventSource 自动重连 */ };
 
 setInterval(async () => {
   const idle = currentStandby();
   setStandby(idle);
-  syncPane();
+  syncPanel();
   if (!idle) pushParams();
   energy *= 0.995;
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
+    series = s.series || [];
+    tools = s.tools || [];
+    tokens = s.tokens || null;
+    totalEvents = s.totalEvents || 0;
     if (s.view) view = s.view;
     agentsList = s.agents || [];
     if (s.shot) captureShot();
     sendSourceLights();
-    // 自检字段：环带是否已拿到真实文本（跨窗口同源，可直读 iframe 状态）
+    renderPanel();
     let haloState = {};
     try {
       const w = halo.contentWindow;
@@ -319,13 +608,20 @@ setInterval(async () => {
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
         textPushes,
         lights: (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status").map((x) => x.source),
-        haloOpacity: getComputedStyle(halo).opacity,
+        seriesPeak: Math.max(0, ...series),
+        tools: tools.slice(0, 3).map((t) => t.name),
+        agentsShown: (agentsList || []).filter((a) => a.enabled !== false).length,
+        panelShown: panel.classList.contains("show"),
+        panelRect: [panel.offsetWidth, panel.offsetHeight],
+        lineW: (textpane.querySelector(".tp-line") || {}).offsetWidth || 0,
+        rowW: (pnAgents.querySelector(".ag") || {}).offsetWidth || 0,
+        sparkRect: [spark.offsetWidth, spark.offsetHeight],
+        panelShotInfo: window.__panelShotInfo || null,
         build: PAGE_BUILD,
         ...haloState,
       }),
     }).catch(() => {});
   } catch {}
-  // HUD（?debug=1）
   if (DEBUG) {
     hud.style.opacity = 1;
     if (Date.now() - stateTimer > 500) {
@@ -335,10 +631,13 @@ setInterval(async () => {
         `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>最近事件: ${sources.map((x) => `${x.source} ${fmtAgo(x.agoMs)}`).join(" · ") || "—"}` +
-        `<br><span style="opacity:.7">悬停圆带 → 局部放大查看截流文本</span>`;
+        `<br><span style="opacity:.7">悬停圆带 → 打开右侧看板</span>`;
     }
   }
 }, 1000);
+
+// 面板尺寸变化时重绘曲线
+addEventListener("resize", () => { renderPanel(); });
 </script>
 </body>
 </html>

@@ -6,7 +6,7 @@
  */
 
 import { createServer } from "node:http";
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, dirname, normalize, extname, sep } from "node:path";
 import { homedir } from "node:os";
@@ -45,11 +45,40 @@ const clientDebug = new Map();
 let shotAt = 0;            // 最近一次「截屏请求」时间
 let shotPng = null;
 let shotSlot = null;
-let shotLights = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
+let shotLights = null;
+let shotChart = null;
+let shotPanel = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
 const sourceStats = new Map();
+const secBuckets = new Map();   // 每秒事件数（画速率曲线）
+const toolCounts = new Map();   // 工具调用分布
+let tokenInfo = null;           // 最近一次 token 计量（Kimi 等）
+let totalEvents = 0;
+
+// 思考文本落盘：服务重启后 /texts 仍能回填，壁纸开机不会是空环带
+const TEXT_FILE = join(ROOT, "data", "texts.json");
+let textBacklog = [];
+try { const arr = JSON.parse(readFileSync(TEXT_FILE, "utf8")); if (Array.isArray(arr)) textBacklog = arr.slice(-40); } catch {}
+let textSaveTimer = 0;
+function saveTextBacklog() {
+  if (textSaveTimer) return;
+  textSaveTimer = setTimeout(() => {
+    textSaveTimer = 0;
+    try {
+      mkdirSync(dirname(TEXT_FILE), { recursive: true });
+      writeFileSync(TEXT_FILE, JSON.stringify(textBacklog.slice(-40)));
+    } catch { /* 落盘失败不影响运行 */ }
+  }, 1200);
+}
+
+function rateSeries(now, seconds = 60) {
+  const base = Math.floor(now / 1000);
+  const out = [];
+  for (let i = seconds - 1; i >= 0; i--) out.push(secBuckets.get(base - i) || 0);
+  return out;
+}
 
 function pushEvent(event) {
   console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
@@ -61,6 +90,27 @@ function pushEvent(event) {
   st.lastEventAt = event.ts;
   st.lastType = event.type;
   sourceStats.set(event.source, st);
+  totalEvents += 1;
+  const sec = Math.floor(event.ts / 1000);
+  secBuckets.set(sec, (secBuckets.get(sec) || 0) + 1);
+  if (secBuckets.size > 240) for (const k of secBuckets.keys()) if (k < sec - 180) secBuckets.delete(k);
+  if (event.type === "tool_call") {
+    const name = String(event.payload?.name || "tool");
+    toolCounts.set(name, (toolCounts.get(name) || 0) + 1);
+  }
+  if (event.type === "text" && event.payload?.text) {
+    textBacklog.push({ source: event.source, ts: event.ts, text: event.payload.text, kind: event.payload.kind });
+    if (textBacklog.length > 40) textBacklog.shift();
+    saveTextBacklog();
+  }
+  if (event.type === "token") {
+    tokenInfo = {
+      model: event.payload?.model ?? null,
+      usage: event.payload?.maxUsage ?? null,
+      conversations: event.payload?.conversations ?? null,
+      at: event.ts,
+    };
+  }
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) {
     try { res.write(payload); } catch { clients.delete(res); }
@@ -91,6 +141,11 @@ function state() {
       agoMs: now - s.lastEventAt,
     })),
     recent: events.slice(-20),
+    // 右侧面板用的聚合：速率曲线 / 工具分布 / 上下文计量
+    series: rateSeries(now, 60),
+    tools: [...toolCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })),
+    tokens: tokenInfo,
+    totalEvents,
     agents: agents.agents(sourceStats, now),
     view: agents.view,
   };
@@ -347,8 +402,8 @@ const server = createServer((req, res) => {
   // 最近的思考文本：页面一启动就能把环带/视窗填满，不用等下一次事件
   if (url.pathname === "/texts") {
     const limit = Math.max(1, Math.min(40, Number(url.searchParams.get("limit")) || 12));
-    const texts = events.filter((e) => e.type === "text").slice(-limit)
-      .map((e) => ({ source: e.source, ts: e.ts, text: e.payload?.text ?? "", kind: e.payload?.kind }));
+    const texts = textBacklog.slice(-limit)
+      .map((e) => ({ source: e.source, ts: e.ts, text: e.text ?? "", kind: e.kind }));
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify(texts));
     return;
@@ -370,9 +425,13 @@ const server = createServer((req, res) => {
           const full = dec(data.png);
           const slot = dec(data.slot);
           const lights = dec(data.lights);
+          const chart = dec(data.chart);
+          const panelPng = dec(data.panel);
           if (full) { shotPng = full; shotAt = 0; }
           if (slot) shotSlot = slot;
           if (lights) shotLights = lights;
+          if (chart) shotChart = chart;
+          if (panelPng) shotPanel = panelPng;
         } catch { /* 忽略坏包 */ }
         res.writeHead(200).end("ok");
       });
@@ -383,7 +442,11 @@ const server = createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain" }).end("requested");
       return;
     }
-    const img = url.searchParams.has("slot") ? shotSlot : url.searchParams.has("lights") ? shotLights : shotPng;
+    const img = url.searchParams.has("slot") ? shotSlot
+      : url.searchParams.has("lights") ? shotLights
+      : url.searchParams.has("chart") ? shotChart
+      : url.searchParams.has("panel") ? shotPanel
+      : shotPng;
     if (!img) { res.writeHead(404).end("no snapshot"); return; }
     res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(img);
     return;

@@ -35,6 +35,8 @@ type ThinkingEvent = {
 | `GET /wall` | 壁纸页面（即 `web/index.html`） |
 | `GET /health` | 自检：zstd 是否可用、每个来源的连接通道（session/file/sqlite/json/process/activity）、事件数与最后事件、闭源端最近一次 CPU 采样 |
 | `POST /ingest` | 本机事件注入口（调试 / 多 agent 并行模拟）：`{source,type,payload}` → 走与真实 connector 完全相同的事件管线 |
+| `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`tools`（工具分布 Top8）、`tokens`（最近一次上下文计量）、`totalEvents`、`agents`/`view`（绑定与形态） |
+| `GET /snapshot?panel=1` | 把右侧看板（DOM + 内嵌图表）经 SVG foreignObject 渲染成 PNG，用于无录屏权限时验证 |
 | `GET /texts?limit=N` | 最近的思考文本，页面启动时回填环带与视窗 |
 | `GET /snapshot?request=1` / `GET /snapshot` | 请求并取回壁纸画布快照（`?slot=1` 单个环槽、`?lights=1` 光效层），无录屏权限时用于验证真实画面 |
 
