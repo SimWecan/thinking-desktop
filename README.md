@@ -45,20 +45,33 @@ node server/index.mjs          # 启动数据服务，监听 127.0.0.1:7799
 
 | 路径 | 说明 |
 |---|---|
-| `server/index.mjs` | 数据服务：事件汇聚、速率统计、SSE / JSON API |
+| `server/index.mjs` | 数据服务：事件汇聚、速率统计、SSE / JSON API；按本机软件自动注册 connector |
 | `connectors/base.mjs` | Connector 基类与统一事件格式 |
 | `connectors/file-tail.mjs` | 通用文件尾随连接器（监听任意日志/会话文件） |
+| `connectors/sqlite-poll.mjs` | SQLite 只增日志表轮询（Codex 等） |
+| `connectors/json-store-poll.mjs` | JSON 状态文件轮询（Kimi 桌面端 kimi-agent stores） |
+| `connectors/zstd-jsonl-poll.mjs` | Zstd 压缩 JSONL 会话轮询（DeepSeek Harness `~/.dsh/sessions`） |
+| `connectors/process-watch.mjs` | 桌面端进程守护（Gemini / ChatGPT / DSH 状态变化） |
 | `web/index.html` | 壁纸可视化页（思考粒子海） |
 | `docs/ARCHITECTURE.md` | 架构与事件协议详细说明 |
 
+## 本机已接入
+
+| 来源 | 数据通道 | 事件 |
+|---|---|---|
+| Codex | `~/.codex/logs_2.sqlite` 轮询 | 工具调用 / 报错 / 推理 |
+| Kimi 桌面端 | `kimi-agent` JSON stores 轮询 | token 用量 / 会话状态 / 文件编辑 |
+| DeepSeek Harness | `~/.dsh/sessions/*.jsonl.zstd` 解码 + 进程守护 | 会话事件 / 运行状态 |
+| Gemini 桌面版 | 进程守护（数据不落盘文本日志） | 启动 / 退出 |
+| ChatGPT 桌面版 | 进程守护（启动即自动接管） | 启动 / 退出 |
+
 ## 路线图
 
-- [ ] Claude Code 会话连接器（`~/.claude/projects/**/jsonl`）
-- [ ] Codex / Kimi CLI 连接器
-- [ ] ChatGPT 桌面版状态（macOS Accessibility / Windows UI Automation）
+- [ ] Claude Code 会话连接器（`~/.claude/projects/**/jsonl`，装上加即生效）
+- [ ] ChatGPT 桌面版 UI Automation 深度状态
 - [ ] 面板 HUD：当前任务、今日 token、事件速率、工具分布
 - [ ] 用量账本（读本地 cost 记录）
-- [ ] 自动选屏与开机自启脚本
+- [ ] 自动选屏与开机自启脚本（launchd）
 - [ ] 演示录制脚本
 
 ## 许可

@@ -6,15 +6,22 @@
  */
 
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { FileTailConnector } from "../connectors/file-tail.mjs";
+import { SqlitePollConnector } from "../connectors/sqlite-poll.mjs";
+import { JsonStorePollConnector } from "../connectors/json-store-poll.mjs";
+import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
+import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const IDLE_AFTER_MS = 4000;
 const RATE_WINDOW_MS = 10_000;
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const HOME = homedir();
+const APP_SUPPORT = join(HOME, "Library", "Application Support");
 
 // ---------------------------------------------------------------------------
 // 事件汇聚
@@ -26,6 +33,7 @@ let lastEventAt = 0;
 const clients = new Set();
 
 function pushEvent(event) {
+  console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
   lastEventAt = event.ts;
@@ -55,25 +63,113 @@ function state() {
 }
 
 // ---------------------------------------------------------------------------
-// Connectors 注册 —— 在这里接入新的 AI 软件
+// Connectors —— 按本机实际安装的 AI 软件自动注册
 // ---------------------------------------------------------------------------
 
 const connectors = [];
+const has = (p) => existsSync(p);
 
-/** 示例：尾随任意本地日志文件。用 THINKING_DESKTOP_TAIL=file 环境变量启用 */
-if (process.env.THINKING_DESKTOP_TAIL) {
-  connectors.push(
-    new FileTailConnector({
-      source: "tail",
-      path: process.env.THINKING_DESKTOP_TAIL,
-      rules: [
-        { pattern: /error|Error|ERROR/, type: "error" },
-        { pattern: /tool|Tool/, type: "tool_call" },
-        { pattern: /.*/, type: "thought" },
-      ],
-    })
-  );
+// 1) Codex（OpenAI）：日志库 sqlite 轮询
+{
+  const p = join(HOME, ".codex", "logs_2.sqlite");
+  if (has(p)) {
+    connectors.push(new SqlitePollConnector({
+      source: "codex",
+      path: p,
+      table: "logs",
+      mapType: (row) => {
+        const text = `${row.target} ${row.feedback_log_body}`.toLowerCase();
+        if (row.level === "ERROR") return "error";
+        if (text.includes("tool")) return "tool_call";
+        if (text.includes("turn") || text.includes("response")) return "thought";
+        return null; // 心跳/指标类日志忽略，避免空转
+      },
+      payload: (row) => ({
+        level: row.level,
+        target: row.target,
+        body: String(row.feedback_log_body ?? "").slice(0, 120),
+      }),
+    }));
+  }
 }
+
+// 2) Kimi 桌面端：kimi-agent JSON stores 轮询
+{
+  const dir = join(APP_SUPPORT, "kimi-desktop", "kimi-agent");
+  const usage = join(dir, "conversation-context-usage.json");
+  if (has(usage)) {
+    connectors.push(new JsonStorePollConnector({
+      source: "kimi-desktop",
+      path: usage,
+      summarize: (json) => {
+        const items = Object.entries(json);
+        const active = items.filter(([, v]) =>
+          Date.now() - new Date(v.updatedAt).getTime() < 5 * 60_000);
+        if (active.length === 0) return null; // 只是旧会话，不算活动
+        return {
+          type: "token",
+          payload: {
+            conversations: active.length,
+            maxUsage: Math.max(...active.map(([, v]) => v.contextUsage)),
+            model: active[0][1].model,
+          },
+        };
+      },
+    }));
+  }
+  const statuses = join(dir, "conversation-statuses.json");
+  if (has(statuses)) {
+    connectors.push(new JsonStorePollConnector({
+      source: "kimi-desktop",
+      path: statuses,
+      summarize: (json) => {
+        const running = Object.values(json).filter((s) => s === "running").length;
+        return { type: "status", payload: { running, total: Object.keys(json).length } };
+      },
+    }));
+  }
+  const edits = join(dir, "file-edit-journal.json");
+  if (has(edits)) {
+    connectors.push(new JsonStorePollConnector({
+      source: "kimi-desktop",
+      path: edits,
+      summarize: () => ({ type: "thought", payload: { note: "file edit journal updated" } }),
+    }));
+  }
+}
+
+// 3) DeepSeek Harness：zstd 会话轮询 + 进程守护
+{
+  const dir = join(HOME, ".dsh", "sessions");
+  if (has(dir)) {
+    connectors.push(new ZstdJsonlPollConnector({ source: "deepseek-harness", dir }));
+  }
+  connectors.push(new ProcessWatchConnector({
+    source: "deepseek-harness",
+    processName: "DeepSeek Harness",
+  }));
+}
+
+// 4) Gemini 桌面版：数据全在二进制库里，用进程守护
+connectors.push(new ProcessWatchConnector({ source: "gemini-desktop", processName: "Gemini" }));
+
+// 5) ChatGPT 桌面版：进程守护（当前未运行，启动即接管）
+connectors.push(new ProcessWatchConnector({ source: "chatgpt-desktop", processName: "ChatGPT" }));
+
+// 6) 开发用：THINKING_DESKTOP_TAIL=<日志文件> 尾随任意日志
+if (process.env.THINKING_DESKTOP_TAIL) {
+  connectors.push(new FileTailConnector({
+    source: "tail",
+    path: process.env.THINKING_DESKTOP_TAIL,
+    rules: [
+      { pattern: /error|Error|ERROR/, type: "error" },
+      { pattern: /tool|Tool/, type: "tool_call" },
+      { pattern: /.*/, type: "thought" },
+    ],
+  }));
+}
+
+// ---------------------------------------------------------------------------
 
 for (const c of connectors) {
   c.onEvent = pushEvent;
@@ -123,7 +219,5 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  /       预览（加 ?debug=1 显示状态面板）`);
   console.log(`  /wall   壁纸地址（Lively / Wallpaper Engine 使用）`);
   console.log(`  /stream SSE 事件流 · /state JSON 状态`);
-  if (connectors.length === 0) {
-    console.log("提示：暂无 connector，用 THINKING_DESKTOP_TAIL=<日志文件> 启动可试玩");
-  }
+  console.log(`已注册 connector: ${connectors.map((c) => c.source).join(", ") || "（无）"}`);
 });
