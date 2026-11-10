@@ -186,7 +186,9 @@ function reportHeight() {
     const h = Math.ceil(el.getBoundingClientRect().height) + 2;
     document.documentElement.style.height = h + "px";
     document.body.style.height = h + "px";
-    try { window.webkit?.messageHandlers?.tray?.postMessage({ height: h }); } catch (e) {}
+    const msg = { height: h };
+    try { window.webkit?.messageHandlers?.tray?.postMessage(msg); } catch (e) {}      // macOS 宿主
+    try { window.chrome?.webview?.postMessage(msg); } catch (e) {}                    // Windows 宿主
   }, 30);
 }
 addEventListener("resize", reportHeight);

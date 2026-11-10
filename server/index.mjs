@@ -93,8 +93,21 @@ const dayKey = () => {
 };
 const statsFile = () => join(ROOT, "data", `stats-${dayKey()}.json`);
 let statsSaveTimer = 0;
+let statsDay = dayKey();
+
+/** 跨天：清空当日统计，避免午夜后继续累加前一天的数字 */
+function rolloverDay() {
+  const d = dayKey();
+  if (d === statsDay) return;
+  statsDay = d;
+  totalEvents = 0;
+  toolCounts.clear();
+  sourceStats.clear();
+  tokenBySource.clear();
+}
 
 function saveStats() {
+  rolloverDay();
   if (statsSaveTimer) return;
   statsSaveTimer = setTimeout(() => {
     statsSaveTimer = 0;
@@ -153,6 +166,7 @@ function seriesFrom(buckets, now, seconds = 60) {
 function rateSeries(now, seconds = 60) { return seriesFrom(secBuckets, now, seconds); }
 
 function pushEvent(event) {
+  rolloverDay();
   console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
@@ -560,6 +574,46 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 今日统计的导出/导入（模拟测试前后备份还原用）
+  if (url.pathname === "/stats" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(JSON.stringify({
+      date: dayKey(),
+      totalEvents,
+      tools: Object.fromEntries(toolCounts),
+      sources: Object.fromEntries([...sourceStats].map(([k, v]) => [k, { events: v.events, lastEventAt: v.lastEventAt, lastWorkAt: v.lastWorkAt }])),
+      tokens: Object.fromEntries(tokenBySource),
+    }));
+    return;
+  }
+  if (url.pathname === "/stats" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      try {
+        const d = JSON.parse(body);
+        if (d.date && d.date !== dayKey()) { res.writeHead(400).end("date mismatch"); return; }
+        totalEvents = Number(d.totalEvents) || 0;
+        toolCounts.clear();
+        for (const [k, v] of Object.entries(d.tools || {})) {
+          const key = k.toLowerCase();
+          const item = v && typeof v === "object" ? { name: String(v.name || k), count: Number(v.count) || 0 } : { name: k, count: Number(v) || 0 };
+          const prev = toolCounts.get(key);
+          if (prev) prev.count += item.count; else toolCounts.set(key, item);
+        }
+        sourceStats.clear();
+        for (const [k, v] of Object.entries(d.sources || {})) {
+          sourceStats.set(k, { events: Number(v.events) || 0, lastEventAt: Number(v.lastEventAt) || 0, lastType: "restored", lastWorkAt: Number(v.lastWorkAt) || 0 });
+        }
+        tokenBySource.clear();
+        for (const [k, v] of Object.entries(d.tokens || {})) tokenBySource.set(k, v);
+        saveStats();
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true }));
+      } catch { res.writeHead(400).end("bad request"); }
+    });
+    return;
+  }
+
   // 最近的思考文本：页面一启动就能把环带/视窗填满，不用等下一次事件
   if (url.pathname === "/texts") {
     const limit = Math.max(1, Math.min(40, Number(url.searchParams.get("limit")) || 12));
@@ -659,6 +713,15 @@ const server = createServer((req, res) => {
         ...c.last,
       })),
     }));
+    return;
+  }
+
+  // 页面别名：/tray、/config（Windows 宿主、README 里用的都是不带 .html 的地址）
+  if (url.pathname === "/tray" || url.pathname === "/config") {
+    const file = join(ROOT, "web", url.pathname === "/tray" ? "tray.html" : "config.html");
+    try {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }).end(readFileSync(file));
+    } catch { res.writeHead(404).end("not found"); }
     return;
   }
 

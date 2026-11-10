@@ -4,13 +4,20 @@
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent   # 项目根（install.ps1 在 win/ 下）
-$node = (Get-Command node -ErrorAction SilentlyContinue)?.Source ?? "C:\Program Files\nodejs\node.exe"
+# PowerShell 5.1 不支持 ?? / ?. ，这里用显式判断
+$nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+$node = if ($nodeCmd) { $nodeCmd.Source } else { "C:\Program Files\nodejs\node.exe" }
+if (-not (Test-Path $node)) { throw "找不到 node，请先安装 Node.js 20+：$node" }
 
 Write-Host "1/3 注册数据服务自启（登录时启动 127.0.0.1:7799）…"
 $action = New-ScheduledTaskAction -Execute $node -Argument "`"$root\server\index.mjs`"" -WorkingDirectory $root
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel LeastPrivilege
-Register-ScheduledTask -TaskName "ThinkingDesktopServer" -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+# 崩溃自愈：失败后每分钟重启，最多 999 次
+$settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+  -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName "ThinkingDesktopServer" -Action $action -Trigger $trigger `
+  -Principal $principal -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName "ThinkingDesktopServer"
 
 Write-Host "2/3 编译壁纸宿主…"

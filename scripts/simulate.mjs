@@ -105,6 +105,19 @@ async function phase(name, sources) {
 
 const t0 = Date.now();
 mkdirSync(OUT, { recursive: true });
+
+// 模拟前备份「今日真实统计与文本」，结束后原样还原，避免污染真实数据
+const API = BASE;
+const backup = { stats: null, texts: null };
+async function snapshotState() {
+  try { backup.stats = await (await fetch(`${API}/stats`)).json(); } catch {}
+  try { backup.texts = await (await fetch(`${API}/texts?limit=40`)).json(); } catch {}
+}
+async function restoreState() {
+  try { if (backup.stats) await fetch(`${API}/stats`, { method: "POST", body: JSON.stringify(backup.stats) }); } catch {}
+  try { if (backup.texts) await fetch(`${API}/texts`, { method: "POST", body: JSON.stringify(backup.texts) }); } catch {}
+}
+await snapshotState();
 console.log(`多 agent 并行模拟 → ${BASE}`);
 console.log(`每阶段 ${SECONDS}s，输出到 ${OUT}`);
 
@@ -135,11 +148,12 @@ async function sampleLights(seconds, tag) {
 console.log("\n=== 切换平滑度 ===");
 const trace = await sampleLights(Number(process.env.SIM_FADE_SECONDS || 8), "淡出采样");
 
+await restoreState();
+
 const bad = results.filter((r) => r.missing.length);
 console.log(`\n=== 结论 ===`);
 console.log(`阶段数 ${results.length}，耗时 ${Math.round((Date.now() - t0) / 1000)}s`);
 console.log(bad.length ? `有 ${bad.length} 个阶段未点亮预期来源` : `所有预期来源都已同时点亮`);
 console.log(`快照目录: ${OUT}`);
-console.log(`提示：模拟事件只写入本次运行的内存统计与 data/texts.json；`);
-console.log(`      清理用 \`npm run backfill\`（回填今日真实会话）并重启服务。`);
+console.log(`已还原模拟前的真实统计与思考文本（/stats、/texts）。`);
 process.exit(bad.length ? 1 : 0);

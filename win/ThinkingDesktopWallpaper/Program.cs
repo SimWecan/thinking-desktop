@@ -43,6 +43,8 @@ wall.Load += async (_, _) =>
 };
 
 // ---------- 右上角托盘窗口 ----------
+// 透明键用洋红：托盘页的图标里本来就有黑色（Kimi/ChatGPT 的商标），用黑色当透明键会把图标抠出洞
+var KEY = Color.Magenta;
 var tray = new Form
 {
     FormBorderStyle = FormBorderStyle.None,
@@ -50,18 +52,35 @@ var tray = new Form
     Bounds = new Rectangle(
         Screen.PrimaryScreen.WorkingArea.Right - 64 - 10,
         Screen.PrimaryScreen.WorkingArea.Top + 8,
-        64, 420),
+        64, 62),                      // 收起态高度；展开时由页面 postMessage 上报
     ShowInTaskbar = false,
     TopMost = true,
-    BackColor = Color.Black,
-    TransparencyKey = Color.Black,
+    BackColor = KEY,
+    TransparencyKey = KEY,
 };
-var trayView = new WebView2 { Dock = DockStyle.Fill };
+var trayView = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = KEY };
 tray.Controls.Add(trayView);
 tray.Load += async (_, _) =>
 {
     await trayView.EnsureCoreWebView2Async();
-    trayView.CoreWebView2.Navigate($"{SERVER}/tray");
+    // 页面通过 chrome.webview.postMessage({height}) 上报内容高度，窗口跟着伸缩
+    trayView.CoreWebView2.WebMessageReceived += (_, e) =>
+    {
+        try
+        {
+            var json = e.TryGetWebMessageAsString();
+            if (string.IsNullOrWhiteSpace(json)) json = e.WebMessageAsJson;
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("height", out var h) && h.TryGetDouble(out var height))
+            {
+                var wa = Screen.FromControl(tray).WorkingArea;
+                var newH = Math.Max(52, Math.Min(640, (int)Math.Round(height)));
+                tray.Bounds = new Rectangle(wa.Right - tray.Width - 10, wa.Top + 8, tray.Width, newH);
+            }
+        }
+        catch { /* 忽略坏消息 */ }
+    };
+    trayView.CoreWebView2.Navigate($"{SERVER}/tray.html");
 };
 
 // 保活：壁纸周期性拉回桌面层（被其它程序压底时恢复）
