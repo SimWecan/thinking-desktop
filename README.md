@@ -7,9 +7,11 @@
 
 ## 特性
 
-- **双形态壁纸**：待机时为自绘旋臂粒子海（慢速呼吸）；任一 AI 开始思考时平滑切换为 [HALOFLUX](https://github.com/Ryder191/haloflux) 光场核心 + 旋转数据环 + 多层光束，活动越剧烈节拍越快、光束越亮；全部空闲 30 秒后切回待机
+- **单一形态 · 向心汇聚**：全部粒子从屏幕边缘持续向中心螺旋汇聚并被核心吸收；待机时缓慢呼吸，任一 AI 开始思考后形态不变、强度提升（拉力/转速/亮度随事件速率增长）
+- **无面板无进度条**：纯全屏粒子画面，无 HUD 部件（调试面板仅 `?debug=1` 时显示）
+- **交互**（浏览器预览 `http://127.0.0.1:7799` 中生效）：移动鼠标推开粒子；点击产生冲击波；按住推得更开。桌面壁纸为不遮挡图标而点击穿透，交互仅在预览页可用
 - **多源接入**：统一抽象 Connector，接入 Codex / Kimi / DeepSeek Harness / Gemini / ChatGPT 桌面端等本机 AI 软件的事件流
-- **事件驱动**：token 更新 → 涟漪扩散；工具调用 → 光束脉冲；报错 → 红色闪烁
+- **事件驱动**：token 更新 → 涟漪扩散；工具调用 → 强涟漪；报错 → 画面泛红
 - **零第三方依赖**：服务端仅使用 Node.js 标准库
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
 - **跨平台**：macOS / Windows / Linux 均可运行
@@ -90,4 +92,4 @@ macos/install.sh
 ## 许可
 
 - 本项目代码：MIT（见 LICENSE）
-- `web/haloflux/`：**HALOFLUX by Ryder191 (RYDER CODE / Ms MAIKEBAIs CAT)**，[PolyForm Noncommercial License 1.0.0](https://github.com/Ryder191/haloflux)（仅限个人非商业用途，严禁商业使用）。画面右下角已保留署名；分享本项目视频/截图时须注明 `HALOFLUX by Ryder191 - https://github.com/Ryder191/haloflux`。详见 `web/haloflux/NOTICE.md` 与 LICENSE。
+- `web/haloflux/`：参考引入的 **HALOFLUX by Ryder191**，[PolyForm Noncommercial License 1.0.0](https://github.com/Ryder191/haloflux)。当前版本壁纸未加载它（保留作参考）；若重新启用，画面须保留署名，分享视频/截图时须注明 `HALOFLUX by Ryder191 - https://github.com/Ryder191/haloflux`。详见 `web/haloflux/NOTICE.md` 与 LICENSE。
