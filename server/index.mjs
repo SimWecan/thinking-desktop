@@ -22,7 +22,6 @@ import { EVENT_TYPES } from "../connectors/base.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
-const IDLE_AFTER_MS = 4000;   // 保留：纯速率窗口，不参与环带停转判定
 const RATE_WINDOW_MS = 10_000;
 import { AgentRegistry } from "./agents.mjs";
 import { buildIcons, cachedIconPath, ensureIcon2x } from "./icons.mjs";
@@ -32,6 +31,17 @@ const APP_SUPPORT = join(HOME, "Library", "Application Support");
 const agents = new AgentRegistry(ROOT);
 
 // zstd 只在 DSH 会话截流用得到；提前探测，缺了就在启动日志里明确告警
+// 轻量自检：内存与最近一段的 CPU 占用（健康检查里给出，便于长时间挂机观察）
+let cpuSample = { at: Date.now(), usage: process.cpuUsage() };
+function cpuPercent() {
+  const now = Date.now();
+  const du = process.cpuUsage(cpuSample.usage);
+  const dt = Math.max(1, now - cpuSample.at) * 1000;   // µs
+  const pct = ((du.user + du.system) / dt) * 100;
+  cpuSample = { at: now, usage: process.cpuUsage() };
+  return Math.round(pct * 10) / 10;
+}
+
 const zstdAvailable = (() => {
   try { return spawnSync("zstd", ["--version"], { encoding: "utf8" }).status === 0; } catch { return false; }
 })();
@@ -43,13 +53,15 @@ const zstdAvailable = (() => {
 const events = [];
 const MAX_EVENTS = 500;
 const clientDebug = new Map();
-let shotAt = 0;            // 最近一次「截屏请求」时间
+let shotAt = 0;
+let testClickAt = 0;            // 最近一次「截屏请求」时间
 let shotPng = null;
 let shotSlot = null;
 let shotLights = null;
 let shotChart = null;
 let shotPanel = null;
-let shotTray = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
+let shotTray = null;
+let shotRipple = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
@@ -61,7 +73,6 @@ const tokenBySource = new Map(); // source -> 最近一次上下文计量
 // 这里给已知模型一个兜底窗口（DSH 默认 1M），保证占用率能算出来。
 const DEFAULT_WINDOW = { "deepseek-harness": 1048576 };
 const toolCounts = new Map();   // 工具调用分布
-let tokenInfo = null;           // 最近一次 token 计量（Kimi 等）
 let totalEvents = 0;
 
 // 思考文本落盘：服务重启后 /texts 仍能回填，壁纸开机不会是空环带
@@ -131,7 +142,6 @@ function pushEvent(event) {
       conversations: p.conversations ?? null,
       at: event.ts,
     });
-    tokenInfo = tokenBySource.get(event.source);
   }
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) {
@@ -155,6 +165,7 @@ function state() {
     byType,
     bySource,
     shot: Date.now() - shotAt < 3000,   // 3s 内请求过截屏 → 页面回传一帧
+    testClick: Date.now() - testClickAt < 3000,   // 自检：让壁纸在环心触发一次冲击波
     // 每个来源最后一次真实事件：用于确认某个 connector 是真的接到数据，而不是只注册成功
     sources: [...sourceStats.entries()].map(([source, s]) => ({
       source,
@@ -482,6 +493,13 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 自检：在环心触发一次冲击波
+  if (url.pathname === "/selftest" && url.searchParams.has("click")) {
+    testClickAt = Date.now();
+    res.writeHead(200, { "Content-Type": "text/plain" }).end("click");
+    return;
+  }
+
   // 画布快照：GET /snapshot?request=1 请求一帧；GET /snapshot 取 PNG
   if (url.pathname === "/snapshot") {
     if (req.method === "POST") {
@@ -501,12 +519,14 @@ const server = createServer((req, res) => {
           const chart = dec(data.chart);
           const panelPng = dec(data.panel);
           const trayPng = dec(data.tray);
+          const ripplePng = dec(data.ripple);
           if (full) { shotPng = full; shotAt = 0; }
           if (slot) shotSlot = slot;
           if (lights) shotLights = lights;
           if (chart) shotChart = chart;
           if (panelPng) shotPanel = panelPng;
           if (trayPng) shotTray = trayPng;
+          if (ripplePng) shotRipple = ripplePng;
         } catch { /* 忽略坏包 */ }
         res.writeHead(200).end("ok");
       });
@@ -522,6 +542,7 @@ const server = createServer((req, res) => {
       : url.searchParams.has("chart") ? shotChart
       : url.searchParams.has("panel") ? shotPanel
       : url.searchParams.has("tray") ? shotTray
+      : url.searchParams.has("ripple") ? shotRipple
       : shotPng;
     if (!img) { res.writeHead(404).end("no snapshot"); return; }
     res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(img);
@@ -545,6 +566,8 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify({
       ok: true,
       uptimeMs: Math.round(process.uptime() * 1000),
+      rssMb: Math.round(process.memoryUsage().rss / 1048576),
+      cpuPct: cpuPercent(),
       zstd: zstdAvailable,
       connectors: [...byName.values()],
       // 闭源端：最近一次 CPU 采样（用来确认活动度检测真的在跑、阈值是否合适）

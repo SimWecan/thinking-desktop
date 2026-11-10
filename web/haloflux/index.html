@@ -2144,12 +2144,10 @@ function syncPanel() {
     window.__tdClick = function (x, y) {
       ripples.push({ x, y, t: performance.now() });
       if (ripples.length > 8) ripples.shift();
-      window.__tdTintList = lights.map((l) => ({ src: l.src, rgb: l.rgb, intensity: l.intensity }));
       if (!raf) raf = requestAnimationFrame(step);
     };
     function step(now) {
       raf = 0;
-      frames++;
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, cv.width, cv.height);
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2171,6 +2169,18 @@ function syncPanel() {
       else { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); }
     }
   })();
+
+  window.__tdSelfTestClick = function () {
+    try {
+      const p = toScreen(cx, cy);
+      // 连发三次，方便在任意时刻截到正在扩散的冲击波
+      [0, 320, 640].forEach((d, i) => setTimeout(() => window.__tdClick(p.x + 40 + i * 30, p.y), d));
+      return true;
+    } catch (e) { return false; }
+  };
+  window.__tdRippleShot = function () {
+    try { const el = document.getElementById('td-ripple'); return el ? el.toDataURL('image/png') : null; } catch (e) { return null; }
+  };
 
   /* ---------- 版权署名（许可要求保留） ---------- */
   const credit = document.createElement('div');

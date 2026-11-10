@@ -103,6 +103,11 @@ const MOTION = {
   term: "m-pulse",
 };
 
+function SRC_NAME(source) {
+  const a = agents.find((x) => x.source === source);
+  return (a && a.name) || source;
+}
+
 function iconUrl(source, scale = 1) {
   return `/icon/${encodeURIComponent(source)}.png` + (scale > 1 ? "?x=2" : "");
 }
@@ -127,7 +132,8 @@ function build() {
         mono.textContent = a.short || a.source.slice(0, 2).toUpperCase();
         el.insertBefore(mono, el.firstChild);
       }, { once: true });
-      el.onclick = () => select(a.source);
+      // 点任意厂商图标：切到它的粒子特效形态，同时收回侧栏
+      el.onclick = async () => { await select(a.source); expanded = false; build(); };
       tray.appendChild(el);
       icons.set(a.source, el);
     }
@@ -135,10 +141,13 @@ function build() {
     el.classList.toggle("think", !!a.thinking);
     el.classList.toggle("hidden", !expanded);
     el.classList.toggle("sel", view === a.source);
-    el.querySelector(".lbl").textContent = (a.name || a.source) + (a.thinking ? " · 思考中" : "");
+    el.querySelector(".lbl").textContent =
+      (a.name || a.source) + (a.thinking ? " · 思考中" : "") + (view === a.source ? " · 当前形态" : "");
   }
   composite.classList.toggle("think", agents.some((a) => a.enabled && a.thinking));
   composite.classList.toggle("sel", view === "all");
+  composite.querySelector(".lbl").textContent =
+    view === "all" ? "综合形态 · 全部 agent" : `综合形态（当前：${SRC_NAME(view)}）`;
 }
 
 async function select(agent) {
@@ -148,8 +157,10 @@ async function select(agent) {
 }
 
 composite.onclick = async () => {
-  if (!expanded) { expanded = true; build(); return; }
-  await select("all");
+  if (!expanded) { expanded = true; build(); return; }   // 单击综合按钮：展开侧栏
+  await select("all");                                    // 已展开时再点：回到综合形态并收回
+  expanded = false;
+  build();
 };
 composite.oncontextmenu = (e) => { e.preventDefault(); expanded = !expanded; build(); };
 
