@@ -8,7 +8,7 @@
   #c { display: block; width: 100vw; height: 100vh; }
   #halo {
     position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0;
-    opacity: 0; transition: opacity 1.8s ease; z-index: 1;
+    z-index: 1; /* 常驻显示：待机 = 运行中的圆环原地停止，不淡出 */
   }
   #idlewrap {
     position: fixed; inset: 0; z-index: 2;
@@ -58,8 +58,8 @@ let stateTimer = 0;
 const ripples = [];   // 事件涟漪
 const shocks = [];    // 点击冲击波
 const mouse = { x: -9999, y: -9999, down: false };
-let active = false, lastParamPush = 0, hideTimer = 0;
-// 0 = 思考形态，1 = 独立待机圆环形态（交叉淡入淡出）；force 预览参数立即到位
+let active = false, lastParamPush = 0;
+// 待机淡出计数：0 = 思考形态，1 = 完全待机（粒子海渐隐，光环常驻原地停止）
 let ringAlpha = FORCE ? (FORCE === "idle" ? 1 : 0) : 0;
 
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
@@ -84,22 +84,12 @@ window.addEventListener("message", (ev) => {
   if (m && m.td === "ready") { haloMsg({ td: "pause", value: !active }); pushParams(performance.now() + 1000); }
 });
 
-/** 待机 ⇄ 思考 形态切换：HALOFLUX 淡入淡出，待机时暂停渲染省 CPU。
- *  待机必须把它完全藏掉（opacity + visibility），只留独立的待机圆环，
- *  避免「圆环冻结在屏幕上」的停滞感。 */
+/** 待机 ⇄ 思考 形态切换：HALOFLUX 常驻显示，待机即暂停（圆环原地停止），
+ *  思考恢复运转；待机时粒子海渐隐让位。 */
 function setActive(on) {
   if (active === on) return;
   active = on;
-  halo.style.opacity = on ? 1 : 0;
   idleWrap.style.opacity = on ? 0 : 1;
-  clearTimeout(hideTimer);
-  if (on) {
-    halo.style.visibility = "visible";
-  } else {
-    hideTimer = setTimeout(() => {
-      if (!active) halo.style.visibility = "hidden";
-    }, 1900); // 等 1.8s 淡出动画结束再彻底移除，防止冻结残帧
-  }
   haloMsg({ td: "pause", value: !on });
   setTimeout(() => haloMsg({ td: "pause", value: !active }), 800); // iframe 后加载完成时再补一次
 }
@@ -289,59 +279,6 @@ function frame(now) {
     ctx.globalAlpha = 1;
   }
 
-  // ---------------- 独立待机圆环（常动、呼吸、可交互） ----------------
-  if (ringAlpha > 0.02) {
-    const a = ringAlpha;
-    const R = Math.min(W, H) * 0.24 * (1 + 0.03 * Math.sin(now / 2600));
-    const rot1 = now / 9000, rot2 = -now / 14000;
-    // 外环：两段对旋弧
-    for (const [rot, span, mul] of [[rot1, 4.2, 1], [rot2, 2.4, 0.55]]) {
-      ctx.beginPath();
-      ctx.strokeStyle = `rgba(140,195,255,${0.75 * a * mul})`;
-      ctx.lineWidth = 1.8;
-      ctx.shadowColor = `rgba(120,180,255,${0.5 * a * mul})`;
-      ctx.shadowBlur = 9;
-      ctx.arc(cx, cy, R, rot, rot + span);
-      ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
-    // 内环细弧（反向缓旋）
-    ctx.beginPath();
-    ctx.strokeStyle = `rgba(140,195,255,${0.35 * a})`;
-    ctx.lineWidth = 1.1;
-    ctx.arc(cx, cy, R * 0.82, -rot1 * 0.6, -rot1 * 0.6 + 5.4);
-    ctx.stroke();
-    // 刻度点：外环上缓慢流转的光点
-    for (let i = 0; i < 3; i++) {
-      const ang = rot2 * 1.7 + i * (Math.PI * 2 / 3);
-      ctx.beginPath();
-      ctx.fillStyle = `rgba(190,225,255,${0.8 * a})`;
-      ctx.arc(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, 2, 0, 7);
-      ctx.fill();
-    }
-    // 呼吸微光核心
-    const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.7);
-    rg.addColorStop(0, `rgba(120,180,255,${0.12 * a * breath})`);
-    rg.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = rg;
-    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
-    // 鼠标悬停：圆环朝光标一侧的弧段提亮、微微顶起
-    const mdx = mouse.x - cx, mdy = mouse.y - cy;
-    const mdd = Math.hypot(mdx, mdy);
-    if (mdd < R + 140) {
-      const ang = Math.atan2(mdy, mdx);
-      const near = Math.max(0, 1 - Math.abs(mdd - R) / 140);
-      ctx.beginPath();
-      ctx.strokeStyle = `rgba(190,225,255,${(0.35 + 0.6 * near) * a})`;
-      ctx.lineWidth = 1.8 + 2.6 * near;
-      ctx.shadowColor = `rgba(150,200,255,${0.6 * a})`;
-      ctx.shadowBlur = 12;
-      ctx.arc(cx, cy, R + 6 * near, ang - 0.45, ang + 0.45);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-  }
-
   // 事件涟漪（从核心扩散）
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
@@ -373,7 +310,7 @@ function frame(now) {
     if (now - stateTimer > 500) {
       stateTimer = now;
       hud.innerHTML =
-        `<b>Thinking Desktop</b> · ${idle ? "待机 · 独立圆环" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
+        `<b>Thinking Desktop</b> · ${idle ? "待机 · 圆环停止" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
         `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br><span style="opacity:.7">移动鼠标推开粒子 · 点击产生冲击波</span>`;

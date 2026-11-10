@@ -1443,8 +1443,17 @@ function resizeAll() {
 }
 const origFrame = frame;
 frame = function frame(now) {
-  if (window.__wpPaused) { last = now; requestAnimationFrame(frame); return; }
-  if (ready) origFrame(now); else { last = now; requestAnimationFrame(frame); }
+  if (window.__wpPaused) {
+    last = now;
+    // 首帧保底：光环/相机需要约 2.5s 热身才完全展开，热身结束先画一帧再停，
+    // 待机是「停住的完整圆环」而不是黑屏或半成品
+    if (!window.__tdEverRendered && ready && performance.now() > 2500) {
+      window.__tdEverRendered = true; origFrame(now);
+    }
+    requestAnimationFrame(frame);
+    return;
+  }
+  if (ready) { window.__tdEverRendered = true; origFrame(now); } else { last = now; requestAnimationFrame(frame); }
 };
 new ResizeObserver(() => { clearTimeout(rzT); rzT = setTimeout(resizeAll, 120); }).observe(document.getElementById('stageWrap'));
 (document.fonts ? document.fonts.ready : Promise.resolve()).then(resizeAll);
