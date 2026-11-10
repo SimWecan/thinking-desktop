@@ -79,6 +79,7 @@ final class ScreenWatcher: NSObject {
     @objc func screensChanged(_ n: Notification) {
         windows.forEach { $0.orderOut(nil) }
         windows = NSScreen.screens.map(makeWindow)
+        DispatchQueue.main.async { positionTray() }
     }
 }
 let watcher = ScreenWatcher()
@@ -160,9 +161,23 @@ final class TrayBridge: NSObject, WKScriptMessageHandler {
 }
 var trayBridge: TrayBridge?
 
+/// 托盘默认放在「鼠标所在的那块屏」的右上角，屏幕变化时重新贴边
+func trayScreen() -> NSScreen {
+    let p = NSEvent.mouseLocation
+    return NSScreen.screens.first { NSMouseInRect(p, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+}
+
+func positionTray() {
+    let panel = trayPanel
+    let screen = panel.screen ?? trayScreen()
+    let vf = screen.visibleFrame
+    let w = panel.frame.width, h = panel.frame.height
+    panel.setFrame(NSRect(x: vf.maxX - w - 10, y: vf.maxY - h - 8, width: w, height: h), display: true, animate: false)
+}
+
 func resizeTray(to height: CGFloat) {
     let panel = trayPanel
-    let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
+    let screen = panel.screen ?? trayScreen()
     let vf = screen.visibleFrame
     let w = panel.frame.width
     let h = max(52, min(640, height))
@@ -174,7 +189,7 @@ func resizeTray(to height: CGFloat) {
 
 private func makeTray() -> NSPanel {
     let size = NSSize(width: 64, height: 64)
-    let screen = NSScreen.main ?? NSScreen.screens[0]
+    let screen = trayScreen()
     let vf = screen.visibleFrame
     let frame = NSRect(x: vf.maxX - size.width - 10,
                        y: vf.maxY - size.height - 8,

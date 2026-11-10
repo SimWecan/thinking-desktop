@@ -48,10 +48,11 @@ type ThinkingEvent = {
 - **机位**：`C.camera = 0`，`updateCam` 恒定停在 z=1 中心机位——不再有自动推近/拉远的「特写」；节奏/转速/辉光由页面按事件速率小幅映射（舒适档）。
 - **切换缓动**：halo 里每个来源维护 `cur`（当前强度）与 `lane`（当前通道位置），用指数平滑逼近目标值（亮起 `dt*5`、暗下 `dt*1.8`、通道 `dt*2.6`）；消失的来源先置 `target=0` 留在数组里渐隐，`cur<0.02` 才移除。整帧染色色也按帧插值（`k≈0.06`）。进入待机时 `__tdLightsReset()` 清空光效层。
 - **今日统计落盘**：`data/stats-YYYY-MM-DD.json` 保存 EVENTS、工具分布、各来源计数与上下文计量，启动时若日期一致就载入（跨天自动从 0 开始），SIGTERM 时强制落盘。
+- **Codex 过滤**：`connectors/codex-filter.mjs` 按 target/level 分类（ERROR→error；apply_patch/shell/exec/mcp_tool→tool_call；stream_events/outgoing_message/message_processor→thought），config/http/otel/login 等噪声一律忽略；单轮最多 8 条防刷屏。
 - **停环判定**：客户端以 `workAt`（最后一条非 status 事件）为准，超过 `BUSY_HOLD = 20s` 进入待机；`status.running === 0`（回合结束）立即把 `busyUntil` 归零。`/debug` 暴露 `idleFor / busyIn / hold` 便于排查。
 - **上下文计量**：DSH 的 `assistant/message.data.usage`（inputTokens + cacheReadTokens）配合 `request/context.contextWindow` 算出占用率；窗口缺失时沿用上一次或按来源兜底（DSH 1M）。Kimi 用自己的 `maxUsage` 比例。两者在 `/state.tokens` 里统一成 `{model, used, window, pct}`。
 - **舞台染色**：父页面把活跃来源（颜色/强度）发给 halo；halo 在 `drawStage` 末尾用 canvas `color` 混合模式按加权混色给整帧染色——只改色相/饱和度、保留亮度，于是白色粒子/光束/环带会整体变成该厂商的颜色（旧 WebKit 不支持时退化为 multiply）。
-- **光效配色**：`kimi-desktop` 白 `#ffffff`、`deepseek-harness` 蓝 `#3b82f6`、`codex` 紫 `#a855f7`、`gemini-desktop` 红 `#ef4444`、`chatgpt-desktop` 绿 `#22c55e`。父页面每秒把「25s 内有真实工作事件」的来源连同颜色/强度发给 halo，halo 用独立覆盖层画每条来源的环带通道辉光 + 环内外彩色粒子；多来源时按 `(i+0.5)/n` 分配到不同半径，互不遮挡。
+- **光效配色**：`kimi-desktop` 白 `#ffffff`、`deepseek-harness` 蓝 `#3b82f6`、`codex` 紫 `#a855f7`、`gemini-desktop` 红 `#ef4444`、`chatgpt-desktop` 绿 `#22c55e`。父页面每秒把「12s 内有真实工作事件」的来源连同颜色/强度发给 halo，halo 用独立覆盖层画每条来源的环带通道辉光 + 环内外彩色粒子；多来源时按 `(i+0.5)/n` 分配到不同半径，互不遮挡。
 - **环形数据块**：思考态用真实截流文本填充（`window.__tdRingText`），0.3s 刷新；每个环槽的版式（分块/配色/索引列）只随机一次并缓存，重绘只换文字，避免整环「沸腾」。闭源 AI 没有文本通道时退回 HALOFLUX 预设动画。
 - **右侧视窗**：只在鼠标停在环带上时出现（halo 用环心 `toScreen(cx,cy)` 与 `R..RO` 做命中判定，600ms 无鼠标事件视为离开），离开立即收起。
 - **鼠标**：仅用于环带命中判定；不做悬停放大/特写。点击由原生宿主全局转发，触发冲击波。

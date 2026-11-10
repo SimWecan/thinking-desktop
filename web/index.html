@@ -142,6 +142,7 @@
 
 <div id="hud"></div>
 
+<script src="/lib/td-logic.js"></script>
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
@@ -339,8 +340,8 @@ function renderPanel() {
   drawSpark(miniSpark, series, accent, { height: 26 });
 
   // agents
+  const bars = new Map(TDLogic.agentBars(agentsList, view).map((b) => [b.source, b.pct]));
   const list = (agentsList || []).filter((a) => a.enabled !== false && (view === "all" || a.source === view));
-  const maxEvents = Math.max(1, ...list.map((a) => a.events || 0));
   pnAgents.innerHTML = "";
   if (!list.length) pnAgents.innerHTML = `<div class="empty">未绑定 agent</div>`;
   for (const a of list) {
@@ -479,12 +480,9 @@ window.addEventListener("message", (ev) => {
 });
 
 function currentStandby() {
-  const now = Date.now();
-  if (view !== "all") {
-    const a = agentsList.find((x) => x.source === view);
-    if (a) return !a.thinking;
-  }
-  return now - workAt > BUSY_HOLD && now > busyUntil;
+  return TDLogic.shouldStandby({
+    now: Date.now(), workAt, busyUntil, hold: BUSY_HOLD, view, agents: agentsList,
+  });
 }
 
 /** 正在工作的来源 → 光环按各自颜色点亮 */
@@ -606,7 +604,7 @@ setInterval(async () => {
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
-    series = s.series || [];
+    series = TDLogic.normalizeSeries(s.series, 60);
     tools = s.tools || [];
     tokens = s.tokens || {};
     agentSeries = s.agentSeries || {};

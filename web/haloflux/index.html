@@ -1999,6 +1999,8 @@ function syncPanel() {
     function step(now) {
       raf = 0;
       frames++;
+      // 光效是慢变化，30fps 足够：省一半绘制，视觉上看不出来
+      if (lastStepAt && now - lastStepAt < 30) { raf = requestAnimationFrame(step); return; }
       const dt = Math.min(0.05, lastStepAt ? (now - lastStepAt) / 1000 : 0.016);
       lastStepAt = now;
       if (Date.now() - lastMsg > 3000) for (const L of lights) L.target = 0;

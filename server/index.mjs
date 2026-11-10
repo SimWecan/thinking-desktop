@@ -18,6 +18,7 @@ import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
 import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
+import { mapCodexLogRow } from "../connectors/codex-filter.mjs";
 import { EVENT_TYPES } from "../connectors/base.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
@@ -256,13 +257,9 @@ const has = (p) => existsSync(p);
       source: "codex",
       path: p,
       table: "logs",
-      mapType: (row) => {
-        const text = `${row.target} ${row.feedback_log_body}`.toLowerCase();
-        if (row.level === "ERROR") return "error";
-        if (text.includes("tool")) return "tool_call";
-        if (text.includes("turn") || text.includes("response")) return "thought";
-        return null; // 心跳/指标类日志忽略，避免空转
-      },
+      intervalMs: 2000,
+      maxBatch: 8,              // 单轮最多 8 条：日志库很吵，宁少勿刷屏
+      mapType: mapCodexLogRow,
       payload: (row) => ({
         level: row.level,
         target: row.target,
