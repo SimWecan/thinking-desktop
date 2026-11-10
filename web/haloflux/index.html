@@ -1712,7 +1712,7 @@ function syncPanel() {
       if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（iframe ready 重发）丢弃
       if (m.id) window.__tdTextId = m.id;
       const s = String(m.text || '').replace(/\s+/g, ' ').trim();
-      if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; if (window.__tdStandby) tdRenderStandby(); }
+      if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; window.__tdTextVersion++; if (window.__tdStandby) tdRenderStandby(); }
     }
   }, false);
 
@@ -1725,6 +1725,7 @@ function syncPanel() {
   window.__tdTextDirty = false;
   // 环上数据块用真实截流文本填充（闭源 AI 没有文本时才退回预设动画）
   window.__tdRingText = true;
+  window.__tdTextVersion = 0;   // 每次收到新文本 +1，环槽据此判断要不要重画
   const _code = BLOCKS.code, _para = BLOCKS.para;
 
   function tdRows(c, x0, x1, y0, y1, t, font) {
@@ -1771,6 +1772,7 @@ function syncPanel() {
   const _renderSlot = renderSlot;
   renderSlot = function (s) {
     if (!window.__tdRingText || !window.__tdText.length) return _renderSlot(s);   // 预设动画
+    if (s.c && s.ver === window.__tdTextVersion) return;                          // 没新文本 → 不白画
     const band = RO - R, h = s.hpx;
     if (!s.rects) {
       const RB = rimW(), dz0 = RB + 6, dz1 = band * 0.72;
@@ -1793,6 +1795,7 @@ function syncPanel() {
       x.restore();
     }
     window.__tdTextPaints++;
+    s.ver = window.__tdTextVersion;
     s.c = c;
   };
 
