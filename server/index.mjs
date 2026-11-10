@@ -22,7 +22,7 @@ import { EVENT_TYPES } from "../connectors/base.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
-const IDLE_AFTER_MS = 4000;
+const IDLE_AFTER_MS = 4000;   // 保留：纯速率窗口，不参与环带停转判定
 const RATE_WINDOW_MS = 10_000;
 import { AgentRegistry } from "./agents.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));

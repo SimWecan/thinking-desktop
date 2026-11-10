@@ -21,17 +21,22 @@ export class ProcessActivityConnector extends Connector {
    * @param {string} opts.source        来源标识（与 process-watch 用同一个，便于聚合）
    * @param {string} opts.match         进程路径匹配串，如 "/Gemini.app/"
    * @param {number} [opts.intervalMs]  采样间隔，默认 2000
-   * @param {number} [opts.cpuThreshold] 合计 CPU 超过该百分比算「工作中」，默认 12
-   * @param {number} [opts.minEmitMs]   工作期间事件最小间隔，默认 1200
-   * @param {number} [opts.idleAfterMs] 低于阈值持续多久算收工，默认 6000
+   * @param {number} [opts.cpuThreshold] 绝对门槛：合计 CPU 超过它才算「工作中」，默认 14
+   * @param {number} [opts.minEmitMs]   工作期间事件最小间隔，默认 2500
+   * @param {number} [opts.holdSamples] 连续几个采样超门槛才判定开始工作，默认 2
+   * @param {number} [opts.exitSamples] 连续几个采样跌破滞后门槛才判定收工，默认 3
    */
-  constructor({ source, match, intervalMs = 2000, cpuThreshold = 12, minEmitMs = 1200, idleAfterMs = 6000 }) {
+  constructor({ source, match, intervalMs = 2000, cpuThreshold = 14, minEmitMs = 2500, holdSamples = 2, exitSamples = 3 }) {
     super(source, "activity");
     this.match = match;
     this.intervalMs = intervalMs;
     this.cpuThreshold = cpuThreshold;
     this.minEmitMs = minEmitMs;
-    this.idleAfterMs = idleAfterMs;
+    this.holdSamples = holdSamples;
+    this.exitSamples = exitSamples;
+    this._base = 0;       // 空闲基线（EMA）
+    this._above = 0;
+    this._below = 0;
     this._timer = null;
     this._warned = false;
     this._hot = false;
@@ -63,18 +68,29 @@ export class ProcessActivityConnector extends Connector {
       return;
     }
     const now = Date.now();
-    this.last = { cpu: +snap.cpu.toFixed(1), procs: snap.procs, at: now, hot: snap.cpu >= this.cpuThreshold };
-    if (snap.cpu >= this.cpuThreshold) {
+    const cpu = snap.cpu;
+    // 空闲基线：只在非工作状态缓慢跟随，用来识别「这台机器上这个 App 的常态 CPU」
+    if (!this._hot) this._base = this._base * 0.9 + cpu * 0.1;
+    // 带滞后：进入要高门槛（且连续 N 次），退出要明显回落
+    const enter = Math.max(this.cpuThreshold, this._base + 8);
+    const exit = Math.max(this.cpuThreshold * 0.5, this._base + 4);
+
+    if (!this._hot) {
+      this._above = cpu >= enter ? this._above + 1 : 0;
+      if (this._above >= this.holdSamples) { this._hot = true; this._above = 0; this._below = 0; }
+    } else {
+      this._below = cpu < exit ? this._below + 1 : 0;
+      if (this._below >= this.exitSamples) { this._hot = false; this._below = 0; }
+    }
+    this.last = { cpu: +cpu.toFixed(1), procs: snap.procs, at: now, hot: this._hot, base: +this._base.toFixed(1) };
+
+    if (this._hot) {
       this._lastHotAt = now;
       if (now - this._lastEmit >= this.minEmitMs) {
         this._lastEmit = now;
-        this._hot = true;
-        this.emit({ type: "thought", payload: { cpu: +snap.cpu.toFixed(1), procs: snap.procs } });
+        this.emit({ type: "thought", payload: { cpu: +cpu.toFixed(1), procs: snap.procs } });
       }
-      return;
     }
-    // 收工：只在从「热」转「冷」时静默复位，不额外上报（避免把壁纸重新点亮）
-    if (this._hot && now - this._lastHotAt > this.idleAfterMs) this._hot = false;
   }
 }
 

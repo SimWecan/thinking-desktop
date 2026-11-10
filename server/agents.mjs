@@ -108,7 +108,7 @@ export class AgentRegistry {
         anim: p.anim,
         installed: !!installed[source],
         enabled: b.enabled === undefined ? !!installed[source] : !!b.enabled, // 默认绑定已安装的
-        thinking: now - lastReal < 30000,
+        thinking: now - lastReal < 20000,
         events: st?.events ?? 0,
         agoMs: st ? now - st.lastEventAt : null,
       };

@@ -146,7 +146,7 @@
 "use strict";
 const DEBUG = __DEBUG__;
 const PAGE_BUILD = "panel-6";   // 自检用：确认壁纸加载的是新页面
-const BUSY_HOLD = 30000;        // 任一来源 30 秒内有真实工作信号 → 活动态
+const BUSY_HOLD = 20000;        // 任一来源 20 秒内有真实工作信号 → 活动态，否则停环
 
 const hud = document.getElementById("hud");
 const panel = document.getElementById("panel");
@@ -581,7 +581,8 @@ es.onmessage = (ev) => {
   }
   if (e.type === "view") { view = e.payload.agent || "all"; return; }
   if (e.type === "status") {
-    if (e.payload && e.payload.running > 0) busyUntil = e.ts + 15000;
+    if (e.payload && e.payload.running > 0) busyUntil = e.ts + 8000;
+    else if (e.payload && e.payload.running === 0) busyUntil = 0;   // 回合结束：立刻允许停环
     return;
   }
   workAt = e.ts;
@@ -631,6 +632,9 @@ setInterval(async () => {
       body: JSON.stringify({
         client: "wall",
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
+        idleFor: Math.round((Date.now() - workAt) / 1000),
+        busyIn: busyUntil ? Math.round((busyUntil - Date.now()) / 1000) : 0,
+        hold: BUSY_HOLD,
         textPushes,
         lights: (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status").map((x) => x.source),
         seriesPeak: Math.max(0, ...series),
