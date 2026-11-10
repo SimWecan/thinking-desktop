@@ -36,6 +36,11 @@ final class WallpaperView: NSView {
     func forwardMouse(x: CGFloat, y: CGFloat) {
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
+
+    /// 全局点击转发：待机圆环的冲击波互动（点击穿透下唯一的点击来源）
+    func forwardClick(x: CGFloat, y: CGFloat) {
+        webView?.evaluateJavaScript("window.__tdClick(\(x),\(y))") { _, _ in }
+    }
 }
 
 private func makeWindow(on screen: NSScreen) -> WallpaperWindow {
@@ -93,5 +98,19 @@ let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
     }
 }
 _ = mouseMonitor
+
+// 全局点击转发：待机圆环点击冲击波（壁纸窗口 ignoresMouseEvents，只能靠全局监听）
+let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { event in
+    guard let pt = event.cgEvent?.location else { return }
+    for win in windows {
+        let f = win.frame
+        let x = pt.x - f.origin.x
+        let y = pt.y - f.origin.y
+        if x >= 0, x <= f.width, y >= 0, y <= f.height {
+            (win.contentView as? WallpaperView)?.forwardClick(x: x, y: y)
+        }
+    }
+}
+_ = clickMonitor
 
 app.run()

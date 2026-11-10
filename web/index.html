@@ -38,6 +38,8 @@ const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 const hud = document.getElementById("hud");
 const idleWrap = document.getElementById("idlewrap");
 const halo = document.getElementById("halo");
+// 预览调试：?force=idle 强制待机形态 / ?force=active 强制思考形态（立即到位，便于预览与截图）
+const FORCE = new URLSearchParams(location.search).get("force");
 let W, H, DPR;
 function resize() {
   DPR = Math.min(devicePixelRatio || 1, 1.5);
@@ -56,12 +58,21 @@ let stateTimer = 0;
 const ripples = [];   // 事件涟漪
 const shocks = [];    // 点击冲击波
 const mouse = { x: -9999, y: -9999, down: false };
-let active = false, lastParamPush = 0, freeze = 0;
+let active = false, lastParamPush = 0, hideTimer = 0;
+// 0 = 思考形态，1 = 独立待机圆环形态（交叉淡入淡出）；force 预览参数立即到位
+let ringAlpha = FORCE ? (FORCE === "idle" ? 1 : 0) : 0;
 
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
-// 桌面壁纸点击穿透收不到鼠标：由原生宿主转发全局鼠标位置（预览页直接用原生 mousemove）
-window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
+// 桌面壁纸点击穿透收不到鼠标：由原生宿主转发全局鼠标位置与点击。
+// NSView 是左下角原点，在此换算成页面（左上角原点）坐标。
+window.__tdMouse = (x, y) => {
+  mouse.x = x; mouse.y = H - y;   // 待机圆环的悬停互动在壁纸上同样生效
+  haloMsg({ td: "mouse", x, y });
+};
+window.__tdClick = (x, y) => {
+  shocks.push({ x, y: H - y, r: 8, a: 0.9 });
+};
 
 // iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
 halo.addEventListener("load", () => {
@@ -73,12 +84,22 @@ window.addEventListener("message", (ev) => {
   if (m && m.td === "ready") { haloMsg({ td: "pause", value: !active }); pushParams(performance.now() + 1000); }
 });
 
-/** 待机 ⇄ 思考 形态切换：HALOFLUX 淡入淡出，待机时暂停渲染省 CPU */
+/** 待机 ⇄ 思考 形态切换：HALOFLUX 淡入淡出，待机时暂停渲染省 CPU。
+ *  待机必须把它完全藏掉（opacity + visibility），只留独立的待机圆环，
+ *  避免「圆环冻结在屏幕上」的停滞感。 */
 function setActive(on) {
   if (active === on) return;
   active = on;
   halo.style.opacity = on ? 1 : 0;
   idleWrap.style.opacity = on ? 0 : 1;
+  clearTimeout(hideTimer);
+  if (on) {
+    halo.style.visibility = "visible";
+  } else {
+    hideTimer = setTimeout(() => {
+      if (!active) halo.style.visibility = "hidden";
+    }, 1900); // 等 1.8s 淡出动画结束再彻底移除，防止冻结残帧
+  }
   haloMsg({ td: "pause", value: !on });
   setTimeout(() => haloMsg({ td: "pause", value: !active }), 800); // iframe 后加载完成时再补一次
 }
@@ -128,7 +149,7 @@ setInterval(async () => {
       method: "POST",
       body: JSON.stringify({
         idle: Date.now() - workAt > BUSY_HOLD && Date.now() > busyUntil,
-        workAt, busyUntil, freeze: +freeze.toFixed(3),
+        workAt, busyUntil, ring: +ringAlpha.toFixed(3),
         haloOpacity: getComputedStyle(halo).opacity,
         idleOpacity: getComputedStyle(idleWrap).opacity,
       }),
@@ -180,19 +201,19 @@ function frame(now) {
   const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
 
   const nowMs = Date.now(); // 事件时间戳是 epoch 毫秒，不能用 performance.now 比
-  const idle = nowMs - workAt > BUSY_HOLD && nowMs > busyUntil;
+  const idle = FORCE ? FORCE === "idle" : nowMs - workAt > BUSY_HOLD && nowMs > busyUntil;
   setActive(!idle);
   if (active) pushParams(now);
 
-  // 冻结：进入待机后 1 秒内粒子运动与呼吸渐停（不是慢速，是停止）
-  freeze += ((idle ? 1 : 0) - freeze) * Math.min(1, dt * (idle ? 1.2 : 6));
+  // 形态交叉淡化：待机时独立圆环渐显、粒子海渐隐（圆环缓慢呼吸常动，不是冻结）
+  ringAlpha += ((idle ? 1 : 0) - ringAlpha) * Math.min(1, dt * (idle ? 0.9 : 3.2));
   const breath = 0.85 + 0.15 * Math.sin(now / 2600);          // 呼吸
   const target = idle ? 0.16 : 0.85 + Math.min(rate, 3) / 3 * 0.6;
   energy += (target - energy) * 0.04;
   errFlash *= 0.90;
 
-  const motion = 1 - freeze * 0.98;   // 待机冻结后运动归零
-  const dim = 1 - freeze * 0.72;      // 核心光晕保留微弱静态
+  const motion = 1 - ringAlpha;      // 待机后粒子运动逐步让位给圆环
+  const dim = 1 - ringAlpha * 0.72;  // 核心光晕保留微弱静态
   const cx = W / 2, cy = H / 2;
   const glow = (0.4 + energy * 1.0) * breath * dim;
   const pull = (idle ? 22 : 40 + energy * 55) * breath * motion;
@@ -212,7 +233,9 @@ function frame(now) {
   }
 
   ctx.globalCompositeOperation = "lighter";
-  for (const p of ps) {
+  if (ringAlpha < 0.98) {
+    ctx.globalAlpha = 1 - ringAlpha;
+    for (const p of ps) {
     let dx = cx - p.x, dy = cy - p.y;
     let d = Math.hypot(dx, dy) || 1;
     const nx = dx / d, ny = dy / d;
@@ -262,12 +285,67 @@ function frame(now) {
     ctx.moveTo(p.x, p.y);
     ctx.lineTo(p.x - p.vx * tl * 0.12, p.y - p.vy * tl * 0.12);
     ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------- 独立待机圆环（常动、呼吸、可交互） ----------------
+  if (ringAlpha > 0.02) {
+    const a = ringAlpha;
+    const R = Math.min(W, H) * 0.24 * (1 + 0.03 * Math.sin(now / 2600));
+    const rot1 = now / 9000, rot2 = -now / 14000;
+    // 外环：两段对旋弧
+    for (const [rot, span, mul] of [[rot1, 4.2, 1], [rot2, 2.4, 0.55]]) {
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(140,195,255,${0.75 * a * mul})`;
+      ctx.lineWidth = 1.8;
+      ctx.shadowColor = `rgba(120,180,255,${0.5 * a * mul})`;
+      ctx.shadowBlur = 9;
+      ctx.arc(cx, cy, R, rot, rot + span);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // 内环细弧（反向缓旋）
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(140,195,255,${0.35 * a})`;
+    ctx.lineWidth = 1.1;
+    ctx.arc(cx, cy, R * 0.82, -rot1 * 0.6, -rot1 * 0.6 + 5.4);
+    ctx.stroke();
+    // 刻度点：外环上缓慢流转的光点
+    for (let i = 0; i < 3; i++) {
+      const ang = rot2 * 1.7 + i * (Math.PI * 2 / 3);
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(190,225,255,${0.8 * a})`;
+      ctx.arc(cx + Math.cos(ang) * R, cy + Math.sin(ang) * R, 2, 0, 7);
+      ctx.fill();
+    }
+    // 呼吸微光核心
+    const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.7);
+    rg.addColorStop(0, `rgba(120,180,255,${0.12 * a * breath})`);
+    rg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = rg;
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    // 鼠标悬停：圆环朝光标一侧的弧段提亮、微微顶起
+    const mdx = mouse.x - cx, mdy = mouse.y - cy;
+    const mdd = Math.hypot(mdx, mdy);
+    if (mdd < R + 140) {
+      const ang = Math.atan2(mdy, mdx);
+      const near = Math.max(0, 1 - Math.abs(mdd - R) / 140);
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(190,225,255,${(0.35 + 0.6 * near) * a})`;
+      ctx.lineWidth = 1.8 + 2.6 * near;
+      ctx.shadowColor = `rgba(150,200,255,${0.6 * a})`;
+      ctx.shadowBlur = 12;
+      ctx.arc(cx, cy, R + 6 * near, ang - 0.45, ang + 0.45);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
   }
 
   // 事件涟漪（从核心扩散）
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
-    rp.r += (220 + energy * 160) * dt * (1 - freeze * 0.98); rp.a *= 0.91;
+    rp.r += (220 + energy * 160) * dt * (1 - ringAlpha * 0.9); rp.a *= 0.91;
     if (rp.a < 0.02) { ripples.splice(i, 1); continue; }
     ctx.beginPath();
     ctx.strokeStyle = `rgba(150,205,255,${rp.a * glow})`;
@@ -295,7 +373,7 @@ function frame(now) {
     if (now - stateTimer > 500) {
       stateTimer = now;
       hud.innerHTML =
-        `<b>Thinking Desktop</b> · ${idle ? "待机 · 已冻结" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
+        `<b>Thinking Desktop</b> · ${idle ? "待机 · 独立圆环" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
         `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br><span style="opacity:.7">移动鼠标推开粒子 · 点击产生冲击波</span>`;

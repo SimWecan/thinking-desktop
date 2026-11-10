@@ -15,6 +15,7 @@ import { SqlitePollConnector } from "../connectors/sqlite-poll.mjs";
 import { JsonStorePollConnector } from "../connectors/json-store-poll.mjs";
 import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
 import { ZstdJsonlPollConnector, defaultSummarize as defaultZstdEvent } from "../connectors/zstd-jsonl-poll.mjs";
+import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const IDLE_AFTER_MS = 4000;
@@ -141,6 +142,14 @@ const has = (p) => existsSync(p);
       path: edits,
       summarize: () => ({ type: "thought", payload: { note: "file edit journal updated" } }),
     }));
+  }
+  // 真实文本截流：尾随本机会话 wire.jsonl（用户消息/助手输出/上下文压缩全落盘）
+  const wireDir = join(
+    APP_SUPPORT, "kimi-desktop", "daimon-share", "daimon",
+    "runtime", "kimi-code", "home", "sessions",
+  );
+  if (has(wireDir)) {
+    connectors.push(new KimiWireConnector({ dir: wireDir }));
   }
 }
 

@@ -37,3 +37,4 @@ type ThinkingEvent = {
 现有实现：
 
 - `FileTailConnector`：尾随任意文本文件（日志、jsonl 会话），按行正则提取事件类型。
+- `KimiWireConnector`：尾随 Kimi 桌面端会话落盘 wire.jsonl（`sessions/<workspace>/conv-xxxx/agents/main/wire.jsonl`），提取用户消息、助手输出、工具调用与 `context.apply_compaction` 真实文本截流事件；自动跟随最近活跃的会话文件。
