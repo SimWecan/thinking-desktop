@@ -124,6 +124,15 @@ setInterval(async () => {
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource;
+    fetch("/debug", {
+      method: "POST",
+      body: JSON.stringify({
+        idle: Date.now() - workAt > BUSY_HOLD && Date.now() > busyUntil,
+        workAt, busyUntil, freeze: +freeze.toFixed(3),
+        haloOpacity: getComputedStyle(halo).opacity,
+        idleOpacity: getComputedStyle(idleWrap).opacity,
+      }),
+    }).catch(() => {});
   } catch {}
 }, 2000);
 
@@ -170,7 +179,8 @@ let prev = performance.now();
 function frame(now) {
   const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
 
-  const idle = now - workAt > BUSY_HOLD && now > busyUntil;
+  const nowMs = Date.now(); // 事件时间戳是 epoch 毫秒，不能用 performance.now 比
+  const idle = nowMs - workAt > BUSY_HOLD && nowMs > busyUntil;
   setActive(!idle);
   if (active) pushParams(now);
 

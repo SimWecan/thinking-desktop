@@ -29,6 +29,7 @@ const APP_SUPPORT = join(HOME, "Library", "Application Support");
 
 const events = [];
 const MAX_EVENTS = 500;
+let clientDebug = {};
 let lastEventAt = 0;
 const clients = new Set();
 
@@ -226,6 +227,21 @@ const server = createServer((req, res) => {
     res.write(`data: ${JSON.stringify({ type: "hello", state: state() })}\n\n`);
     clients.add(res);
     req.on("close", () => clients.delete(res));
+    return;
+  }
+
+  if (url.pathname === "/debug" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      try { clientDebug = { ...JSON.parse(body), at: Date.now() }; } catch {}
+      res.writeHead(200).end("ok");
+    });
+    return;
+  }
+  if (url.pathname === "/debug") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(clientDebug));
     return;
   }
 
