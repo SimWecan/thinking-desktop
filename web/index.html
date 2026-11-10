@@ -76,12 +76,12 @@ window.__tdClick = (x, y) => {
 
 // iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
 halo.addEventListener("load", () => {
-  haloMsg({ td: "pause", value: !active });
+  haloMsg({ td: "standby", value: !active });
   pushParams(performance.now() + 1000);
 });
 window.addEventListener("message", (ev) => {
   let m; try { m = ev.data; } catch { return; }
-  if (m && m.td === "ready") { haloMsg({ td: "pause", value: !active }); pushParams(performance.now() + 1000); }
+  if (m && m.td === "ready") { haloMsg({ td: "standby", value: !active }); pushParams(performance.now() + 1000); }
 });
 
 /** 待机 ⇄ 思考 形态切换：HALOFLUX 常驻显示，待机即暂停（圆环原地停止），
@@ -90,8 +90,8 @@ function setActive(on) {
   if (active === on) return;
   active = on;
   idleWrap.style.opacity = on ? 0 : 1;
-  haloMsg({ td: "pause", value: !on });
-  setTimeout(() => haloMsg({ td: "pause", value: !active }), 800); // iframe 后加载完成时再补一次
+  haloMsg({ td: "standby", value: !on });
+  setTimeout(() => haloMsg({ td: "standby", value: !active }), 800); // iframe 后加载完成时再补一次
 }
 
 /** 活动强度 → HALOFLUX 参数 */

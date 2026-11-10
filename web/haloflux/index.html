@@ -378,7 +378,8 @@ function mkd(w, h, d) {
 function resizeStage() {
   const r = stage.getBoundingClientRect();
   W = r.width; H = r.height;
-  stage.width = W * DPR; stage.height = H * DPR;
+  const pw = Math.round(W * DPR), ph = Math.round(H * DPR);
+  if (stage.width !== pw || stage.height !== ph) { stage.width = pw; stage.height = ph; }
   cx = W * 0.07; cy = H * 0.5;
   R = Math.max(H * 0.78, W * 0.30);
   RO = R + Math.max(90, Math.min(240, H * 0.3, W * 0.13)) * C.ringWidth;
@@ -1075,10 +1076,11 @@ function drawRing(dt) {
 
 /* ---------- frame ---------- */
 function drawStage(dt) {
+  const STBY = !!window.__tdStandby;   // Thinking Desktop 待机：环带停止、粒子层全部消失
   updateBeat(dt); updateCam(dt); updateOuter(dt);
-  if (rnd() < dt * C.cometTrickle) spawnComet();
+  if (!STBY && rnd() < dt * C.cometTrickle) spawnComet();
   webRot += dt * (0.03 + env * 0.12) * C.webSpin;
-  updateRing(dt);
+  updateRing(STBY ? 0 : dt);
   for (let k = 0; k < 3; k++) layerEnv[k] *= Math.exp(-dt * 2.2);
 
   // background
@@ -1102,6 +1104,7 @@ function drawStage(dt) {
   S.globalAlpha = 1;
 
   // runners: speed surges on the beat
+  if (!STBY) {
   const tx = trailC.x, surge = 0.5 + 2.5 * env;
   while (runners.length < C.runnerCount) runners.push(newRunner(true));
   if (runners.length > C.runnerCount) runners.length = Math.max(0, Math.round(C.runnerCount));
@@ -1121,6 +1124,7 @@ function drawStage(dt) {
   }
   tx.restore();
   S.drawImage(trailC, -R - 2, -R - 2, ws, ws);
+  }
   S.restore();
   camT(S, DPR);
   // ring occlusion: the web darkens toward the ring, separating the two planes
@@ -1132,6 +1136,7 @@ function drawStage(dt) {
   }
 
   // comets
+  if (!STBY) {
   S.save(); S.translate(cx, cy); S.globalCompositeOperation = 'lighter'; S.lineCap = 'round';
   G.save(); G.translate(cx, cy);
   for (let i = comets.length - 1; i >= 0; i--) {
@@ -1155,15 +1160,16 @@ function drawStage(dt) {
   }
   G.restore();
   S.restore();
+  }
 
   // outer wedges
   S.globalCompositeOperation = 'lighter';
-  S.drawImage(laneC, 0, 0, W, H);
+  if (!STBY) S.drawImage(laneC, 0, 0, W, H);
   // far outer layers 鈫?half-res buffer, composited blurred (depth of field)
   const F = farC.x;
   F.setTransform(1, 0, 0, 1, 0, 0); F.globalAlpha = 1; F.globalCompositeOperation = 'source-over'; F.clearRect(0, 0, farC.width, farC.height);
   camT(F, FS); F.globalCompositeOperation = 'lighter';
-  S = F; drawOuterFar(); S = S_MAIN;
+  S = F; if (!STBY) drawOuterFar(); S = S_MAIN;
   S.save(); S.setTransform(DPR, 0, 0, DPR, 0, 0); S.globalCompositeOperation = 'lighter';
   if (HAS_FILTER && C.depthBlur > 0) S.filter = `blur(${C.depthBlur}px)`;
   S.globalAlpha = Math.min(1, C.depthDim); S.drawImage(farC, 0, 0, W, H);
@@ -1174,7 +1180,7 @@ function drawStage(dt) {
     ag.addColorStop(0, `rgba(190,180,240,${Math.min(1, 0.07 * C.atmos)})`); ag.addColorStop(0.4, `rgba(150,145,210,${Math.min(1, 0.028 * C.atmos)})`); ag.addColorStop(1, 'rgba(0,0,0,0)');
     S.globalAlpha = 1; S.fillStyle = ag; S.beginPath(); S.arc(cx, cy, RMAX, 0, TAU); S.arc(cx, cy, RO, 0, TAU, true); S.fill('evenodd');
   }
-  drawOuterNear();
+  if (!STBY) drawOuterNear();
 
   drawRing(dt);
 
@@ -1187,7 +1193,7 @@ function drawStage(dt) {
   if (HAS_FILTER) S.filter = 'none';
   S.globalAlpha = 1; S.globalCompositeOperation = 'source-over';
 
-  drawBokeh(dt);
+  if (!STBY) drawBokeh(dt);
   if (C.vignette > 0) {
     S.setTransform(DPR, 0, 0, DPR, 0, 0);
     const vg = S.createRadialGradient(W * 0.45, H * 0.5, Math.min(W, H) * 0.35, W * 0.45, H * 0.5, Math.hypot(W, H) * 0.62);
@@ -1440,20 +1446,28 @@ function resizeAll() {
   if (r.width < 20 || r.height < 20) { ready = false; return; }
   DPR = Math.min(window.devicePixelRatio || 1, 2); resizeStage(); resizePanels(); ready = true;
   if (!started) { started = true; last = performance.now(); requestAnimationFrame(frame); }
+  // 待机按需渲染：重建会清空画布（canvas.width 赋值即清屏），必须立即补一帧
+  // （WKWebView 遮挡时 rAF 挂起，不能只置脏等下一帧）
+  window.__tdStandbyDirty = true;
+  if (window.__tdStandby && window.__tdRenderStandby) window.__tdRenderStandby();
 }
 const origFrame = frame;
+window.__tdRafOn = true;
 frame = function frame(now) {
-  if (window.__wpPaused) {
-    last = now;
-    // 首帧保底：光环/相机需要约 2.5s 热身才完全展开，热身结束先画一帧再停，
-    // 待机是「停住的完整圆环」而不是黑屏或半成品
-    if (!window.__tdEverRendered && ready && performance.now() > 2500) {
-      window.__tdEverRendered = true; origFrame(now);
+  if (window.__tdStandby) {
+    // Thinking Desktop 待机：退出 rAF 循环，改按需渲染。
+    // （WKWebView 被窗口遮挡时 rAF 会被系统完全节流，不能依赖 rAF 补帧。）
+    window.__tdRafOn = false;
+    if (ready && (!window.__tdStandbyDrawn || window.__tdStandbyDirty)) {
+      window.__tdStandbyDrawn = true; window.__tdStandbyDirty = false;
+      last = performance.now(); origFrame(last);   // dt=0：时间冻结，环带原地停转
+      if (window.__tdDrawHoverLens) window.__tdDrawHoverLens();
     }
-    requestAnimationFrame(frame);
-    return;
+    return;   // 关键：不再 requestAnimationFrame，等待外部事件唤醒
   }
-  if (ready) { window.__tdEverRendered = true; origFrame(now); } else { last = now; requestAnimationFrame(frame); }
+  window.__tdStandbyDrawn = false;
+  if (ready) origFrame(now);          // origFrame 末尾自行续 rAF
+  else { last = now; requestAnimationFrame(frame); }
 };
 new ResizeObserver(() => { clearTimeout(rzT); rzT = setTimeout(resizeAll, 120); }).observe(document.getElementById('stageWrap'));
 (document.fonts ? document.fonts.ready : Promise.resolve()).then(resizeAll);
@@ -1640,19 +1654,108 @@ function syncPanel() {
   'use strict';
 
   /* ---------- 待机全停 / 唤起 ---------- */
-  window.__wpPaused = true; // 无 AI 活动时：内部粒子、喷射、圆环全部停止
+  window.__wpPaused = true; // Wallpaper Engine 兼容位（与 __tdStandby 同步）
+  window.__tdStandby = true; // Thinking Desktop 待机：环带停止转动、环内外粒子消失
+  window.__tdStandbyDirty = true;
+
+  // 待机渲染一帧（按需渲染：WKWebView 遮挡时 rAF 被系统节流，必须直接调用）
+  function tdRenderStandby() {
+    if (!ready) return;
+    window.__tdStandbyDirty = false;
+    last = performance.now();
+    origFrame(last);               // dt=0 → drawStage 内时间冻结
+    if (window.__tdDrawHoverLens) window.__tdDrawHoverLens();
+  }
+  window.__tdRenderStandby = tdRenderStandby;   // 供 resizeAll 等主脚本场景直接调用
+
+  function tdSetStandby(on) {
+    on = !!on;
+    if (window.__tdStandby === on) { window.__tdStandbyDirty = true; if (on) tdRenderStandby(); return; }
+    window.__tdStandby = on;
+    window.__wpPaused = on;
+    window.__tdStandbyDirty = true;
+    if (on) {
+      // 清残留粒子缓冲：待机首帧就是干净的「停住的环带」
+      try { trailC.x.setTransform(1, 0, 0, 1, 0, 0); trailC.x.clearRect(0, 0, trailC.width, trailC.height); } catch (e) {}
+      try { comets.length = 0; } catch (e) {}
+      tdRenderStandby();
+    } else if (!window.__tdRafOn) {
+      // 检测到 agent 开始工作：环带恢复转动、粒子特效重启 rAF 循环
+      window.__tdRafOn = true;
+      last = performance.now();
+      requestAnimationFrame(frame);
+    }
+  }
+
+  // 待机帧周期性自检刷新（捕获窗口尺寸变化 / 新截流文本；rAF 挂起时也要能自刷）
+  setInterval(() => { if (window.__tdStandby) { window.__tdStandbyDirty = true; tdRenderStandby(); } }, 3000);
+
+  /* ---------- 待机悬停镜头：鼠标挪到环带上 → 局部放大 + 展示截流对话 ---------- */
+  window.__tdHover = null;
+  window.__tdDrawHoverLens = function () {
+    const h = window.__tdHover;
+    if (!h || !window.__tdText.length) return;
+    const c0 = toScreen(cx, cy), z = cam.z;
+    const ri = R * z, ro = RO * z;
+    const mx = h.x - c0.x, my = h.y - c0.y;
+    const d = Math.hypot(mx, my) || 1;
+    const mid = (ri + ro) / 2, half = (ro - ri) / 2;
+    if (Math.abs(d - mid) > half + 12) return;   // 不在环带上，不响应
+
+    const a0 = Math.atan2(my, mx), halfA = 0.72, k = 1.55;   // 局部放大倍数
+    // 以悬停点为锚：放大带中心仍压在悬停点上，弧段从原环带位置向外膨胀，
+    // 而不是以环心等比缩放（环心贴屏幕左缘，等比缩放会让红弧整体飞出环带）
+    const rbo = d + half * k, rbi = Math.max(20, d - half * k);
+
+    S.save();
+    S.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // 扇区压暗底盘（衬托镜头）
+    S.beginPath(); S.arc(c0.x, c0.y, rbo, a0 - halfA, a0 + halfA);
+    S.arc(c0.x, c0.y, rbi, a0 + halfA, a0 - halfA, true); S.closePath();
+    S.fillStyle = 'rgba(6,7,10,0.38)'; S.fill();
+    // 放大后的环带内外缘弧线 + 两侧辐条（落日红 #E4572E）
+    S.beginPath(); S.arc(c0.x, c0.y, rbo, a0 - halfA, a0 + halfA);
+    S.moveTo(c0.x + Math.cos(a0 - halfA) * rbi, c0.y + Math.sin(a0 - halfA) * rbi);
+    S.arc(c0.x, c0.y, rbi, a0 - halfA, a0 + halfA);
+    S.moveTo(c0.x + Math.cos(a0 + halfA) * rbi, c0.y + Math.sin(a0 + halfA) * rbi);
+    S.lineTo(c0.x + Math.cos(a0 + halfA) * rbo, c0.y + Math.sin(a0 + halfA) * rbo);
+    S.strokeStyle = 'rgba(228,87,46,0.28)'; S.lineWidth = 5; S.stroke();
+    S.strokeStyle = 'rgba(228,87,46,0.9)'; S.lineWidth = 1.5; S.stroke();
+
+    // 朝向环心的文本面板：真实截流对话记录
+    const lines = window.__tdText.slice(-6).reverse().map((s) => (s.length > 40 ? s.slice(0, 40) + '…' : s));
+    const pw = Math.min(340, Math.max(220, rbi * 1.1));
+    const ph = 30 + lines.length * 15 + 10;
+    let px = c0.x - (mx / d) * (ri * 0.38) - pw / 2;
+    let py = c0.y - (my / d) * (ri * 0.38) - ph / 2;
+    px = Math.max(8, Math.min(W - pw - 8, px));
+    py = Math.max(8, Math.min(H - ph - 8, py));
+    S.beginPath();
+    if (S.roundRect) S.roundRect(px, py, pw, ph, 8); else S.rect(px, py, pw, ph);
+    S.fillStyle = 'rgba(28,26,36,0.9)'; S.fill();
+    S.strokeStyle = 'rgba(242,239,234,0.18)'; S.lineWidth = 1; S.stroke();
+    S.fillStyle = '#E4572E'; S.font = '600 11px ui-monospace, monospace';
+    S.fillText('⟲ 截流 · 真实对话记录', px + 12, py + 18);
+    S.font = '10px ui-monospace, monospace';
+    lines.forEach((s, i) => {
+      S.fillStyle = i === 0 ? 'rgba(242,239,234,0.95)' : 'rgba(242,239,234,0.62)';
+      S.fillText(s, px + 12, py + 36 + i * 15);
+    });
+    S.restore();
+  };
 
   window.addEventListener('message', (ev) => {
     let m;
     try { m = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data; } catch (e) { return; }
     if (!m || m.td === undefined) return;
-    if (m.td === 'pause') { window.__wpPaused = !!m.value; return; }
+    if (m.td === 'pause') { tdSetStandby(!!m.value); return; }   // Wallpaper Engine 兼容：语义同 standby
+    if (m.td === 'standby') { tdSetStandby(!!m.value); return; }
     if (m.td === 'set') { try { setParam(m.key, m.value, true); } catch (e) {} return; }
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
     if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
     if (m.td === 'text') { // 截流文本 → 环上数据块
       const s = String(m.text || '').replace(/\s+/g, ' ').trim();
-      if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; }
+      if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; if (window.__tdStandby) tdRenderStandby(); }
     }
   }, false);
 
@@ -1703,12 +1806,16 @@ function syncPanel() {
 
   /* ---------- 鼠标特写：常态全览，悬停区域推近放大 ---------- */
   let hoverOn = false, hx = 0, hy = 0, hoverAt = 0;
-  window.__tdMouse = function (x, y) { hoverOn = true; hx = x; hy = y; hoverAt = Date.now(); };
+  window.__tdMouse = function (x, y) {
+    hoverOn = true; hx = x; hy = y; hoverAt = Date.now();
+    window.__tdHover = { x, y };
+    if (window.__tdStandby) tdRenderStandby();   // 待机态：挪到环带上 → 局部放大 + 截流面板
+  };
   setInterval(() => { if (hoverOn && Date.now() - hoverAt > 200) hoverOn = false; }, 120);
 
   const _updateCam = updateCam;
-  updateCam = function () {
-    _updateCam();
+  updateCam = function (dt) {
+    _updateCam(dt);
     if (window.__wpPaused || !hoverOn) return;
     cam.z += (2.0 - cam.z) * 0.08;
     const hw = W / (2 * cam.z), hh = H / (2 * cam.z);
