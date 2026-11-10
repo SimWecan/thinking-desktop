@@ -113,7 +113,16 @@ function loadStats() {
     const d = JSON.parse(readFileSync(statsFile(), "utf8"));
     if (d.date !== dayKey()) return;                    // 跨天：新的一天从 0 开始
     totalEvents = Number(d.totalEvents) || 0;
-    for (const [k, v] of Object.entries(d.tools || {})) toolCounts.set(k, Number(v) || 0);
+    for (const [k, v] of Object.entries(d.tools || {})) {
+      // 兼容旧格式（直接存数字）与新格式（{name,count}），同名不同大小写合并
+      const key = k.toLowerCase();
+      const item = v && typeof v === "object"
+        ? { name: String(v.name || k), count: Number(v.count) || 0 }
+        : { name: k, count: Number(v) || 0 };
+      const prev = toolCounts.get(key);
+      if (prev) prev.count += item.count;
+      else toolCounts.set(key, item);
+    }
     for (const [k, v] of Object.entries(d.sources || {})) {
       sourceStats.set(k, { events: Number(v.events) || 0, lastEventAt: Number(v.lastEventAt) || 0, lastType: "restored", lastWorkAt: Number(v.lastWorkAt) || 0 });
     }
@@ -160,8 +169,12 @@ function pushEvent(event) {
   sb.set(sec, (sb.get(sec) || 0) + 1);
   if (sb.size > 240) for (const k of sb.keys()) if (k < sec - 180) sb.delete(k);
   if (event.type === "tool_call") {
-    const name = String(event.payload?.name || "tool");
-    toolCounts.set(name, (toolCounts.get(name) || 0) + 1);
+    const raw = String(event.payload?.name || "tool");
+    // 同名工具大小写不同（bash / Bash）合并计数，显示首次出现的写法
+    const key = raw.toLowerCase();
+    const entry = toolCounts.get(key);
+    if (entry) entry.count += 1;
+    else toolCounts.set(key, { name: raw, count: 1 });
   }
   if (event.type === "text" && event.payload?.text) {
     textBacklog.push({ source: event.source, ts: event.ts, text: event.payload.text, kind: event.payload.kind });
@@ -221,7 +234,7 @@ function state() {
     series: rateSeries(now, 60),
     agentSeries: Object.fromEntries([...srcBuckets].map(([src, b]) => [src, seriesFrom(b, now, 60)])),
     tokens: Object.fromEntries(tokenBySource),
-    tools: [...toolCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })),
+    tools: [...toolCounts.values()].sort((a, b) => b.count - a.count).slice(0, 8).map((t) => ({ name: t.name, count: t.count })),
     totalEvents,
     agents: agents.agents(sourceStats, now),
     view: agents.view,
