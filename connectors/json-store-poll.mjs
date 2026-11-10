@@ -14,12 +14,15 @@ export class JsonStorePollConnector extends Connector {
    * @param {(json: any) => ({ type: string, payload?: object })|null} opts.summarize
    *   解析后的 JSON → 事件；返回 null 表示本次变化忽略（如只有时间戳跳动）
    * @param {number} [opts.intervalMs] 默认 2000
+   * @param {boolean} [opts.contentBased] 用内容而非 mtime 判断变化（小文件适用，
+   *   避免应用重写相同内容时误报活动）
    */
-  constructor({ source, path, summarize, intervalMs = 2000 }) {
+  constructor({ source, path, summarize, intervalMs = 2000, contentBased = false }) {
     super(source);
     this.path = path;
     this.summarize = summarize;
     this.intervalMs = intervalMs;
+    this.contentBased = contentBased;
     this._sig = null;
   }
 
@@ -28,7 +31,7 @@ export class JsonStorePollConnector extends Connector {
       console.warn(`[${this.source}] file not found: ${this.path}`);
       return;
     }
-    this._sig = this._signature();
+    if (!this.contentBased) this._sig = this._signature();
     setInterval(() => this._poll(), this.intervalMs);
     console.log(`[${this.source}] watching ${this.path}`);
   }
@@ -39,13 +42,21 @@ export class JsonStorePollConnector extends Connector {
   }
 
   _poll() {
-    let sig;
-    try { sig = this._signature(); } catch { return; }
-    if (sig === this._sig) return;
-    this._sig = sig;
+    if (!this.contentBased) {
+      let sig;
+      try { sig = this._signature(); } catch { return; }
+      if (sig === this._sig) return;
+      this._sig = sig;
+    }
 
     let json;
     try { json = JSON.parse(readFileSync(this.path, "utf8")); } catch { return; }
+
+    if (this.contentBased) {
+      const sig = JSON.stringify(json);
+      if (sig === this._sig) return; // 内容没变：应用重写相同文件不算活动
+      this._sig = sig;
+    }
 
     let summary;
     try { summary = this.summarize(json); } catch { return; }

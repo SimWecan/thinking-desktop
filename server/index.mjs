@@ -101,6 +101,7 @@ const has = (p) => existsSync(p);
     connectors.push(new JsonStorePollConnector({
       source: "kimi-desktop",
       path: usage,
+      contentBased: true,
       summarize: (json) => {
         const items = Object.entries(json);
         const active = items.filter(([, v]) =>
@@ -119,11 +120,15 @@ const has = (p) => existsSync(p);
   }
   const statuses = join(dir, "conversation-statuses.json");
   if (has(statuses)) {
+    let lastRunning = null;
     connectors.push(new JsonStorePollConnector({
       source: "kimi-desktop",
       path: statuses,
+      contentBased: true, // 应用定时重写相同内容不算活动
       summarize: (json) => {
         const running = Object.values(json).filter((s) => s === "running").length;
+        if (running === lastRunning) return null;
+        lastRunning = running;
         return { type: "status", payload: { running, total: Object.keys(json).length } };
       },
     }));

@@ -49,12 +49,14 @@ addEventListener("resize", resize); resize();
 
 // ---------------- 状态 ----------------
 let lastEventAt = 0, energy = 0, errFlash = 0;
+let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
+let busyUntil = 0;       // status running>0 的短暂宽限
 let rate = 0, byType = {}, bySource = {};
 let stateTimer = 0;
 const ripples = [];   // 事件涟漪
 const shocks = [];    // 点击冲击波
 const mouse = { x: -9999, y: -9999, down: false };
-let active = false, lastParamPush = 0;
+let active = false, lastParamPush = 0, freeze = 0;
 
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
@@ -99,9 +101,15 @@ es.onmessage = (ev) => {
   if (e.type === "hello") {
     rate = e.state.rate; byType = e.state.byType; bySource = e.state.bySource;
     lastEventAt = e.state.lastEventAt;
+    workAt = e.state.lastEventAt;
     return;
   }
   lastEventAt = e.ts;
+  if (e.type === "status") {
+    if (e.payload && e.payload.running > 0) busyUntil = e.ts + 15000;
+    return;
+  }
+  workAt = e.ts;
   if (e.type === "error") errFlash = 1;
   else if (e.type === "text") { haloMsg({ td: "text", text: e.payload.text }); energy = Math.min(energy + 0.12, 1.6); return; }
   else if (e.type === "tool_call") { energy = Math.min(energy + 0.3, 1.6); ripples.push({ r: 24, a: 0.7, w: 3 }); }
@@ -162,18 +170,23 @@ let prev = performance.now();
 function frame(now) {
   const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
 
-  const idle = now - lastEventAt > BUSY_HOLD;
+  const idle = now - workAt > BUSY_HOLD && now > busyUntil;
   setActive(!idle);
   if (active) pushParams(now);
+
+  // 冻结：进入待机后 1 秒内粒子运动与呼吸渐停（不是慢速，是停止）
+  freeze += ((idle ? 1 : 0) - freeze) * Math.min(1, dt * (idle ? 1.2 : 6));
   const breath = 0.85 + 0.15 * Math.sin(now / 2600);          // 呼吸
   const target = idle ? 0.16 : 0.85 + Math.min(rate, 3) / 3 * 0.6;
   energy += (target - energy) * 0.04;
   errFlash *= 0.90;
 
+  const motion = 1 - freeze * 0.98;   // 待机冻结后运动归零
+  const dim = 1 - freeze * 0.72;      // 核心光晕保留微弱静态
   const cx = W / 2, cy = H / 2;
-  const glow = (0.4 + energy * 1.0) * breath;
-  const pull = (idle ? 22 : 40 + energy * 55) * breath;        // 向心拉力
-  const swirl = 30 + energy * 45;                              // 切向旋转 → 螺旋汇聚
+  const glow = (0.4 + energy * 1.0) * breath * dim;
+  const pull = (idle ? 22 : 40 + energy * 55) * breath * motion;
+  const swirl = (30 + energy * 45) * motion;
 
   ctx.fillStyle = "rgba(6,8,13,0.22)";
   ctx.fillRect(0, 0, W, H);
@@ -218,7 +231,7 @@ function frame(now) {
       }
     }
 
-    p.vx *= 0.96; p.vy *= 0.96;
+    p.vx *= 0.96 * motion + 0.02; p.vy *= 0.96 * motion + 0.02;
     p.x += p.vx * dt * 2.4;
     p.y += p.vy * dt * 2.4;
 
@@ -244,7 +257,7 @@ function frame(now) {
   // 事件涟漪（从核心扩散）
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i];
-    rp.r += (220 + energy * 160) * dt; rp.a *= 0.91;
+    rp.r += (220 + energy * 160) * dt * (1 - freeze * 0.98); rp.a *= 0.91;
     if (rp.a < 0.02) { ripples.splice(i, 1); continue; }
     ctx.beginPath();
     ctx.strokeStyle = `rgba(150,205,255,${rp.a * glow})`;
@@ -272,7 +285,7 @@ function frame(now) {
     if (now - stateTimer > 500) {
       stateTimer = now;
       hud.innerHTML =
-        `<b>Thinking Desktop</b> · ${idle ? "待机 · 汇聚" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
+        `<b>Thinking Desktop</b> · ${idle ? "待机 · 已冻结" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
         `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br><span style="opacity:.7">移动鼠标推开粒子 · 点击产生冲击波</span>`;
