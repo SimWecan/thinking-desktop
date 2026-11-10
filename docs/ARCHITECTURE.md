@@ -42,6 +42,7 @@ type ThinkingEvent = {
 | `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`agentSeries`（每个来源各自的 60s 序列）、`tools`（工具分布 Top8）、`tokens`（按来源的上下文计量：model/used/window/pct）、`totalEvents`、`agents`/`view`（绑定与形态） |
 | `GET /snapshot?panel=1` | 把右侧看板（DOM + 内嵌图表）经 SVG foreignObject 渲染成 PNG，用于无录屏权限时验证 |
 | `GET /icon/<source>.png` | 从本机 .app 提取的厂商官方图标（`@2x` 变体按需生成 512px）；`server/icons.mjs` 负责 ICNS→PNG 与缓存，`config/icons.json` 可手动覆盖 |
+| `GET/POST /ui` | 界面行为配置：读取/更新 `config/ui.json`（`/state.ui` 每秒下发） |
 | `GET /selftest?click=1` | 自检：让壁纸在环心连发三次冲击波（配合 `?ripple=1` 快照验证点击链路） |
 | `POST /texts` | 用数组原子替换思考文本缓冲（回填/清理用），同时落盘 `data/texts.json` |
 | `GET /texts?limit=N` | 最近的思考文本，页面启动时回填环带与视窗 |
@@ -75,4 +76,4 @@ type ThinkingEvent = {
 - `ZstdJsonlPollConnector`：面向以 zstd 多帧追加写的会话文件（DSH）。递归发现 `dir/workspace/session-*/session.v4.jsonl.zstd`，同时跟踪多个活跃会话；按 size/mtime 判断是否变化，避免每轮全量解码；启动时登记偏移量、不回放历史，文件被重写回滚时不刷屏。
 - `ProcessActivityConnector`：闭源桌面端（Gemini / ChatGPT）没有本地文本通道，用 `/bin/ps` 采样该 App 全部进程的 CPU 合计值作为真实工作信号：超过阈值（默认 8%）即按 1.2s 节流上报 `thought`，低于阈值持续 6s 静默复位；`/health.activity` 暴露最近一次采样值便于调阈值。
 - `summarizeDshLine`（`connectors/dsh-session.mjs`）：把 DSH v4 会话行映射成事件——`assistant/message` 优先取**推理日志**（`reasoning`，整段保留，`kind=think`），没有推理才用最终输出（`kind=output`）→ `text`，`tool/call` / `tool/result` → 对应事件，`turn/*` → `status`，其余元数据行（title、request、permission、sandbox、job、step、delivery-accepted）一律忽略，防止壁纸被空转事件刷成常亮。
-- `KimiWireConnector`：尾随 Kimi 桌面端会话落盘 wire.jsonl（`sessions/<workspace>/conv-xxxx/agents/main/wire.jsonl`），解析 Kimi 3.x 的真实行型：`agent.message.appended`（user/assistant → 真实文本）、`context.append_loop_event` 的 `content.part`（think/text）、`tool.call` / `tool.result`，以及 `context.apply_compaction` 截流摘要；自动跟随最近活跃的会话文件，`stop()` 可干净退出。
+- `KimiWireConnector`：并行尾随窗口期内**所有**会话的 wire.jsonl（Kimi 可同时跑多个 agent），（`sessions/<workspace>/conv-xxxx/agents/main/wire.jsonl`），解析 Kimi 3.x 的真实行型：`agent.message.appended`（user/assistant → 真实文本）、`context.append_loop_event` 的 `content.part`（think/text）、`tool.call` / `tool.result`，以及 `context.apply_compaction` 截流摘要；自动跟随最近活跃的会话文件，`stop()` 可干净退出。

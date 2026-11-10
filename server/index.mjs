@@ -26,12 +26,12 @@ const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const RATE_WINDOW_MS = 10_000;
 import { AgentRegistry } from "./agents.mjs";
 import { buildIcons, cachedIconPath, ensureIcon2x } from "./icons.mjs";
-import { loadUiConfig } from "./config.mjs";
+import { loadUiConfig, normalizeUiConfig } from "./config.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
 const agents = new AgentRegistry(ROOT);
-const UI = loadUiConfig(ROOT);   // config/ui.json：环带摘要/面板常驻/停环时长
+let UI = loadUiConfig(ROOT);   // config/ui.json：环带摘要/面板常驻/停环时长
 
 // zstd 只在 DSH 会话截流用得到；提前探测，缺了就在启动日志里明确告警
 // 轻量自检：内存与最近一段的 CPU 占用（健康检查里给出，便于长时间挂机观察）
@@ -713,6 +713,26 @@ const server = createServer((req, res) => {
         ...c.last,
       })),
     }));
+    return;
+  }
+
+  // 界面行为配置：GET 读取，POST 更新（写回 config/ui.json，立刻生效）
+  if (url.pathname === "/ui") {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        try {
+          const next = normalizeUiConfig({ ...UI, ...JSON.parse(body) });
+          mkdirSync(join(ROOT, "config"), { recursive: true });
+          writeFileSync(join(ROOT, "config", "ui.json"), JSON.stringify(next, null, 2));
+          UI = next;
+          res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(UI));
+        } catch { res.writeHead(400).end("bad request"); }
+      });
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(UI));
     return;
   }
 

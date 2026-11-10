@@ -95,3 +95,32 @@ test("截流摘要（context.apply_compaction）带 ⟲ 标记上墙", async () 
   const t = events.find((e) => e.type === "text");
   assert.ok(t && t.payload.text.startsWith("⟲ 截流"), "应带截流标记");
 });
+
+test("并行会话：同时跟踪多个 conv 的 wire.jsonl", async () => {
+  const root = mkdtempSync(join(tmpdir(), "td-kimi-multi-"));
+  const mk = (conv) => {
+    const dir = join(root, "wd_demo", conv, "agents", "main");
+    mkdirSync(dir, { recursive: true });
+    const f = join(dir, "wire.jsonl");
+    writeFileSync(f, "");
+    return f;
+  };
+  const f1 = mk("conv-a");
+  const f2 = mk("conv-b");
+  const events = [];
+  const c = new KimiWireConnector({ dir: root, minTextIntervalMs: 0, rescanMs: 50, drainMs: 60 });
+  c.onEvent = (e) => events.push(e);
+  c.start();
+  await wait(150);
+  c._scan();
+  c._drain();
+
+  append(f1, assistantMsg("会话 A 的输出"));
+  append(f2, assistantMsg("会话 B 的输出"));
+  c._drain();
+  c.stop();
+
+  const texts = events.filter((e) => e.type === "text").map((e) => e.payload.text);
+  assert.ok(texts.some((t) => t.includes("会话 A")), "应收到 A 的文本");
+  assert.ok(texts.some((t) => t.includes("会话 B")), "应收到 B 的文本");
+});

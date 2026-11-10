@@ -39,12 +39,40 @@
   .custom { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); }
   input[type=color] { width: 44px; height: 28px; border: 1px solid var(--line); background: none; padding: 0; }
   .hint { margin-top: 24px; color: var(--dim); font-size: 11px; max-width: 720px; }
+  h2.sec { font-size: 11px; letter-spacing: 2px; color: var(--dim); margin: 30px 0 10px; font-weight: 600; }
+  .uirow { display: grid; grid-template-columns: 150px 200px 1fr; gap: 12px; align-items: center;
+    max-width: 720px; padding: 7px 16px; border: 1px solid var(--line); border-bottom: 0; font-size: 12px; }
+  .uirow:first-of-type { border-radius: 4px 4px 0 0; }
+  .uirow:last-of-type { border-bottom: 1px solid var(--line); border-radius: 0 0 4px 4px; }
+  .uirow select, .uirow input[type=number] {
+    background: #111318; color: var(--text); border: 1px solid var(--line); border-radius: 4px;
+    padding: 4px 8px; font: inherit; width: 100%;
+  }
+  #saveUi { margin-top: 14px; background: #1b1f2a; color: #fff; border: 1px solid rgba(255,255,255,.25);
+    border-radius: 4px; padding: 7px 16px; font: inherit; cursor: pointer; }
+  #saveUi:hover { border-color: rgba(255,255,255,.5); }
+  #uiMsg { margin-left: 10px; color: #7ee0a3; font-size: 11px; }
 </style>
 </head>
 <body>
 <h1>THINKING DESKTOP · 配置</h1>
 <div class="sub">绑定本机 AI 桌面端 → 打通状态/日志通道 · 点色块打开调色盘，选择该 agent 运行时的粒子特效颜色</div>
 <div id="list">加载中…</div>
+
+<h2 class="sec">界面行为</h2>
+<div class="uirow"><label>环带文本</label>
+  <select id="uiRingText"><option value="headline">首句摘要</option><option value="full">整段原文</option></select>
+  <span style="color:var(--dim)">首句摘要更清爽；整段原文信息全但会铺满一圈</span></div>
+<div class="uirow"><label>右侧看板</label>
+  <select id="uiPanel"><option value="hover">悬停环带时展开</option><option value="always">常驻显示</option></select>
+  <span style="color:var(--dim)">常驻会一直占用右侧一块区域</span></div>
+<div class="uirow"><label>停环等待（秒）</label><input type="number" id="uiHold" min="5" max="600" step="1">
+  <span style="color:var(--dim)">多久没有工作事件就停转</span></div>
+<div class="uirow"><label>首句最多字数</label><input type="number" id="uiChars" min="30" max="400" step="10">
+  <span style="color:var(--dim)">只影响环带，不影响看板原文</span></div>
+<div class="uirow"><label>光源淡出（秒）</label><input type="number" id="uiLights" min="3" max="600" step="1">
+  <span style="color:var(--dim)">厂商色/粒子在多长时间没有事件后消失</span></div>
+<button id="saveUi">保存界面行为</button><span id="uiMsg"></span>
 
 <div class="palette" id="palette">
   <div class="pal-box">
@@ -107,6 +135,38 @@ function openPalette(a) {
 function closePalette() { palette.classList.remove("show"); editing = null; }
 palette.onclick = (e) => { if (e.target === palette) closePalette(); };
 
+async function loadUi() {
+  try {
+    const ui = await (await fetch("/ui")).json();
+    document.getElementById("uiRingText").value = ui.ringText;
+    document.getElementById("uiPanel").value = ui.panel;
+    document.getElementById("uiHold").value = ui.holdSec;
+    document.getElementById("uiChars").value = ui.ringChars;
+    document.getElementById("uiLights").value = ui.lightsWindowSec;
+  } catch {}
+}
+
+document.getElementById("saveUi").onclick = async () => {
+  const body = {
+    ringText: document.getElementById("uiRingText").value,
+    panel: document.getElementById("uiPanel").value,
+    holdSec: Number(document.getElementById("uiHold").value),
+    ringChars: Number(document.getElementById("uiChars").value),
+    lightsWindowSec: Number(document.getElementById("uiLights").value),
+  };
+  const res = await fetch("/ui", { method: "POST", body: JSON.stringify(body) });
+  const msg = document.getElementById("uiMsg");
+  if (res.ok) {
+    const ui = await res.json();
+    msg.textContent = "已保存（壁纸下个轮询生效）";
+    setTimeout(() => { msg.textContent = ""; }, 2500);
+    await loadUi();
+    return ui;
+  }
+  msg.textContent = "保存失败";
+};
+
+loadUi();
 load();
 setInterval(load, 5000);
 </script>

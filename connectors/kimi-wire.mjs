@@ -11,11 +11,12 @@
  *   context.append_loop_event       → text（think/text 片段）/ tool_call / tool_result
  *
  * 与 dsh 的 zstd-jsonl 连接器同理：只读取本机已落盘内容，不触碰网络与凭证。
- * 尾随起点为文件末尾，只展示接入后的新活动；会话切换（出现更新的 wire.jsonl）
- * 时自动跟随新文件。
+ * 尾随起点为文件末尾，只展示接入后的新活动。
+ * 同时跟踪**多个活跃会话**（Kimi 并行跑多个 agent 时，每个 conv 都有自己的 wire.jsonl），
+ * 不再只跟「最新那一个」。
  */
 
-import { existsSync, openSync, readSync, closeSync, readdirSync, statSync, watch } from "node:fs";
+import { existsSync, openSync, readSync, closeSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Connector } from "./base.mjs";
 
@@ -25,16 +26,19 @@ export class KimiWireConnector extends Connector {
    * @param {string} opts.dir  sessions 根目录（其下为 <workspace>/conv-xxxx/agents/main/wire.jsonl）
    * @param {string} [opts.source]
    * @param {number} [opts.minTextIntervalMs] 截流文本上墙的最小间隔（防刷屏）
-   * @param {number} [opts.rescanMs] 新会话文件扫描间隔
+   * @param {number} [opts.rescanMs] 活跃会话扫描间隔
+   * @param {number} [opts.activeWindowMs] 只跟踪这么久内写过的会话，默认 15 分钟
+   * @param {number} [opts.drainMs] 增量读取轮询间隔，默认 1000
    */
-  constructor({ dir, source = "kimi-desktop", minTextIntervalMs = 600, rescanMs = 20000 }) {
+  constructor({ dir, source = "kimi-desktop", minTextIntervalMs = 600, rescanMs = 20000, activeWindowMs = 15 * 60_000, drainMs = 1000 }) {
     super(source, "session");
     this.dir = dir;
     this.minTextIntervalMs = minTextIntervalMs;
     this.rescanMs = rescanMs;
-    this._file = null;      // 当前尾随文件
-    this._offset = 0;
-    this._watcher = null;
+    this.activeWindowMs = activeWindowMs;
+    this.drainMs = drainMs;
+    /** @type {Map<string, {offset:number, mtimeMs:number}>} */
+    this._files = new Map();
     this._lastTextAt = 0;
   }
 
@@ -44,19 +48,22 @@ export class KimiWireConnector extends Connector {
     }
     this._scan();
     this._timer = setInterval(() => this._scan(), this.rescanMs);
-    console.log(`[${this.source}] wire tailing ${this._file ?? "(waiting for session)"}`);
+    this._drainTimer = setInterval(() => this._drain(), this.drainMs);
+    console.log(`[${this.source}] wire tailing ${this._files.size} session(s)`);
   }
 
   stop() {
     if (this._timer) clearInterval(this._timer);
+    if (this._drainTimer) clearInterval(this._drainTimer);
     this._timer = null;
-    if (this._watcher) { try { this._watcher.close(); } catch { /* 已关闭 */ } }
-    this._watcher = null;
+    this._drainTimer = null;
+    this._files.clear();
   }
 
-  /** 找到最近修改的 wire.jsonl；变化时切换尾随对象 */
+  /** 扫描所有窗口期内活跃的 wire.jsonl（并行 agent 各有自己的会话目录） */
   _scan() {
-    let newest = null, newestMtime = 0;
+    const now = Date.now();
+    const found = new Set();
     try {
       for (const ws of readdirSync(this.dir)) {
         const wsDir = join(this.dir, ws);
@@ -64,36 +71,35 @@ export class KimiWireConnector extends Connector {
           if (!entry.startsWith("conv-")) continue;
           const f = join(wsDir, entry, "agents", "main", "wire.jsonl");
           if (!existsSync(f)) continue;
-          const mtime = statSync(f).mtimeMs;
-          if (mtime > newestMtime) { newestMtime = mtime; newest = f; }
+          let st;
+          try { st = statSync(f); } catch { continue; }
+          if (now - st.mtimeMs > this.activeWindowMs) continue;
+          found.add(f);
+          if (!this._files.has(f)) this._files.set(f, { offset: st.size, mtimeMs: st.mtimeMs }); // 只截新活动
         }
       }
     } catch { /* 目录读取失败下次再试 */ }
 
-    if (!newest || newest === this._file) return;
-    this._file = newest;
-    try { this._offset = statSync(newest).size; } catch { this._offset = 0; } // 只截新活动
-    if (this._watcher) this._watcher.close();
-    try {
-      this._watcher = watch(newest, { persistent: false }, () => this._drain());
-    } catch { /* 文件写入中短暂不可读，忽略 */ }
-    console.log(`[${this.source}] now tailing ${newest}`);
+    for (const f of [...this._files.keys()]) if (!found.has(f)) this._files.delete(f);
+    if (this._files.size) console.log(`[${this.source}] tailing ${this._files.size} active session(s)`);
   }
 
+  /** 增量读取所有被跟踪的会话文件 */
   _drain() {
-    if (!this._file) return;
-    let fd;
-    try {
-      fd = openSync(this._file, "r");
-      const size = statSync(this._file).size;
-      if (size < this._offset) this._offset = 0; // 文件被截断/轮换
-      if (size === this._offset) return;
-      const buf = Buffer.alloc(size - this._offset);
-      readSync(fd, buf, 0, buf.length, this._offset);
-      this._offset = size;
-      for (const line of buf.toString("utf8").split("\n")) this._handleLine(line);
-    } catch { /* 忽略瞬时读取错误 */ }
-    finally { if (fd !== undefined) closeSync(fd); }
+    for (const [file, state] of this._files) {
+      let fd;
+      try {
+        fd = openSync(file, "r");
+        const size = statSync(file).size;
+        if (size < state.offset) state.offset = 0;      // 文件被截断/轮换
+        if (size === state.offset) continue;
+        const buf = Buffer.alloc(size - state.offset);
+        readSync(fd, buf, 0, buf.length, state.offset);
+        state.offset = size;
+        for (const line of buf.toString("utf8").split("\n")) this._handleLine(line);
+      } catch { /* 忽略瞬时读取错误 */ }
+      finally { if (fd !== undefined) closeSync(fd); }
+    }
   }
 
   _handleLine(line) {

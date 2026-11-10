@@ -47,7 +47,7 @@
 }
 ```
 
-改完刷新页面即生效（`/state.ui` 每秒下发）；示例见 `config/ui.example.json`。
+改完刷新页面即生效（`/state.ui` 每秒下发）；也可以直接在 <http://127.0.0.1:7799/config> 的「界面行为」里改（写入同一个文件）。示例见 `config/ui.example.json`。
 
 ## 架构
 
@@ -135,7 +135,7 @@ macos/install.sh
 | 来源 | 数据通道 | 事件 |
 |---|---|---|
 | DeepSeek Harness | `~/.dsh/sessions/<workspace>/session-*/session.v4.jsonl.zstd` 解码 + 进程守护 | 推理文本 / 工具调用 / 结果 / 运行状态 |
-| Kimi 桌面端 | `wire.jsonl` 会话尾随 + `kimi-agent` JSON stores | 真实输出 / 截流摘要 / 工具调用 / token 与状态 |
+| Kimi 桌面端 | 并行尾随**所有活跃** `wire.jsonl`（15 分钟窗口）+ `kimi-agent` JSON stores | 真实输出 / 截流摘要 / 工具调用 / token 与状态 |
 | Gemini 桌面版 | 进程守护 + CPU 活动度（无本地文本通道） | 启动 / 退出 / **工作中（按 CPU）** |
 | ChatGPT 桌面版 | 进程守护 + CPU 活动度（无本地文本通道） | 启动 / 退出 / **工作中（按 CPU）** |
 | Codex | `~/.codex/logs_2.sqlite` 轮询 | 工具调用 / 报错 / 推理（CLI 未用时自然静默） |
