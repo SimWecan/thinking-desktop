@@ -1709,11 +1709,23 @@ function syncPanel() {
     if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
     if (m.td === 'click') { if (window.__tdClick) window.__tdClick(m.x, m.y); return; }
     if (m.td === 'sources') { if (window.__tdSources) window.__tdSources(m.list); return; }
-    if (m.td === 'text') { // 截流文本 → 悬停镜头面板（环上是否显示由 __tdRingText 决定）
-      if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（iframe ready 重发）丢弃
-      if (m.id) window.__tdTextId = m.id;
+    if (m.td === 'text') { // 思考日志 → 环带数据块 + 悬停视窗
       const s = String(m.text || '').replace(/\s+/g, ' ').trim();
-      if (s.length >= 4) { window.__tdText.push(s.slice(0, 120)); if (window.__tdText.length > 80) window.__tdText.shift(); window.__tdTextDirty = true; window.__tdTextVersion++; if (window.__tdStandby) tdRenderStandby(); }
+      if (s.length < 4) return;
+      const last = window.__tdText[window.__tdText.length - 1];
+      if (m.replace && last !== undefined) {                    // 同一条流式文本越写越长 → 原地替换
+        if (m.id) window.__tdTextId = m.id;
+        if (s.length >= last.length) window.__tdText[window.__tdText.length - 1] = s.slice(0, 220);
+      } else {
+        if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（ready 重发）丢弃
+        if (m.id) window.__tdTextId = m.id;
+        if (s === last) return;                                 // 连续完全重复不叠
+        window.__tdText.push(s.slice(0, 220));
+        if (window.__tdText.length > 80) window.__tdText.shift();
+      }
+      window.__tdTextDirty = true;
+      window.__tdTextVersion++;
+      if (window.__tdStandby) tdRenderStandby();
     }
   }, false);
 
@@ -1734,21 +1746,49 @@ function syncPanel() {
   window.__tdTextVersion = 0;   // 每次收到新文本 +1，环槽据此判断要不要重画
   const _code = BLOCKS.code, _para = BLOCKS.para;
 
-  function tdRows(c, x0, x1, y0, y1, t, font) {
-    // 从最新一条开始往上铺（越新的越靠近环带内缘），宽度不够自动折行
-    c.font = font;
-    const cw = 2.15, maxChars = Math.max(8, ((x1 - x0) / cw) | 0);
-    const n = window.__tdText.length;
-    let y = y0, bi = 0;
-    while (n && y < y1 - 3.5 && bi < 300) {
-      let s = window.__tdText[n - 1 - (bi++ % n)];
-      if (!s) break;
-      while (s.length && y < y1 - 3.5) {
-        c.fillStyle = rgba(t, 0.75);
-        c.fillText(s.slice(0, maxChars), x0, y);
-        s = s.slice(maxChars);
-        y += 4.6;
+  /** 最近的思考文本拼成一条「环带纸带」：最新在前，各环槽按角度取不同片段 */
+  function tdStream() {
+    if (window.__tdStreamVer !== window.__tdTextVersion || !window.__tdStreamCache) {
+      window.__tdStreamVer = window.__tdTextVersion;
+      const src = window.__tdText.slice(-24).reverse();
+      const keep = [];
+      for (const t of src) {
+        if (!keep.length) { keep.push(t); continue; }
+        const prev = keep[keep.length - 1];
+        if (t === prev || prev.startsWith(t)) continue;   // 流式前缀：只留更长的那条
+        keep.push(t);
       }
+      window.__tdStreamCache = keep.join("  ·  ").replace(/\s+/g, " ");
+    }
+    return window.__tdStreamCache;
+  }
+
+  /** 每个环槽一个稳定但互不相同的起点：整圈环带像一组「数据块」，而不是同一段话刷满 */
+  function tdSlotStart(a) {
+    const h = Math.sin(a * 12.9898 + 78.233) * 43758.5453;
+    return h - Math.floor(h);
+  }
+
+  function tdSlice(str, start, n) {
+    if (str.length <= n) return str;
+    const head = str.slice(start, start + n);
+    return head.length === n ? head : head + str.slice(0, n - head.length);
+  }
+
+  /** 按角度把纸带切成连续片段写进环槽：同一圈环带上每块内容都不一样 */
+  function tdFillSlot(c, x0, x1, y0, y1, t, startFrac) {
+    const size = 6.4, lh = 8.2;
+    c.font = `500 ${size}px ${FONT}`;
+    const maxChars = Math.max(6, ((x1 - x0 - 2) / (size * 0.6)) | 0);
+    const stream = tdStream();
+    if (!stream.length) return;
+    let cursor = Math.floor(stream.length * Math.min(0.999, Math.max(0, startFrac)));
+    let y = y0;
+    while (y < y1 - lh * 0.65) {
+      c.fillStyle = rgba(t, 0.92);
+      c.fillText(tdSlice(stream, cursor, maxChars), x0 + 0.5, y);
+      cursor = (cursor + maxChars) % stream.length;
+      y += lh;
     }
   }
 
@@ -1797,22 +1837,13 @@ function syncPanel() {
     for (const [b0, b1, y0, y1, tint] of s.rects) {
       x.save(); x.beginPath(); x.rect(b0, y0 - 0.5, b1 - b0, y1 - y0 + 1); x.clip();
       const y = header(x, b0, b1, y0, tint);
-      tdRows(x, b0, b1, y, y1, tint, '500 3.5px ' + FONT);
+      tdFillSlot(x, b0, b1, y, y1, tint, tdSlotStart(s.a));
       x.restore();
     }
     window.__tdTextPaints++;
     s.ver = window.__tdTextVersion;
+    window.__tdDebugSlot = c;
     s.c = c;
-  };
-
-  BLOCKS.code = function (c, x0, x1, y0, y1, t) {
-    if (!window.__tdText.length || !window.__tdRingText) return _code(c, x0, x1, y0, y1, t); // 预设动画
-    let y = header(c, x0, x1, y0, t);
-    tdRows(c, x0, x1, y, y1, t, '500 3.5px ' + FONT);
-  };
-  BLOCKS.para = function (c, x0, x1, y0, y1, t) {
-    if (!window.__tdText.length || !window.__tdRingText) return _para(c, x0, x1, y0, y1, t);
-    tdRows(c, x0, x1, y0 + 1, y1, t, '500 3.3px ' + FONT);
   };
 
   // 新文本到达 → 重绘全部环槽（节流：环槽几何带随机量，刷太快会「沸腾」）
@@ -1836,6 +1867,7 @@ function syncPanel() {
   }
   window.__tdHoverRing = false;
   window.__tdTextPaints = 0;   // 自检：环带文本实际重绘次数
+  window.__tdHaloBuild = "halo-5";
   // 自检用几何：确认环心/半径与命中判定一致（父页面会把它带进 /debug 遥测）
   window.__tdGeomGet = () => ({
     cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),
@@ -1861,9 +1893,37 @@ function syncPanel() {
   }, 250);
 
 
+  // 自检：导出主画布（环带/粒子都在上面），用于在没有录屏权限的机器上验证画面
+  window.__tdSnapshot = function () {
+    try {
+      const stageEl = document.getElementById('stage');
+      const out = document.createElement('canvas');
+      out.width = stageEl.width; out.height = stageEl.height;
+      const x = out.getContext('2d');
+      x.drawImage(stageEl, 0, 0);
+      for (const id of ['td-lights', 'td-ripple']) {
+        const el = document.getElementById(id);
+        if (el) x.drawImage(el, 0, 0, out.width, out.height);
+      }
+      return out.toDataURL('image/png');
+    } catch (e) { return null; }
+  };
+  window.__tdLightsShot = function () {
+    try {
+      const el = document.getElementById('td-lights');
+      return el ? el.toDataURL('image/png') : null;
+    } catch (e) { return null; }
+  };
+  // 自检：最近一个「文本环槽」的独立画布，用来确认环带里画的到底是文字还是预设图案
+  window.__tdDebugSlot = null;
+  window.__tdSlotShot = function () {
+    try { return window.__tdDebugSlot ? window.__tdDebugSlot.toDataURL('image/png') : null; } catch (e) { return null; }
+  };
+
   /* ---------- 多厂商光效：谁在跑，就用谁的颜色点亮环带内外 ---------- */
   (function initSourceLights() {
     const cv = document.createElement('canvas');
+    cv.id = 'td-lights';
     cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:7';
     document.body.appendChild(cv);
     const g = cv.getContext('2d');
@@ -1882,9 +1942,10 @@ function syncPanel() {
       const n = parseInt(m[1], 16);
       return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
     };
-    let lights = [], raf = 0, lastMsg = 0;
+    let lights = [], raf = 0, lastMsg = 0, frames = 0, draws = 0, lastErr = '';
 
-    window.__tdLightState = () => ({ count: lights.length, srcs: lights.map((l) => l.src) });
+    window.__tdLightState = () => ({ count: lights.length, srcs: lights.map((l) => l.src), frames, draws, lastErr, size: [cv.width, cv.height] });
+    window.__tdTintState = () => (window.__tdTintList || []).map((t) => t.src);
     window.__tdSources = function (list) {
       lastMsg = Date.now();
       const prev = new Map(lights.map((l) => [l.src, l]));
@@ -1894,20 +1955,22 @@ function syncPanel() {
           src: x.src,
           rgb: toRgb(x.color),
           intensity: Math.max(0, Math.min(1, Number(x.intensity) || 0)),
-          dots: old?.dots || Array.from({ length: 22 }, () => ({
+          dots: old?.dots || Array.from({ length: 36 }, () => ({
             a: Math.random() * TAU,
             r: Math.random(),
-            s: (Math.random() - 0.5) * 0.35,
+            s: (Math.random() - 0.5) * 0.5,
             ph: Math.random() * TAU,
-            sz: 0.6 + Math.random() * 1.3,
+            sz: 0.9 + Math.random() * 1.8,
           })),
         };
       });
+      window.__tdTintList = lights.map((l) => ({ src: l.src, rgb: l.rgb, intensity: l.intensity }));
       if (!raf) raf = requestAnimationFrame(step);
     };
 
     function step(now) {
       raf = 0;
+      frames++;
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, cv.width, cv.height);
       const list = Date.now() - lastMsg > 2500 ? [] : lights;   // 页面停止推送 → 光效收掉
@@ -1924,29 +1987,65 @@ function syncPanel() {
         const [r, gg, b] = L.rgb;
         const grd = g.createRadialGradient(c0.x, c0.y, Math.max(1, rad - w), c0.x, c0.y, rad + w);
         grd.addColorStop(0, `rgba(${r},${gg},${b},0)`);
-        grd.addColorStop(0.5, `rgba(${r},${gg},${b},${(0.17 * a).toFixed(3)})`);
+        grd.addColorStop(0.35, `rgba(${r},${gg},${b},${(0.5 * a).toFixed(3)})`);
+        grd.addColorStop(0.6, `rgba(${r},${gg},${b},${(0.34 * a).toFixed(3)})`);
         grd.addColorStop(1, `rgba(${r},${gg},${b},0)`);
         g.fillStyle = grd;
         g.beginPath();
         g.arc(c0.x, c0.y, rad + w, 0, TAU);
         g.arc(c0.x, c0.y, Math.max(1, rad - w), 0, TAU, true);
         g.fill('evenodd');
+        draws++;
 
         // 环带内外的彩色粒子
         for (const d of L.dots) {
           d.a += d.s * 0.016;
-          const rr = rad * (1 + (d.r - 0.5) * 0.24);
+          const rr = rad + (d.r - 0.5) * band * 1.35;   // 环带内外都有
           const x = c0.x + Math.cos(d.a) * rr, y = c0.y + Math.sin(d.a) * rr;
           const al = a * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 420 + d.ph)));
-          g.fillStyle = `rgba(${r},${gg},${b},${(0.8 * al).toFixed(3)})`;
+          g.fillStyle = `rgba(${r},${gg},${b},${(1 * al).toFixed(3)})`;
           g.beginPath(); g.arc(x, y, d.sz, 0, TAU); g.fill();
-          g.fillStyle = `rgba(${r},${gg},${b},${(0.16 * al).toFixed(3)})`;
-          g.beginPath(); g.arc(x, y, d.sz * 3.2, 0, TAU); g.fill();
+          g.fillStyle = `rgba(${r},${gg},${b},${(0.34 * al).toFixed(3)})`;
+          g.beginPath(); g.arc(x, y, d.sz * 4.5, 0, TAU); g.fill();
         }
       });
       raf = requestAnimationFrame(step);
     }
+    try { window.__tdStepProbe = 1; } catch (e) { lastErr = String(e); }
   })();
+
+  /* ---------- 厂商配色：把整个舞台按「谁在跑」染色（粒子/光束/环带一起） ---------- */
+  // 用 canvas 的 color 混合模式：只改变色相/饱和度，保留亮度——白粒子会变成该厂商的色，
+  // 背景依旧是黑。多厂商并行时按强度加权混色，环带另有各自的分道辉光。
+  const _drawStage = drawStage;
+  drawStage = function (dt) {
+    _drawStage(dt);
+    let tints = [];
+    try { tints = (window.__tdTintList || []); } catch (e) { tints = []; }
+    if (!tints.length) return;
+    let r = 0, g = 0, b = 0, wsum = 0;
+    for (const t of tints) {
+      const w = Math.max(0.05, t.intensity ?? 0.5);
+      r += t.rgb[0] * w; g += t.rgb[1] * w; b += t.rgb[2] * w; wsum += w;
+    }
+    if (!wsum) return;
+    r = Math.round(r / wsum); g = Math.round(g / wsum); b = Math.round(b / wsum);
+    const alpha = Math.min(0.9, 0.55 + 0.35 * Math.min(1, wsum));
+    S.save();
+    S.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if ('color' === (S.globalCompositeOperation = 'color')) {
+      S.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+    } else {
+      // 旧 WebKit 不支持 color 混合时退化为 multiply，至少不会盖住画面
+      S.globalCompositeOperation = 'multiply';
+      S.fillStyle = `rgba(${r},${g},${b},0.55)`;
+    }
+    S.fillRect(0, 0, W, H);
+    S.restore();
+  };
+
+  /* ---------- 去掉伪数据的检查标注框 ---------- */
+  drawCallout = function () {};
 
   /* ---------- 去面板：只留光环本体 ---------- */
   function haloOnly() {
@@ -1972,6 +2071,7 @@ function syncPanel() {
   /* ---------- 点击冲击波：壁纸窗口点击穿透，点击由原生宿主全局转发 ---------- */
   (function initRipple() {
     const cv = document.createElement('canvas');
+    cv.id = 'td-ripple';
     cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:8';
     document.body.appendChild(cv);
     const g = cv.getContext('2d');
@@ -1989,10 +2089,12 @@ function syncPanel() {
     window.__tdClick = function (x, y) {
       ripples.push({ x, y, t: performance.now() });
       if (ripples.length > 8) ripples.shift();
+      window.__tdTintList = lights.map((l) => ({ src: l.src, rgb: l.rgb, intensity: l.intensity }));
       if (!raf) raf = requestAnimationFrame(step);
     };
     function step(now) {
       raf = 0;
+      frames++;
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, cv.width, cv.height);
       g.setTransform(dpr, 0, 0, dpr, 0, 0);

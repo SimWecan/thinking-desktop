@@ -47,17 +47,19 @@
 </style>
 </head>
 <body>
-<iframe id="halo" src="/haloflux/"></iframe>
+<iframe id="halo"></iframe>
 <div id="textpane"><div class="tp-head">THOUGHT STREAM</div></div>
 <div id="hud"></div>
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const PAGE_BUILD = "source-lights-4";   // 自检用：确认壁纸加载的是新页面
+const PAGE_BUILD = "page-5";   // 自检用：确认壁纸加载的是新页面
 const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
 
 const hud = document.getElementById("hud");
 const halo = document.getElementById("halo");
+// 每次加载都带时间戳，避免 WKWebView 用旧缓存的 halo 页面（改了前端却不生效的元凶）
+halo.src = "/haloflux/?t=" + Date.now();
 
 // ---------------- 状态 ----------------
 let energy = 0, rate = 0, byType = {}, bySource = {}, sources = [];
@@ -83,7 +85,9 @@ const SRC_LABEL = {
 };
 
 /** 思考日志上墙：raw 保留换行，环带用扁平版；stream=true 的快照会原地替换而不是叠行 */
+let textPushes = 0;
 function pushText(text, source, kind, stream) {
+  textPushes++;
   const raw = String(text || "").replace(/\r/g, "").trim();
   if (raw.length < 2) return;
   const last = textLines[textLines.length - 1];
@@ -92,12 +96,19 @@ function pushText(text, source, kind, stream) {
   if (grow) {
     if (raw.length >= last.text.length) last.text = raw.slice(0, 6000);
   } else {
-    textLines.push({ src: SRC_LABEL[source] ?? (source || ""), key: source, kind, text: raw.slice(0, 6000) });
+    const id = ++textSeq;
+    textLines.push({ id, src: SRC_LABEL[source] ?? (source || ""), key: source, kind, text: raw.slice(0, 6000) });
     if (textLines.length > 60) textLines.shift();
   }
   lastTextAt = Date.now();
-  const flat = raw.replace(/\s+/g, " ");
-  haloMsg({ td: "text", id: ++textSeq, text: flat.slice(0, 220) });
+  const flat = raw.replace(/\s+/g, " ").slice(0, 220);
+  // 流式快照是「同一条越写越长」：让光环替换上一条，而不是把半截话重复铺满环带
+  if (grow) {
+    last.id = ++textSeq;
+    haloMsg({ td: "text", id: last.id, text: flat, replace: true });
+  } else {
+    haloMsg({ td: "text", id: textLines[textLines.length - 1].id, text: flat });
+  }
   renderText();
   syncPane();
 }
@@ -125,6 +136,22 @@ let standby = null;      // 当前待机位（null=未初始化）
 let overRing = false;    // 鼠标是否停在环带上（决定右侧截流视窗是否出现）
 let haloError = "";      // 光环内 JS 报错回传（壁纸里没有控制台）
 let lastParamPush = 0, stateTimer = 0;
+
+/** 自检截图：把光环画布快照回传服务端（壁纸没有录屏权限时也能看到实际画面） */
+let lastShotAt = 0;
+function captureShot() {
+  if (Date.now() - lastShotAt < 1500) return;
+  lastShotAt = Date.now();
+  try {
+    const w = halo.contentWindow;
+    const png = w.__tdSnapshot && w.__tdSnapshot();
+    const slot = w.__tdSlotShot && w.__tdSlotShot();
+    const lights = w.__tdLightsShot && w.__tdLightsShot();
+    if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ png, slot, lights }) }).catch(() => {});
+  } catch (err) {
+    haloError = String((err && err.message) || err);
+  }
+}
 
 /** 正在工作的来源 → 光环按各自颜色点亮（25s 内有真实事件算在跑） */
 function sendSourceLights() {
@@ -180,9 +207,18 @@ function pushParams() {
   haloMsg({ td: "set", key: "glow", value: +(1.02 + e * 0.12).toFixed(2) });
 }
 
+// 启动即回填最近的思考文本（否则刚开机/重启壁纸时环带是空的，只能等下一次事件）
+(async function seedTexts() {
+  try {
+    const list = await (await fetch("/texts?limit=14")).json();
+    list.forEach((t) => pushText(t.text, t.source, t.kind, false));
+  } catch {}
+})();
+
 // iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
 function resendText() {
-  textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: ++textSeq, text: line.text.replace(/\s+/g, " ").slice(0, 220) }));
+  // 重发沿用原始 id：光环按 id 去重，不会因为 ready 发两次就把同一段铺两遍
+  textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: line.id, text: line.text.replace(/\s+/g, " ").slice(0, 220) }));
 }
 
 halo.addEventListener("load", () => {
@@ -235,6 +271,7 @@ setInterval(async () => {
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
+    if (s.shot) captureShot();
     sendSourceLights();
     // 自检字段：环带是否已拿到真实文本（跨窗口同源，可直读 iframe 状态）
     let haloState = {};
@@ -244,6 +281,8 @@ setInterval(async () => {
         haloText: (w.__tdText || []).length,
         ringText: !!w.__tdRingText,
         haloRaf: !!w.__tdRafOn,
+        haloTextId: w.__tdTextId || 0,
+        haloBuild: w.__tdHaloBuild || null,
         haloGeom: (() => { try { return w.__tdGeomGet ? w.__tdGeomGet() : null; } catch (e) { return null; } })(),
       };
     } catch (err) { haloState = { haloError: String((err && err.message) || err) }; }
@@ -252,6 +291,7 @@ setInterval(async () => {
       body: JSON.stringify({
         client: "wall",
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
+        textPushes,
         lights: (sources || []).filter((x) => x.agoMs < 25000 && x.lastType !== "status").map((x) => x.source),
         haloOpacity: getComputedStyle(halo).opacity,
         build: PAGE_BUILD,

@@ -38,7 +38,11 @@ const zstdAvailable = (() => {
 
 const events = [];
 const MAX_EVENTS = 500;
-const clientDebug = new Map();   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
+const clientDebug = new Map();
+let shotAt = 0;            // 最近一次「截屏请求」时间
+let shotPng = null;
+let shotSlot = null;
+let shotLights = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
@@ -75,6 +79,7 @@ function state() {
     rate: Math.round(rate * 100) / 100,
     byType,
     bySource,
+    shot: Date.now() - shotAt < 3000,   // 3s 内请求过截屏 → 页面回传一帧
     // 每个来源最后一次真实事件：用于确认某个 connector 是真的接到数据，而不是只注册成功
     sources: [...sourceStats.entries()].map(([source, s]) => ({
       source,
@@ -273,6 +278,51 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 最近的思考文本：页面一启动就能把环带/视窗填满，不用等下一次事件
+  if (url.pathname === "/texts") {
+    const limit = Math.max(1, Math.min(40, Number(url.searchParams.get("limit")) || 12));
+    const texts = events.filter((e) => e.type === "text").slice(-limit)
+      .map((e) => ({ source: e.source, ts: e.ts, text: e.payload?.text ?? "", kind: e.payload?.kind }));
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(JSON.stringify(texts));
+    return;
+  }
+
+  // 画布快照：GET /snapshot?request=1 请求一帧；GET /snapshot 取 PNG
+  if (url.pathname === "/snapshot") {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body);
+          const dec = (v) => {
+            const b64 = String(v || "").split(",")[1] || "";
+            const buf = Buffer.from(b64, "base64");
+            return buf.length > 500 ? buf : null;
+          };
+          const full = dec(data.png);
+          const slot = dec(data.slot);
+          const lights = dec(data.lights);
+          if (full) { shotPng = full; shotAt = 0; }
+          if (slot) shotSlot = slot;
+          if (lights) shotLights = lights;
+        } catch { /* 忽略坏包 */ }
+        res.writeHead(200).end("ok");
+      });
+      return;
+    }
+    if (url.searchParams.has("request")) {
+      shotAt = Date.now();
+      res.writeHead(200, { "Content-Type": "text/plain" }).end("requested");
+      return;
+    }
+    const img = url.searchParams.has("slot") ? shotSlot : url.searchParams.has("lights") ? shotLights : shotPng;
+    if (!img) { res.writeHead(404).end("no snapshot"); return; }
+    res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(img);
+    return;
+  }
+
   // 自检：每个 AI 桌面端的连接方式 + 最后一次真实事件（区分「注册了」和「真的接到数据」）
   if (url.pathname === "/health") {
     const sources = state().sources;
@@ -329,7 +379,12 @@ const server = createServer((req, res) => {
         ".png": "image/png", ".jpg": "image/jpeg", ".mp3": "audio/mpeg",
         ".md": "text/plain; charset=utf-8",
       }[extname(fp).toLowerCase()] ?? "application/octet-stream";
-      res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-cache" });
+      // 壁纸宿主是常驻 WKWebView：静态资源一律禁缓存，否则改了前端要重装才好
+      res.writeHead(200, {
+        "Content-Type": mime,
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        Pragma: "no-cache",
+      });
       res.end(readFileSync(fp));
       return;
     }
