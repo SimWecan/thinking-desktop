@@ -20,10 +20,31 @@
     text-shadow: 0 1px 4px #000;
   }
   #hud b { color: #e8f1ff; }
+  /* 截流文本视窗：白色边框、透明底、白色文字；从光环向右发散滑入 */
+  #textpane {
+    position: fixed; right: 28px; top: 50%; z-index: 2;
+    width: min(380px, 34vw); max-height: 62vh;
+    transform: translate(60px, -50%); opacity: 0;
+    transition: transform .7s cubic-bezier(.2,.8,.2,1), opacity .7s ease;
+    border: 1px solid rgba(255,255,255,.85); border-radius: 2px;
+    background: transparent;
+    padding: 12px 14px; pointer-events: none;
+    font: 11px/1.75 ui-monospace, "SF Mono", Menlo, monospace;
+    color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9);
+    overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  #textpane.show { transform: translate(0, -50%); opacity: 1; }
+  #textpane .tp-head {
+    font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.6);
+    border-bottom: 1px solid rgba(255,255,255,.35); padding-bottom: 6px; margin-bottom: 8px;
+  }
+  #textpane .tp-line { white-space: pre-wrap; word-break: break-all; }
+  #textpane .tp-line.dim { color: rgba(255,255,255,.45); }
 </style>
 </head>
 <body>
 <iframe id="halo" src="/haloflux/"></iframe>
+<div id="textpane"><div class="tp-head">THOUGHT STREAM</div></div>
 <div id="hud"></div>
 <script>
 "use strict";
@@ -35,6 +56,27 @@ const halo = document.getElementById("halo");
 
 // ---------------- 状态 ----------------
 let energy = 0, rate = 0, byType = {}, bySource = {};
+const textpane = document.getElementById("textpane");
+const textLines = [];
+let lastTextAt = 0;
+
+function pushText(text) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (s.length < 2) return;
+  textLines.push(s.slice(0, 160));
+  if (textLines.length > 40) textLines.shift();
+  lastTextAt = Date.now();
+  // 重绘：旧行压暗，末行高亮
+  textpane.querySelectorAll(".tp-line").forEach((n) => n.remove());
+  const frag = document.createDocumentFragment();
+  textLines.slice(-14).forEach((line, i, arr) => {
+    const div = document.createElement("div");
+    div.className = "tp-line" + (i < arr.length - 2 ? " dim" : "");
+    div.textContent = line;
+    frag.appendChild(div);
+  });
+  textpane.appendChild(frag);
+}
 let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
 let busyUntil = 0;       // status running>0 的短暂宽限
 let standby = null;      // 当前待机位（null=未初始化）
@@ -99,7 +141,7 @@ es.onmessage = (ev) => {
     return;
   }
   workAt = e.ts;
-  if (e.type === "text") { haloMsg({ td: "text", text: e.payload.text }); energy = Math.min(energy + 0.12, 1.6); return; }
+  if (e.type === "text") { pushText(e.payload.text); energy = Math.min(energy + 0.12, 1.6); return; }
   if (e.type === "tool_call") energy = Math.min(energy + 0.3, 1.6);
   else energy = Math.min(energy + 0.14, 1.6);
 };
@@ -108,6 +150,7 @@ es.onerror = () => { /* 断线由 EventSource 自动重连 */ };
 setInterval(async () => {
   const idle = currentStandby();
   setStandby(idle);
+  textpane.classList.toggle("show", textLines.length > 0 && Date.now() - lastTextAt < 120000);
   if (!idle) pushParams();
   energy *= 0.995;
   try {
