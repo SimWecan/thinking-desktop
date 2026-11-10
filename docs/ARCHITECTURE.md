@@ -26,6 +26,10 @@ type ThinkingEvent = {
 };
 ```
 
+## 安全
+
+- 只监听 `127.0.0.1`；所有会改状态的接口（`/ingest`、`/texts`、`/view`、`/agents`、`/snapshot`、`/debug`、`/selftest`）在带 `Origin` 头时会校验必须是本机来源，挡掉浏览器里其它网页的跨站请求（CSRF）。同源页面通常不带 `Origin`，不受影响。
+
 ## 服务端 API
 
 | 端点 | 说明 |

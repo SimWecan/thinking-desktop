@@ -392,8 +392,21 @@ function wallPage() {
   return wallCache.html;
 }
 
+// 会改状态的接口：拒绝来自其它网站的跨站请求（本机服务只监听 127.0.0.1，
+// 但浏览器里的任意网页都能向它发请求）。同源页面通常不带 Origin，带了就必须是本机。
+const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/config"]);
+const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+
+  if (MUTATING_PATHS.has(url.pathname)) {
+    const origin = req.headers.origin;
+    if (origin && !LOCAL_ORIGIN.test(String(origin))) {
+      res.writeHead(403, { "Content-Type": "text/plain" }).end("forbidden origin");
+      return;
+    }
+  }
 
   if (url.pathname === "/stream") {
     res.writeHead(200, {
