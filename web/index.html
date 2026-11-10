@@ -8,7 +8,7 @@
   · 待机 —— tdSetStandby(true)：环带原地停止，环内/环外粒子特效消失，环上保留截流文本
   · 活动 —— tdSetStandby(false)：环带转动、粒子特效重现，强度随事件速率
   · 文本 —— 右侧视窗逐行显示开源 AI 的截流文本（标注来源），悬停环带时同步进「截流 · 真实对话记录」面板
-  · 点击 —— 原生宿主全局转发点击坐标，环带上激起冲击波（不接受悬停交互）
+  · 悬停 —— 鼠标停在环带上才弹出右侧截流视窗（不做放大/特写）；点击激起冲击波
 -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #08090b; }
@@ -53,7 +53,7 @@
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const PAGE_BUILD = "ring-text-2026-11-10";   // 自检用：确认壁纸加载的是新页面
+const PAGE_BUILD = "hover-pane-3";   // 自检用：确认壁纸加载的是新页面
 const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
 
 const hud = document.getElementById("hud");
@@ -100,10 +100,12 @@ function pushText(text, source) {
     frag.appendChild(div);
   });
   textpane.appendChild(frag);
+  syncPane();   // 悬停中来了新文本 → 立刻显示/更新
 }
 let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
 let busyUntil = 0;       // status running>0 的短暂宽限
 let standby = null;      // 当前待机位（null=未初始化）
+let overRing = false;    // 鼠标是否停在环带上（决定右侧截流视窗是否出现）
 let lastParamPush = 0, stateTimer = 0;
 
 function fmtAgo(ms) {
@@ -114,9 +116,16 @@ function fmtAgo(ms) {
   return `${Math.round(ms / 3_600_000)}h`;
 }
 
+function syncPane() {
+  textpane.classList.toggle("show", overRing && textLines.length > 0);
+}
+
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
-// 桌面壁纸点击穿透，由原生宿主全局转发点击坐标 → 光环冲击波（悬停不再与环带互动）
+// 悬停：原生宿主转发全局鼠标位置 → 光环只判断「是否停在环带上」，不做任何放大/特写
+window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
+addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
+// 点击穿透：原生宿主转发全局点击坐标 → 光环冲击波
 window.__tdClick = (x, y) => haloMsg({ td: "click", x, y });
 addEventListener("mousedown", (e) => window.__tdClick(e.clientX, e.clientY));
 
@@ -133,11 +142,12 @@ function pushParams() {
   const now = Date.now();
   if (now - lastParamPush < 1000) return;
   lastParamPush = now;
-  const r = Math.min(rate, 3);
-  haloMsg({ td: "set", key: "tempo", value: +(0.65 + r * 0.2 + energy * 0.15).toFixed(2) });
-  haloMsg({ td: "set", key: "ringSpeed", value: +(0.55 + r * 0.18 + energy * 0.2).toFixed(2) });
-  haloMsg({ td: "set", key: "beamGlow", value: +(2.6 + energy * 0.9).toFixed(2) });
-  haloMsg({ td: "set", key: "glow", value: +(1.1 + energy * 0.4).toFixed(2) });
+  // 舒适档：节奏/转速/辉光都压在小幅波动区间，事件再密也不「发疯」
+  const r = Math.min(rate, 2), e = Math.min(energy, 1);
+  haloMsg({ td: "set", key: "tempo", value: +(0.55 + r * 0.06 + e * 0.05).toFixed(2) });
+  haloMsg({ td: "set", key: "ringSpeed", value: +(0.42 + r * 0.05 + e * 0.04).toFixed(2) });
+  haloMsg({ td: "set", key: "beamGlow", value: +(2.3 + e * 0.5).toFixed(2) });
+  haloMsg({ td: "set", key: "glow", value: +(1.02 + e * 0.12).toFixed(2) });
 }
 
 // iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
@@ -151,6 +161,7 @@ halo.addEventListener("load", () => {
   pushParams();
 });
 window.addEventListener("message", (ev) => {
+  if (ev.data && ev.data.td === "hover") { overRing = !!ev.data.ring; syncPane(); return; }
   if (ev.data && ev.data.td === "ready") {
     standby = null;
     setStandby(currentStandby());
@@ -187,7 +198,7 @@ es.onerror = () => { /* 断线由 EventSource 自动重连 */ };
 setInterval(async () => {
   const idle = currentStandby();
   setStandby(idle);
-  textpane.classList.toggle("show", textLines.length > 0 && Date.now() - lastTextAt < 120000);
+  syncPane();
   if (!idle) pushParams();
   energy *= 0.995;
   try {
@@ -201,13 +212,14 @@ setInterval(async () => {
         haloText: (w.__tdText || []).length,
         ringText: !!w.__tdRingText,
         haloRaf: !!w.__tdRafOn,
+        haloGeom: (() => { try { return w.__tdGeomGet ? w.__tdGeomGet() : null; } catch (e) { return null; } })(),
       };
     } catch (err) { haloState = { haloError: String((err && err.message) || err) }; }
     fetch("/debug", {
       method: "POST",
       body: JSON.stringify({
         client: "wall",
-        idle, standby, workAt, busyUntil, energy: +energy.toFixed(3),
+        idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing,
         haloOpacity: getComputedStyle(halo).opacity,
         build: PAGE_BUILD,
         ...haloState,

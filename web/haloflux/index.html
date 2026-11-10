@@ -1652,6 +1652,16 @@ function syncPanel() {
 (function () {
   'use strict';
 
+  /* ---------- 关闭自动运镜：去掉无意义的推近/拉远特写，画面保持固定机位 ---------- */
+  function tdNoCamera() {
+    try {
+      C.camera = 0;                    // updateCam 会直接停在 z=1 的中心机位
+      cam.x = W / 2; cam.y = H / 2; cam.z = 1;
+    } catch (e) {}
+  }
+  tdNoCamera();
+  [0, 400, 1200, 3000, 6000, 12000].forEach((t) => setTimeout(tdNoCamera, t));   // 预设/配置可能晚到，重复压一次
+
   /* ---------- 待机全停 / 唤起 ---------- */
   window.__wpPaused = true; // Wallpaper Engine 兼容位（与 __tdStandby 同步）
   window.__tdStandby = true; // Thinking Desktop 待机：环带停止转动、环内外粒子消失
@@ -1696,6 +1706,7 @@ function syncPanel() {
     if (m.td === 'standby') { tdSetStandby(!!m.value); return; }
     if (m.td === 'set') { try { setParam(m.key, m.value, true); } catch (e) {} return; }
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
+    if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
     if (m.td === 'click') { if (window.__tdClick) window.__tdClick(m.x, m.y); return; }
     if (m.td === 'text') { // 截流文本 → 悬停镜头面板（环上是否显示由 __tdRingText 决定）
       if (m.id && m.id <= (window.__tdTextId || 0)) return;   // 重复投递（iframe ready 重发）丢弃
@@ -1717,12 +1728,13 @@ function syncPanel() {
   const _code = BLOCKS.code, _para = BLOCKS.para;
 
   function tdRows(c, x0, x1, y0, y1, t, font) {
-    // 用截流文本逐行填充；宽度不够自动截断换行
+    // 从最新一条开始往上铺（越新的越靠近环带内缘），宽度不够自动折行
     c.font = font;
     const cw = 2.15, maxChars = Math.max(8, ((x1 - x0) / cw) | 0);
+    const n = window.__tdText.length;
     let y = y0, bi = 0;
-    while (y < y1 - 3.5 && bi < 300) {
-      let s = window.__tdText[bi % window.__tdText.length]; bi++;
+    while (n && y < y1 - 3.5 && bi < 300) {
+      let s = window.__tdText[n - 1 - (bi++ % n)];
       if (!s) break;
       while (s.length && y < y1 - 3.5) {
         c.fillStyle = rgba(t, 0.75);
@@ -1732,6 +1744,57 @@ function syncPanel() {
       }
     }
   }
+
+  /* ---------- 环带文本布局稳定：每个环槽的版式只随机一次，之后只换字 ---------- */
+  function tdSlotPlain(s, band, h) {
+    // 版式底图：索引列 + 底部刻度（原本每次重绘都会重掷随机数 → 环带「沸腾」）
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(band * RING_SC); c.height = Math.ceil((h + 2) * RING_SC);
+    const x = c.getContext('2d'); x.scale(RING_SC, RING_SC); x.textBaseline = 'top';
+    const RB = rimW(), dz0 = RB + 6, oz0 = band * 0.78, oz1 = band - RB - 5;
+    const pitch = rr(8, 12);
+    x.font = `600 3.1px ${FONT}`;
+    for (let yy = rr(1, pitch); yy < h - 2; yy += pitch) {
+      if (rnd() < 0.15) continue;
+      let xx = oz0 + rr(0, 3);
+      if (rnd() < 0.45) { x.fillStyle = `rgba(225,228,236,${rr(0.55, 0.95)})`; x.fillText(String((rnd() * 999) | 0).padStart(3, '0'), xx, yy - 1); xx += 9; }
+      const n = 1 + (rnd() * 3 | 0);
+      for (let i = 0; i < n && xx < oz1; i++) { x.fillStyle = `rgba(225,228,236,${rr(0.5, 0.95)})`; x.fillRect(xx, yy, rr(1.2, 2.4), 1.2); xx += rr(2.4, 3.6); }
+    }
+    if (rnd() < 0.45) {
+      x.fillStyle = 'rgba(220,224,232,.7)';
+      for (let xx = dz0; xx < oz1; xx += rr(2.4, 4.5)) if (rnd() < 0.8) x.fillRect(xx, h + 0.4, 1.1, 1.1);
+    }
+    return c;
+  }
+
+  const _renderSlot = renderSlot;
+  renderSlot = function (s) {
+    if (!window.__tdRingText || !window.__tdText.length) return _renderSlot(s);   // 预设动画
+    const band = RO - R, h = s.hpx;
+    if (!s.rects) {
+      const RB = rimW(), dz0 = RB + 6, dz1 = band * 0.72;
+      const split = rnd() < 0.45 && dz1 - dz0 > 60;
+      const blocks = [];
+      if (split) { const m = dz0 + (dz1 - dz0) * rr(0.42, 0.6); blocks.push([dz0, m], [m + rr(4, 8), dz1]); }
+      else blocks.push([dz0, dz1 - rr(0, 18)]);
+      s.rects = blocks.map(([b0, b1]) => [b0, b1, 1 + rr(0, 2), h + 1 - rr(0, 2), pick(TINTS)]);
+      s.plain = tdSlotPlain(s, band, h);
+    }
+    const c = document.createElement('canvas');
+    c.width = s.plain.width; c.height = s.plain.height;
+    const x = c.getContext('2d');
+    x.drawImage(s.plain, 0, 0);
+    x.scale(RING_SC, RING_SC); x.textBaseline = 'top';
+    for (const [b0, b1, y0, y1, tint] of s.rects) {
+      x.save(); x.beginPath(); x.rect(b0, y0 - 0.5, b1 - b0, y1 - y0 + 1); x.clip();
+      const y = header(x, b0, b1, y0, tint);
+      tdRows(x, b0, b1, y, y1, tint, '500 3.5px ' + FONT);
+      x.restore();
+    }
+    window.__tdTextPaints++;
+    s.c = c;
+  };
 
   BLOCKS.code = function (c, x0, x1, y0, y1, t) {
     if (!window.__tdText.length || !window.__tdRingText) return _code(c, x0, x1, y0, y1, t); // 预设动画
@@ -1746,13 +1809,46 @@ function syncPanel() {
   // 新文本到达 → 重绘全部环槽（节流：环槽几何带随机量，刷太快会「沸腾」）
   let lastSlotRebuild = 0;
   (function flushLoop() {
-    if (window.__tdTextDirty && !window.__wpPaused && Date.now() - lastSlotRebuild > 2000) {
+    if (window.__tdTextDirty && !window.__wpPaused && Date.now() - lastSlotRebuild > 300) {
       window.__tdTextDirty = false;
       lastSlotRebuild = Date.now();
       try { slots.forEach((s) => { s.c = null; }); } catch (e) {}
     }
     requestAnimationFrame(flushLoop);
   })();
+
+  /* ---------- 悬停环带：只用来触发右侧截流视窗，不做任何特写/放大 ---------- */
+  let hoverInRing = false, hoverSeenAt = 0;
+  function tdOverRing(x, y) {
+    const c0 = toScreen(cx, cy);
+    const d = Math.hypot(x - c0.x, y - c0.y);
+    const ri = R * cam.z, ro = RO * cam.z;
+    return d >= ri - 12 && d <= ro + 12;
+  }
+  window.__tdHoverRing = false;
+  window.__tdTextPaints = 0;   // 自检：环带文本实际重绘次数
+  // 自检用几何：确认环心/半径与命中判定一致（父页面会把它带进 /debug 遥测）
+  window.__tdGeomGet = () => ({
+    cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),
+    camZ: +cam.z.toFixed(2), W: Math.round(W), H: Math.round(H), hover: !!window.__tdHoverRing,
+    paints: window.__tdTextPaints,
+  });
+  window.__tdMouse = function (x, y) {
+    hoverSeenAt = Date.now();
+    const over = tdOverRing(x, y);
+    if (over === hoverInRing) return;
+    hoverInRing = over;
+    window.__tdHoverRing = over;
+    try { parent.postMessage({ td: 'hover', ring: over }, '*'); } catch (e) {}
+  };
+  // 鼠标移出窗口后不会再收到 mouse 事件，600ms 无更新即视为离开环带
+  setInterval(() => {
+    if (hoverInRing && Date.now() - hoverSeenAt > 600) {
+      hoverInRing = false;
+      window.__tdHoverRing = false;
+      try { parent.postMessage({ td: 'hover', ring: false }, '*'); } catch (e) {}
+    }
+  }, 250);
 
   /* ---------- 去面板：只留光环本体 ---------- */
   function haloOnly() {

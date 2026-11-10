@@ -37,6 +37,11 @@ final class WallpaperView: NSView {
         webView = wv
     }
 
+    /// 全局鼠标转发：壁纸窗口点击穿透收不到 move，靠全局监听换算成页面坐标（仅用于「是否停在环带上」）
+    func forwardMouse(x: CGFloat, y: CGFloat) {
+        webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
+    }
+
     /// 全局点击转发：待机圆环的冲击波互动（点击穿透下唯一的点击来源）
     func forwardClick(x: CGFloat, y: CGFloat) {
         webView?.evaluateJavaScript("window.__tdClick(\(x),\(y))") { _, _ in }
@@ -80,6 +85,24 @@ let watcher = ScreenWatcher()
 NotificationCenter.default.addObserver(
     watcher, selector: #selector(ScreenWatcher.screensChanged(_:)),
     name: NSApplication.didChangeScreenParametersNotification, object: nil)
+
+// 全局鼠标转发：只用来判断鼠标是否停在环带上（30ms 节流；不做任何放大/特写）
+var lastMouseSend: TimeInterval = 0
+let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+    matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { event in
+    let now = Date().timeIntervalSince1970
+    guard now - lastMouseSend > 0.03, let pt = event.cgEvent?.location else { return }
+    lastMouseSend = now
+    for win in windows {
+        let f = win.frame
+        let x = pt.x - f.origin.x
+        let y = f.height - (pt.y - f.origin.y)
+        if x >= 0, x <= f.width, y >= 0, y <= f.height {
+            (win.contentView as? WallpaperView)?.forwardMouse(x: x, y: y)
+        }
+    }
+}
+_ = mouseMonitor
 
 // 全局点击转发：待机圆环点击冲击波（壁纸窗口 ignoresMouseEvents，只能靠全局监听）
 let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { event in
