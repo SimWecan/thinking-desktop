@@ -1743,10 +1743,12 @@ function syncPanel() {
     tdRows(c, x0, x1, y0 + 1, y1, t, '500 3.3px ' + FONT);
   };
 
-  // 新文本到达 → 下一帧重绘全部环槽
+  // 新文本到达 → 重绘全部环槽（节流：环槽几何带随机量，刷太快会「沸腾」）
+  let lastSlotRebuild = 0;
   (function flushLoop() {
-    if (window.__tdTextDirty && !window.__wpPaused) {
+    if (window.__tdTextDirty && !window.__wpPaused && Date.now() - lastSlotRebuild > 2000) {
       window.__tdTextDirty = false;
+      lastSlotRebuild = Date.now();
       try { slots.forEach((s) => { s.c = null; }); } catch (e) {}
     }
     requestAnimationFrame(flushLoop);
