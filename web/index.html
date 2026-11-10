@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Thinking Desktop</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #06080d; }
+  #c { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; left: 16px; bottom: 14px;
+    font: 11px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
+    color: #9fb4d0; opacity: 0; transition: opacity .4s; pointer-events: none;
+    text-shadow: 0 1px 4px #000;
+  }
+  #hud b { color: #e8f1ff; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script>
+"use strict";
+const DEBUG = __DEBUG__;
+const IDLE_AFTER = 4000, TIME_IDLE = 0.10, TIME_ACTIVE = 1.0;
+
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+const hud = document.getElementById("hud");
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(devicePixelRatio || 1, 1.5);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener("resize", resize); resize();
+
+// ---------------- 状态 ----------------
+let lastEventAt = 0, energy = 0, burst = 0, errFlash = 0;
+let rate = 0, byType = {}, bySource = {};
+let stateTimer = 0;
+
+// ---------------- SSE ----------------
+const es = new EventSource("/stream");
+es.onmessage = (ev) => {
+  const e = JSON.parse(ev.data);
+  if (e.type === "hello") {
+    rate = e.state.rate; byType = e.state.byType; bySource = e.state.bySource;
+    lastEventAt = e.state.lastEventAt;
+    return;
+  }
+  lastEventAt = e.ts;
+  if (e.type === "error") errFlash = 1;
+  else if (e.type === "tool_call") burst = Math.min(burst + 0.35, 1.5);
+  else energy = Math.min(energy + 0.15, 1.5);
+};
+es.onerror = () => { /* 壁纸引擎断线重连由 EventSource 自动处理 */ };
+
+setInterval(async () => {
+  try {
+    const s = await (await fetch("/state")).json();
+    rate = s.rate; byType = s.byType; bySource = s.bySource;
+  } catch {}
+}, 2000);
+
+// ---------------- 粒子（思考流） ----------------
+const N = 240;
+const ps = Array.from({ length: N }, () => spawn(true));
+function spawn(anywhere) {
+  const a = Math.random() * Math.PI * 2, r = 40 + Math.random() * Math.max(W, H) * 0.45;
+  return {
+    x: W / 2 + Math.cos(a) * r,
+    y: H / 2 + Math.sin(a) * r * 0.7,
+    vx: 0, vy: 0,
+    life: anywhere ? Math.random() : 1,
+    size: 0.6 + Math.random() * 1.8,
+    hue: 200 + Math.random() * 40,
+  };
+}
+
+// ---------------- 主循环 ----------------
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
+
+  const idle = now - lastEventAt > IDLE_AFTER;
+  const timeScale = idle ? TIME_IDLE : TIME_ACTIVE;
+  energy += ((idle ? 0 : 0.6 + Math.min(rate, 3) / 3) - energy) * 0.03;
+  burst *= 0.94; errFlash *= 0.90;
+
+  ctx.fillStyle = "rgba(6,8,13,0.28)";
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H / 2;
+  const glow = 0.25 + energy * 0.75 + burst * 0.5;
+
+  // 核心光晕
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 220 + burst * 120);
+  g.addColorStop(0, `rgba(${errFlash > 0.3 ? "255,80,80" : "120,180,255"},${0.10 * glow})`);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 思考粒子：被核心吸引，环绕上升
+  ctx.globalCompositeOperation = "lighter";
+  for (const p of ps) {
+    const dx = cx - p.x, dy = cy - p.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const pull = 14 * timeScale;
+    p.vx += (dx / d) * pull * dt + (-dy / d) * 26 * timeScale * dt;
+    p.vy += (dy / d) * pull * dt + ( dx / d) * 26 * timeScale * dt;
+    p.vx *= 0.985; p.vy *= 0.985;
+    p.x += p.vx * dt * 60 * 0.16;
+    p.y += p.vy * dt * 60 * 0.16;
+    p.life -= dt * 0.14 * timeScale;
+
+    if (p.life <= 0 || d < 30) Object.assign(p, spawn(false));
+
+    ctx.beginPath();
+    ctx.fillStyle = `hsla(${p.hue + errFlash * -160}, 80%, ${55 + glow * 20}%, ${0.55 * p.life * glow})`;
+    ctx.arc(p.x, p.y, p.size * (1 + burst * 0.8), 0, 7);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  // 事件脉冲环：每次工具调用一圈
+  if (burst > 0.55) {
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(160,210,255,${(burst - 0.55) * 0.5})`;
+    ctx.lineWidth = 1.5;
+    ctx.arc(cx, cy, (1.55 - burst) * 400, 0, 7);
+    ctx.stroke();
+  }
+
+  // HUD（?debug=1）
+  if (DEBUG) {
+    hud.style.opacity = 1;
+    if (now - stateTimer > 500) {
+      stateTimer = now;
+      hud.innerHTML =
+        `<b>Thinking Desktop</b> · ${idle ? "待命" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
+        `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
+        `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}`;
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
