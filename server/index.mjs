@@ -6,8 +6,8 @@
  */
 
 import { createServer } from "node:http";
-import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { join, dirname, normalize, extname, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { FileTailConnector } from "../connectors/file-tail.mjs";
@@ -209,6 +209,25 @@ const server = createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(wallHtml.replace("__DEBUG__", url.searchParams.has("debug") ? "true" : "false"));
     return;
+  }
+
+  // 静态资源：web/ 目录（含 /haloflux/ 思考形态页面），限制在 web 根内防目录穿越
+  {
+    const webRoot = join(ROOT, "web") + sep;
+    let fp = normalize(join(webRoot, decodeURIComponent(url.pathname)));
+    if (existsSync(fp) && statSync(fp).isDirectory()) fp = join(fp, "index.html");
+    if (fp.startsWith(webRoot) && existsSync(fp) && statSync(fp).isFile()) {
+      const mime = {
+        ".html": "text/html; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".png": "image/png", ".jpg": "image/jpeg", ".mp3": "audio/mpeg",
+        ".md": "text/plain; charset=utf-8",
+      }[extname(fp).toLowerCase()] ?? "application/octet-stream";
+      res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-cache" });
+      res.end(readFileSync(fp));
+      return;
+    }
   }
 
   res.writeHead(404).end("not found");

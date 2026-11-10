@@ -7,12 +7,12 @@
 
 ## 特性
 
-- **多源接入**：统一抽象 Connector，接入 Claude Code / Codex / Kimi / ChatGPT 桌面版等本机 AI 软件的事件流（日志、会话文件、UI Automation）
-- **事件驱动**：推理中 → 粒子流加速；工具调用 → 光束脉冲；报错 → 红色闪烁加密
-- **空闲待命**：持续 N 秒无事件自动降为低速漂移，不空转
+- **双形态壁纸**：待机时为自绘旋臂粒子海（慢速呼吸）；任一 AI 开始思考时平滑切换为 [HALOFLUX](https://github.com/Ryder191/haloflux) 光场核心 + 旋转数据环 + 多层光束，活动越剧烈节拍越快、光束越亮；全部空闲 30 秒后切回待机
+- **多源接入**：统一抽象 Connector，接入 Codex / Kimi / DeepSeek Harness / Gemini / ChatGPT 桌面端等本机 AI 软件的事件流
+- **事件驱动**：token 更新 → 涟漪扩散；工具调用 → 光束脉冲；报错 → 红色闪烁
 - **零第三方依赖**：服务端仅使用 Node.js 标准库
-- **壁纸化**：输出为单页 Web，可被 Lively Wallpaper / Wallpaper Engine 以 URL 方式设为壁纸
-- **跨平台**：macOS / Windows / Linux 均可运行（桌面端状态读取按平台适配）
+- **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
+- **跨平台**：macOS / Windows / Linux 均可运行
 
 ## 架构
 
@@ -89,4 +89,5 @@ macos/install.sh
 
 ## 许可
 
-MIT（见 LICENSE）。本项目为个人非商业学习项目。
+- 本项目代码：MIT（见 LICENSE）
+- `web/haloflux/`：**HALOFLUX by Ryder191 (RYDER CODE / Ms MAIKEBAIs CAT)**，[PolyForm Noncommercial License 1.0.0](https://github.com/Ryder191/haloflux)（仅限个人非商业用途，严禁商业使用）。画面右下角已保留署名；分享本项目视频/截图时须注明 `HALOFLUX by Ryder191 - https://github.com/Ryder191/haloflux`。详见 `web/haloflux/NOTICE.md` 与 LICENSE。

@@ -3,8 +3,21 @@
 <head>
 <meta charset="utf-8">
 <title>Thinking Desktop</title>
+<!--
+  双形态壁纸：
+  · 待机 —— 自绘旋臂粒子海（web 内 canvas，见下方 script）
+  · 思考 —— HALOFLUX by Ryder191（web/haloflux/，PolyForm Noncommercial，仅个人非商业）
+-->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #06080d; }
+  #halo {
+    position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0;
+    opacity: 0; transition: opacity 1.8s ease; z-index: 1;
+  }
+  #idlewrap {
+    position: fixed; inset: 0; z-index: 2;
+    opacity: 1; transition: opacity 2.2s ease;
+  }
   #c { display: block; width: 100vw; height: 100vh; }
   #hud {
     position: fixed; left: 16px; bottom: 14px;
@@ -16,16 +29,21 @@
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="hud"></div>
+<iframe id="halo" src="/haloflux/"></iframe>
+<div id="idlewrap">
+  <canvas id="c"></canvas>
+  <div id="hud"></div>
+</div>
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const BUSY_HOLD = 30000;   // 任一来源 30 秒内有事件 → 保持「工作中」状态
+const BUSY_HOLD = 30000;   // 任一来源 30 秒内有事件 → 保持「思考中」状态
 const TIME_IDLE = 0.10, TIME_ACTIVE = 1.0;
 
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 const hud = document.getElementById("hud");
+const idleWrap = document.getElementById("idlewrap");
+const halo = document.getElementById("halo");
 let W, H, DPR;
 function resize() {
   DPR = Math.min(devicePixelRatio || 1, 1.5);
@@ -39,7 +57,30 @@ addEventListener("resize", resize); resize();
 let lastEventAt = 0, energy = 0, burst = 0, errFlash = 0;
 let rate = 0, byType = {}, bySource = {};
 let stateTimer = 0;
-const ripples = [];        // token/普通事件的小涟漪
+const ripples = [];
+let active = false, lastParamPush = 0;
+
+function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
+
+/** 待机 ⇄ 思考 形态切换 */
+function setActive(on) {
+  if (active === on) return;
+  active = on;
+  halo.style.opacity = on ? 1 : 0;      // HALOFLUX 淡入/淡出
+  idleWrap.style.opacity = on ? 0 : 1;  // 粒子海淡出/淡入
+  haloMsg({ td: "pause", value: !on }); // 待机时暂停渲染省 CPU
+}
+
+/** 活动强度 → HALOFLUX 参数 */
+function pushParams(now) {
+  if (now - lastParamPush < 1000) return;
+  lastParamPush = now;
+  const r = Math.min(rate, 3);
+  haloMsg({ td: "set", key: "tempo", value: +(0.65 + r * 0.2 + burst * 0.15).toFixed(2) });
+  haloMsg({ td: "set", key: "ringSpeed", value: +(0.55 + r * 0.18 + energy * 0.2).toFixed(2) });
+  haloMsg({ td: "set", key: "beamGlow", value: +(2.6 + burst * 1.6).toFixed(2) });
+  haloMsg({ td: "set", key: "glow", value: +(1.1 + energy * 0.4).toFixed(2) });
+}
 
 // ---------------- SSE ----------------
 const es = new EventSource("/stream");
@@ -67,7 +108,7 @@ setInterval(async () => {
   } catch {}
 }, 2000);
 
-// ---------------- 粒子（螺旋思考流） ----------------
+// ---------------- 粒子（螺旋思考流 · 待机形态，保持不变） ----------------
 const N = 360;
 const ps = Array.from({ length: N }, () => spawn(true));
 function spawn(anywhere) {
@@ -93,6 +134,10 @@ function frame(now) {
   const target = idle ? 0.12 : 0.75 + Math.min(rate, 3) / 3 * 0.6;
   energy += (target - energy) * 0.04;
   burst *= 0.93; errFlash *= 0.90;
+
+  // 形态切换 + 参数驱动
+  setActive(!idle);
+  if (active) pushParams(now);
 
   ctx.fillStyle = "rgba(6,8,13,0.22)";
   ctx.fillRect(0, 0, W, H);
