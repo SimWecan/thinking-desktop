@@ -147,7 +147,8 @@
 "use strict";
 const DEBUG = __DEBUG__;
 const PAGE_BUILD = "panel-6";   // 自检用：确认壁纸加载的是新页面
-const BUSY_HOLD = 20000;        // 任一来源 20 秒内有真实工作信号 → 活动态，否则停环
+let UI = { ringText: "headline", panel: "hover", holdSec: 20, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
+const BUSY_HOLD = () => UI.holdSec * 1000;
 
 const hud = document.getElementById("hud");
 const panel = document.getElementById("panel");
@@ -216,7 +217,9 @@ function pushText(text, source, kind, stream) {
     if (textLines.length > 60) textLines.shift();
   }
   lastTextAt = Date.now();
-  const flat = raw.replace(/\s+/g, " ").slice(0, 220);
+  const flat = UI.ringText === "headline"
+    ? TDLogic.headline(raw, UI.ringChars)
+    : raw.replace(/\s+/g, " ").slice(0, 220);
   if (grow) {
     last.id = ++textSeq;
     haloMsg({ td: "text", id: last.id, text: flat, replace: true });
@@ -409,7 +412,7 @@ function renderPanel() {
 }
 
 function syncPanel() {
-  const show = overRing;
+  const show = overRing || UI.panel === "always";
   panel.classList.toggle("show", show);
   mini.classList.toggle("hide", show);
 }
@@ -454,13 +457,23 @@ function pushParams() {
 // 启动即回填最近的思考文本
 (async function seedTexts() {
   try {
+    // 先取一次配置，避免首屏用默认值（比如 ringChars）再跳变
+    try {
+      const s = await (await fetch("/state")).json();
+      if (s.ui) UI = s.ui;
+    } catch {}
     const list = await (await fetch("/texts?limit=14")).json();
     list.forEach((t) => pushText(t.text, t.source, t.kind, false));
   } catch {}
 })();
 
 function resendText() {
-  textLines.slice(-8).forEach((line) => haloMsg({ td: "text", id: line.id, text: line.text.replace(/\s+/g, " ").slice(0, 220) }));
+  textLines.slice(-8).forEach((line) => {
+    const text = UI.ringText === "headline"
+      ? TDLogic.headline(line.text, UI.ringChars)
+      : line.text.replace(/\s+/g, " ").slice(0, 220);
+    haloMsg({ td: "text", id: line.id, text });
+  });
 }
 
 halo.addEventListener("load", () => {
@@ -481,7 +494,7 @@ window.addEventListener("message", (ev) => {
 
 function currentStandby() {
   return TDLogic.shouldStandby({
-    now: Date.now(), workAt, busyUntil, hold: BUSY_HOLD, view, agents: agentsList,
+    now: Date.now(), workAt, busyUntil, hold: BUSY_HOLD(), view, agents: agentsList,
   });
 }
 
@@ -609,6 +622,7 @@ setInterval(async () => {
     tokens = s.tokens || {};
     agentSeries = s.agentSeries || {};
     totalEvents = s.totalEvents || 0;
+    if (s.ui) UI = s.ui;
     if (s.view) view = s.view;
     agentsList = s.agents || [];
     if (s.shot) captureShot();
@@ -640,7 +654,7 @@ setInterval(async () => {
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
         idleFor: Math.round((Date.now() - workAt) / 1000),
         busyIn: busyUntil ? Math.round((busyUntil - Date.now()) / 1000) : 0,
-        hold: BUSY_HOLD,
+        hold: BUSY_HOLD(),
         textPushes,
         lights: (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status").map((x) => x.source),
         seriesPeak: Math.max(0, ...series),

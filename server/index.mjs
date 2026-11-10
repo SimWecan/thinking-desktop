@@ -26,10 +26,12 @@ const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const RATE_WINDOW_MS = 10_000;
 import { AgentRegistry } from "./agents.mjs";
 import { buildIcons, cachedIconPath, ensureIcon2x } from "./icons.mjs";
+import { loadUiConfig } from "./config.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
 const agents = new AgentRegistry(ROOT);
+const UI = loadUiConfig(ROOT);   // config/ui.json：环带摘要/面板常驻/停环时长
 
 // zstd 只在 DSH 会话截流用得到；提前探测，缺了就在启动日志里明确告警
 // 轻量自检：内存与最近一段的 CPU 占用（健康检查里给出，便于长时间挂机观察）
@@ -239,6 +241,7 @@ function state() {
     totalEvents,
     agents: agents.agents(sourceStats, now),
     view: agents.view,
+    ui: UI,
   };
 }
 

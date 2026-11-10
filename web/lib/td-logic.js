@@ -36,6 +36,22 @@
     return pad.concat(src).map((v) => (Number.isFinite(v) ? v : 0));
   }
 
+  /**
+   * 环带用的一行摘要：取第一句，超长截断。整段推理铺满整圈会变成文字墙。
+   * @param {string} text
+   * @param {number} [limit]
+   */
+  function headline(text, limit) {
+    const n = Math.max(20, Number(limit) || 90);
+    const t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!t) return "";
+    // 中文句号/叹问号不需要后跟空格；英文句点要求后面是空白或结尾，避免切到 1.5 / v4.0
+    const head = t.slice(0, n + 40);
+    const m = head.match(/^[\s\S]{0,200}?[。．！？]/) || head.match(/^[\s\S]{0,200}?\.(\s|$)/);
+    const cut = m ? m[0] : t.slice(0, n);
+    return cut.replace(/\s+$/, "").slice(0, n);
+  }
+
   /** 每个 agent 的柱高百分比（按累计事件占比） */
   function agentBars(agents, view) {
     const list = (agents || []).filter((a) => a && a.enabled !== false && (!view || view === "all" || a.source === view));
@@ -43,5 +59,5 @@
     return list.map((a) => ({ source: a.source, pct: Math.round(((a.events || 0) / max) * 100) }));
   }
 
-  root.TDLogic = { shouldStandby, activeSources, normalizeSeries, agentBars };
+  root.TDLogic = { shouldStandby, activeSources, normalizeSeries, agentBars, headline };
 })(typeof window !== "undefined" ? window : globalThis);

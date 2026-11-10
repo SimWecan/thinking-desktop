@@ -33,6 +33,22 @@
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
 - **跨平台**：macOS / Windows / Linux 均可运行
 
+## 配置（可选）
+
+`config/ui.json` 覆盖界面行为，缺省即默认：
+
+```json
+{
+  "ringText": "headline",   // headline=环带只铺每段首句；full=整段原文
+  "panel": "hover",         // hover=鼠标停在环带上才展开看板；always=常驻
+  "holdSec": 20,            // 多久没有工作事件就停环
+  "lightsWindowSec": 12,    // 光源/粒子淡出窗口
+  "ringChars": 90           // headline 模式每段最多多少字
+}
+```
+
+改完刷新页面即生效（`/state.ui` 每秒下发）；示例见 `config/ui.example.json`。
+
 ## 架构
 
 ```

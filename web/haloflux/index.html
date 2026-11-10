@@ -1874,6 +1874,7 @@ function syncPanel() {
     cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),
     camZ: +cam.z.toFixed(2), W: Math.round(W), H: Math.round(H), hover: !!window.__tdHoverRing,
     paints: window.__tdTextPaints,
+    textLens: (window.__tdText || []).slice(-4).map((t) => t.length),
     lights: (() => { try { return window.__tdLightState ? window.__tdLightState() : null; } catch (e) { return null; } })(),
   });
   window.__tdMouse = function (x, y) {

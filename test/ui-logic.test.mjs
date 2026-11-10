@@ -57,3 +57,10 @@ test("agent 柱高按累计事件占比", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(bars)),
     [{ source: "a", pct: 100 }, { source: "b", pct: 50 }, { source: "c", pct: 0 }]);
 });
+
+test("headline：取首句，超长截断", () => {
+  const { headline } = sandbox.window.TDLogic;
+  assert.equal(headline("先跑测试。然后再说别的。", 90), "先跑测试。");
+  assert.equal(headline("no punctuation just a long sentence that keeps going and going", 30).length <= 30, true);
+  assert.equal(headline("", 90), "");
+});
