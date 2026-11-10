@@ -80,6 +80,9 @@ async function phase(name, sources) {
       await post(src, "text", { text: pick(SAMPLES[src] ?? ["…"], i), kind: "think" });
       await post(src, "tool_call", { name: "bash" });
       await post(src, "tool_result", {});
+      // 上下文计量：模拟各家的 usage（DSH 走 used/window，其它家走 maxUsage 比例）
+      if (src === "deepseek-harness") await post(src, "token", { model: "deepseek-flash", used: 180000 + i * 9000, window: 1048576 });
+      else await post(src, "token", { model: src.replace("-desktop", ""), maxUsage: Math.min(0.9, 0.18 + i * 0.03) });
     }
     i += 1;
     await sleep(800);

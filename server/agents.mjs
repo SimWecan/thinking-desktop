@@ -13,12 +13,12 @@ const APP_SUPPORT = join(HOME, "Library", "Application Support");
 /** 厂商预设：默认色 + 托盘图标动画类型 */
 export const VENDOR_PRESETS = {
   "deepseek-harness": { name: "DeepSeek Harness", short: "DS", color: "#4D6BFE", anim: "whale" },
-  "kimi-desktop":     { name: "Kimi",           short: "K",  color: "#2E9BFF", anim: "meteor" },
-  "gemini-desktop":   { name: "Gemini",         short: "G",  color: "#8AB4F8", anim: "flicker" },
-  "chatgpt-desktop":  { name: "ChatGPT",        short: "C",  color: "#10A37F", anim: "pulse" },
-  "claude-desktop":   { name: "Claude",         short: "Cl", color: "#D97757", anim: "corners" },
-  "codex":            { name: "Codex",          short: "Cx", color: "#8B5CF6", anim: "orbit" },
-  "anthropic":        { name: "Claude Code",    short: "Cc", color: "#D97757", anim: "corners" },
+  "kimi-desktop":     { name: "Kimi",           short: "K",  color: "#2E9BFF", anim: "moon" },
+  "gemini-desktop":   { name: "Gemini",         short: "G",  color: "#8AB4F8", anim: "spark4" },
+  "chatgpt-desktop":  { name: "ChatGPT",        short: "C",  color: "#10A37F", anim: "knot" },
+  "claude-desktop":   { name: "Claude",         short: "Cl", color: "#D97757", anim: "asterisk" },
+  "codex":            { name: "Codex",          short: "Cx", color: "#8B5CF6", anim: "term" },
+  "anthropic":        { name: "Claude Code",    short: "Cc", color: "#D97757", anim: "asterisk" },
 };
 
 /** 安装检测：任一存在即视为已安装（macOS 路径为主，Windows 在 win/ 文档里给出对应项） */
@@ -99,7 +99,7 @@ export class AgentRegistry {
     return Object.entries(VENDOR_PRESETS).map(([source, p]) => {
       const b = this.bindings[source] ?? {};
       const st = sourceStats?.get(source);
-      const lastReal = st && st.lastType !== "status" ? st.lastEventAt : 0;
+      const lastReal = st?.lastWorkAt || 0;   // 只看真实工作事件，避免 turn/start 这类 status 把状态打回空闲
       return {
         source,
         name: b.name ?? p.name,

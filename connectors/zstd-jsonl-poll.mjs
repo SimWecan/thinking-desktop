@@ -125,7 +125,8 @@ export class ZstdJsonlPollConnector extends Connector {
         try { obj = JSON.parse(line); } catch { /* 半行/坏行 */ }
         let summary = null;
         try { summary = this.summarize(obj, line); } catch { summary = null; }
-        if (summary) this.emit(summary);
+        if (Array.isArray(summary)) { for (const s of summary) if (s) this.emit(s); }
+        else if (summary) this.emit(summary);
       }
     }
   }

@@ -76,7 +76,8 @@
   #panel .pn-block { display: flex; flex-direction: column; }
   #panel .pn-block.grow { min-height: 0; flex: 1 1 auto; }
 
-  #panel .ag { display: grid; grid-template-columns: 8px 1fr 46px 40px 42px; align-items: center; gap: 7px; padding: 2px 0; }
+  #panel .ag { display: grid; grid-template-columns: 8px minmax(0,1fr) 66px 34px 40px; align-items: center; gap: 7px; padding: 2px 0; }
+  #panel .ag canvas.sp { width: 66px; height: 16px; display: block; }
   #panel .ag .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
   #panel .ag:not(.off) .dot { animation: dotPulse 2.4s ease-in-out infinite; }
   @keyframes dotPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
@@ -85,6 +86,11 @@
   #panel .ag .bar i { display: block; height: 100%; background: currentColor; border-radius: 2px; transition: width .5s ease; }
   #panel .ag .age { text-align: right; color: rgba(255,255,255,.4); font-size: 9px; }
   #panel .ag .cnt { text-align: right; color: rgba(255,255,255,.62); font-variant-numeric: tabular-nums; }
+  #pn-ctx .crow { display: grid; grid-template-columns: 8px minmax(0,1fr) 70px 42px; align-items: center; gap: 7px; padding: 2px 0; }
+  #pn-ctx .crow .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  #pn-ctx .crow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,.72); }
+  #pn-ctx .crow .md { color: rgba(255,255,255,.42); font-size: 8px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pn-ctx .crow .pc { text-align: right; color: rgba(255,255,255,.72); font-variant-numeric: tabular-nums; }
   #panel .ag.off { opacity: .38; }
 
   #panel .tool { display: grid; grid-template-columns: 1fr 34px; gap: 8px; align-items: center; padding: 1px 0; }
@@ -169,7 +175,7 @@ halo.src = "/haloflux/?t=" + Date.now();
 
 // ---------------- 状态 ----------------
 let energy = 0, rate = 0, byType = {}, bySource = {}, sources = [];
-let series = [], tools = [], tokens = null, totalEvents = 0;
+let series = [], tools = [], tokens = {}, agentSeries = {}, totalEvents = 0;
 const textLines = [];
 let lastTextAt = 0, textSeq = 0;
 
@@ -268,6 +274,7 @@ function sizeCanvas(cv, h) {
 /** 速率曲线：面积 + 折线 + 末点高亮 */
 function drawSpark(cv, data, color, opts = {}) {
   if (!cv || !cv.isConnected) return;
+  const dense = !!opts.dense;
   const h = opts.height || 54;
   const dpr = sizeCanvas(cv, h);
   const w = cv.width / dpr;
@@ -280,7 +287,7 @@ function drawSpark(cv, data, color, opts = {}) {
   const y = (v) => h - 4 - (v / max) * (h - 8);
 
   // 基线
-  x.strokeStyle = "rgba(255,255,255,.08)";
+  x.strokeStyle = dense ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.08)";
   x.lineWidth = 1;
   x.beginPath(); x.moveTo(0, h - 3.5); x.lineTo(w, h - 3.5); x.stroke();
 
@@ -299,14 +306,16 @@ function drawSpark(cv, data, color, opts = {}) {
   // 折线
   x.beginPath();
   data.forEach((v, i) => (i ? x.lineTo(i * step, y(v)) : x.moveTo(0, y(v))));
-  x.strokeStyle = hexA(color, 0.92);
-  x.lineWidth = 1.2;
+  x.strokeStyle = hexA(color, dense ? 0.85 : 0.92);
+  x.lineWidth = dense ? 1 : 1.2;
   x.stroke();
 
-  // 末点
-  const lastV = data[data.length - 1];
-  x.beginPath(); x.arc(w - 1, y(lastV), 2.2, 0, Math.PI * 2);
-  x.fillStyle = hexA(color, 1); x.fill();
+  if (!dense) {
+    // 末点
+    const lastV = data[data.length - 1];
+    x.beginPath(); x.arc(w - 1, y(lastV), 2.2, 0, Math.PI * 2);
+    x.fillStyle = hexA(color, 1); x.fill();
+  }
 }
 
 function hexA(color, a) {
@@ -342,11 +351,16 @@ function renderPanel() {
     row.innerHTML =
       `<span class="dot"></span>` +
       `<span class="name">${a.name || a.source}</span>` +
-      `<span class="bar"><i style="width:${Math.round(((a.events || 0) / maxEvents) * 100)}%"></i></span>` +
+      `<canvas class="sp" data-src="${a.source}"></canvas>` +
       `<span class="cnt">${a.events || 0}</span>` +
       `<span class="age">${a.thinking ? "active" : fmtAgo(a.agoMs)}</span>`;
     pnAgents.appendChild(row);
   }
+  // 每个 agent 自己的 60s 曲线
+  pnAgents.querySelectorAll("canvas.sp").forEach((cv) => {
+    const src = cv.dataset.src;
+    drawSpark(cv, agentSeries[src] || [], colorOf(src), { height: 16, dense: true });
+  });
 
   // stats 行
   const enabled = (agentsList || []).filter((a) => a.enabled !== false).length;
@@ -367,15 +381,25 @@ function renderPanel() {
     pnTools.appendChild(row);
   }
 
-  // context
+  // context：每个 agent 一行（模型 + 占用率）
   pnCtx.innerHTML = "";
-  if (tokens && tokens.model) {
-    const pct = Math.max(0, Math.min(1, Number(tokens.usage) || 0));
-    pnCtx.innerHTML =
-      `<div class="row"><span>${tokens.model}</span><span>${(pct * 100).toFixed(0)}% ctx</span></div>` +
-      `<div class="bar"><i style="width:${Math.round(pct * 100)}%"></i></div>`;
-  } else {
-    pnCtx.innerHTML = `<div class="empty">暂无上下文计量</div>`;
+  const ctxRows = list.filter((a) => tokens[a.source]);
+  if (!ctxRows.length) pnCtx.innerHTML = `<div class="empty">暂无上下文计量</div>`;
+  for (const a of ctxRows) {
+    const t = tokens[a.source];
+    const pct = Math.max(0, Math.min(1, Number(t.pct) || 0));
+    const row = document.createElement("div");
+    row.className = "crow";
+    row.style.color = a.color;
+    const usedTxt = t.used != null && t.window
+      ? `${Math.round(t.used / 1000)}k/${Math.round(t.window / 1000)}k`
+      : (t.model || "");
+    row.innerHTML =
+      `<span class="dot"></span>` +
+      `<span class="nm">${a.name || a.source}</span>` +
+      `<span class="md">${usedTxt}</span>` +
+      `<span class="pc">${(pct * 100).toFixed(0)}%</span>`;
+    pnCtx.appendChild(row);
   }
 
   // mini dots
@@ -582,7 +606,8 @@ setInterval(async () => {
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
     series = s.series || [];
     tools = s.tools || [];
-    tokens = s.tokens || null;
+    tokens = s.tokens || {};
+    agentSeries = s.agentSeries || {};
     totalEvents = s.totalEvents || 0;
     if (s.view) view = s.view;
     agentsList = s.agents || [];

@@ -35,7 +35,7 @@ type ThinkingEvent = {
 | `GET /wall` | 壁纸页面（即 `web/index.html`） |
 | `GET /health` | 自检：zstd 是否可用、每个来源的连接通道（session/file/sqlite/json/process/activity）、事件数与最后事件、闭源端最近一次 CPU 采样 |
 | `POST /ingest` | 本机事件注入口（调试 / 多 agent 并行模拟）：`{source,type,payload}` → 走与真实 connector 完全相同的事件管线 |
-| `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`tools`（工具分布 Top8）、`tokens`（最近一次上下文计量）、`totalEvents`、`agents`/`view`（绑定与形态） |
+| `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`agentSeries`（每个来源各自的 60s 序列）、`tools`（工具分布 Top8）、`tokens`（按来源的上下文计量：model/used/window/pct）、`totalEvents`、`agents`/`view`（绑定与形态） |
 | `GET /snapshot?panel=1` | 把右侧看板（DOM + 内嵌图表）经 SVG foreignObject 渲染成 PNG，用于无录屏权限时验证 |
 | `GET /texts?limit=N` | 最近的思考文本，页面启动时回填环带与视窗 |
 | `GET /snapshot?request=1` / `GET /snapshot` | 请求并取回壁纸画布快照（`?slot=1` 单个环槽、`?lights=1` 光效层），无录屏权限时用于验证真实画面 |
@@ -44,6 +44,7 @@ type ThinkingEvent = {
 
 - **机位**：`C.camera = 0`，`updateCam` 恒定停在 z=1 中心机位——不再有自动推近/拉远的「特写」；节奏/转速/辉光由页面按事件速率小幅映射（舒适档）。
 - **切换缓动**：halo 里每个来源维护 `cur`（当前强度）与 `lane`（当前通道位置），用指数平滑逼近目标值（亮起 `dt*5`、暗下 `dt*1.8`、通道 `dt*2.6`）；消失的来源先置 `target=0` 留在数组里渐隐，`cur<0.02` 才移除。整帧染色色也按帧插值（`k≈0.06`）。进入待机时 `__tdLightsReset()` 清空光效层。
+- **上下文计量**：DSH 的 `assistant/message.data.usage`（inputTokens + cacheReadTokens）配合 `request/context.contextWindow` 算出占用率；窗口缺失时沿用上一次或按来源兜底（DSH 1M）。Kimi 用自己的 `maxUsage` 比例。两者在 `/state.tokens` 里统一成 `{model, used, window, pct}`。
 - **舞台染色**：父页面把活跃来源（颜色/强度）发给 halo；halo 在 `drawStage` 末尾用 canvas `color` 混合模式按加权混色给整帧染色——只改色相/饱和度、保留亮度，于是白色粒子/光束/环带会整体变成该厂商的颜色（旧 WebKit 不支持时退化为 multiply）。
 - **光效配色**：`kimi-desktop` 白 `#ffffff`、`deepseek-harness` 蓝 `#3b82f6`、`codex` 紫 `#a855f7`、`gemini-desktop` 红 `#ef4444`、`chatgpt-desktop` 绿 `#22c55e`。父页面每秒把「25s 内有真实工作事件」的来源连同颜色/强度发给 halo，halo 用独立覆盖层画每条来源的环带通道辉光 + 环内外彩色粒子；多来源时按 `(i+0.5)/n` 分配到不同半径，互不遮挡。
 - **环形数据块**：思考态用真实截流文本填充（`window.__tdRingText`），0.3s 刷新；每个环槽的版式（分块/配色/索引列）只随机一次并缓存，重绘只换文字，避免整环「沸腾」。闭源 AI 没有文本通道时退回 HALOFLUX 预设动画。

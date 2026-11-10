@@ -7,6 +7,9 @@
  * 一律忽略，避免壁纸被空转事件刷成常亮。
  */
 
+// 最近一次请求上下文（request/context）：模型 + 上下文窗口，用来算占用率
+let lastRequestContext = { model: null, window: null };
+
 const TEXT_LIMIT = 140;      // 报错等短字段
 const THOUGHT_LIMIT = 8000;  // 思考日志：整段保留，只防极端长文
 
@@ -20,8 +23,32 @@ export function summarizeDshLine(obj, raw) {
   const type = String(obj.type ?? "");
 
   switch (type) {
-    case "assistant/message":
-      return fromAssistantMessage(obj);
+    case "request/context": {
+      const d = obj.data || {};
+      if (d.model) lastRequestContext.model = d.model;
+      if (d.contextWindow) lastRequestContext.window = d.contextWindow;
+      return null; // 元数据行：只拿来补上下文窗口
+    }
+
+    case "assistant/message": {
+      const ev = fromAssistantMessage(obj);
+      const u = obj.data?.usage;
+      if (!u) return ev;
+      // DSH 每条 assistant/message 都带 usage：input + cacheRead 就是本次送进去的上下文
+      const used = (u.inputTokens || 0) + (u.cacheReadTokens || 0);
+      const win = lastRequestContext.window || 0;
+      const token = {
+        type: "token",
+        payload: {
+          model: lastRequestContext.model || "deepseek",
+          used,
+          window: win,
+          pct: win ? used / win : null,
+          output: u.outputTokens ?? null,
+        },
+      };
+      return ev ? [ev, token] : token;
+    }
 
     case "tool/call": {
       const name = obj.data?.name ?? "tool";

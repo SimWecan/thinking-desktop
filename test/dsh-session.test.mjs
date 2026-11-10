@@ -71,6 +71,22 @@ test("元数据行不产生事件（否则壁纸永远常亮）", () => {
   }
 });
 
+test("assistant/message 带 usage：同时产出 token 事件（含上下文占用率）", () => {
+  // request/context 提供模型与上下文窗口
+  assert.equal(summarizeDshLine(line("request/context", { model: "deepseek-flash", contextWindow: 1000000 })), null);
+  const ev = summarizeDshLine(line("assistant/message", {
+    usage: { inputTokens: 120000, cacheReadTokens: 30000, outputTokens: 500, totalTokens: 150500 },
+    message: { content: [{ type: "reasoning", text: "继续排查" }] },
+  }));
+  assert.ok(Array.isArray(ev), "带 usage 时应返回 [text, token]");
+  const tok = ev.find((e) => e.type === "token");
+  assert.ok(tok, "应包含 token 事件");
+  assert.equal(tok.payload.used, 150000);
+  assert.equal(tok.payload.window, 1000000);
+  assert.ok(Math.abs(tok.payload.pct - 0.15) < 1e-9);
+  assert.equal(tok.payload.model, "deepseek-flash");
+});
+
 test("报错行 → error", () => {
   const ev = summarizeDshLine(line("error", { message: "model overloaded" }));
   assert.equal(ev.type, "error");

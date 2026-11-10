@@ -47,12 +47,18 @@ let shotPng = null;
 let shotSlot = null;
 let shotLights = null;
 let shotChart = null;
-let shotPanel = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
+let shotPanel = null;
+let shotTray = null;        // 壁纸画布快照（halo canvas.toDataURL 上传，用于无录屏权限时自检）   // client -> 最近一次页面遥测（壁纸宿主与浏览器预览各自一条）
 let lastEventAt = 0;
 const clients = new Set();
 /** @type {Map<string, {events: number, lastEventAt: number, lastType: string}>} */
 const sourceStats = new Map();
 const secBuckets = new Map();   // 每秒事件数（画速率曲线）
+const srcBuckets = new Map();   // source -> Map(sec -> count)：每个 agent 的 60s 曲线
+const tokenBySource = new Map(); // source -> 最近一次上下文计量
+// 上下文窗口只在会话的 request/context 行里出现；连接器从文件末尾开始读时可能错过它，
+// 这里给已知模型一个兜底窗口（DSH 默认 1M），保证占用率能算出来。
+const DEFAULT_WINDOW = { "deepseek-harness": 1048576 };
 const toolCounts = new Map();   // 工具调用分布
 let tokenInfo = null;           // 最近一次 token 计量（Kimi 等）
 let totalEvents = 0;
@@ -73,27 +79,33 @@ function saveTextBacklog() {
   }, 1200);
 }
 
-function rateSeries(now, seconds = 60) {
+function seriesFrom(buckets, now, seconds = 60) {
   const base = Math.floor(now / 1000);
   const out = [];
-  for (let i = seconds - 1; i >= 0; i--) out.push(secBuckets.get(base - i) || 0);
+  for (let i = seconds - 1; i >= 0; i--) out.push(buckets.get(base - i) || 0);
   return out;
 }
+function rateSeries(now, seconds = 60) { return seriesFrom(secBuckets, now, seconds); }
 
 function pushEvent(event) {
   console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
   lastEventAt = event.ts;
-  const st = sourceStats.get(event.source) ?? { events: 0, lastEventAt: 0, lastType: "" };
+  const st = sourceStats.get(event.source) ?? { events: 0, lastEventAt: 0, lastType: "", lastWorkAt: 0 };
   st.events += 1;
   st.lastEventAt = event.ts;
   st.lastType = event.type;
+  if (event.type !== "status") st.lastWorkAt = event.ts;   // status 不算工作：用它判断「是否在思考」会误判
   sourceStats.set(event.source, st);
   totalEvents += 1;
   const sec = Math.floor(event.ts / 1000);
   secBuckets.set(sec, (secBuckets.get(sec) || 0) + 1);
   if (secBuckets.size > 240) for (const k of secBuckets.keys()) if (k < sec - 180) secBuckets.delete(k);
+  let sb = srcBuckets.get(event.source);
+  if (!sb) srcBuckets.set(event.source, (sb = new Map()));
+  sb.set(sec, (sb.get(sec) || 0) + 1);
+  if (sb.size > 240) for (const k of sb.keys()) if (k < sec - 180) sb.delete(k);
   if (event.type === "tool_call") {
     const name = String(event.payload?.name || "tool");
     toolCounts.set(name, (toolCounts.get(name) || 0) + 1);
@@ -104,12 +116,21 @@ function pushEvent(event) {
     saveTextBacklog();
   }
   if (event.type === "token") {
-    tokenInfo = {
-      model: event.payload?.model ?? null,
-      usage: event.payload?.maxUsage ?? null,
-      conversations: event.payload?.conversations ?? null,
+    const p = event.payload || {};
+    const prev = tokenBySource.get(event.source) || {};
+    const window = p.window || prev.window || DEFAULT_WINDOW[event.source] || null;   // 窗口大小只在 request/context 里出现，沿用上一次
+    const pct = p.pct != null ? p.pct
+      : (window && p.used != null) ? p.used / window
+      : (p.maxUsage != null ? p.maxUsage : null);
+    tokenBySource.set(event.source, {
+      model: p.model ?? prev.model ?? null,
+      used: p.used ?? prev.used ?? null,
+      window,
+      pct: pct == null ? null : Math.max(0, Math.min(1, pct)),
+      conversations: p.conversations ?? null,
       at: event.ts,
-    };
+    });
+    tokenInfo = tokenBySource.get(event.source);
   }
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) {
@@ -139,12 +160,14 @@ function state() {
       events: s.events,
       lastType: s.lastType,
       agoMs: now - s.lastEventAt,
+      workAgoMs: s.lastWorkAt ? now - s.lastWorkAt : null,
     })),
     recent: events.slice(-20),
     // 右侧面板用的聚合：速率曲线 / 工具分布 / 上下文计量
     series: rateSeries(now, 60),
+    agentSeries: Object.fromEntries([...srcBuckets].map(([src, b]) => [src, seriesFrom(b, now, 60)])),
+    tokens: Object.fromEntries(tokenBySource),
     tools: [...toolCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count })),
-    tokens: tokenInfo,
     totalEvents,
     agents: agents.agents(sourceStats, now),
     view: agents.view,
@@ -341,13 +364,13 @@ const server = createServer((req, res) => {
         try {
           const m = JSON.parse(body);
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ agents: agents.update(m.source, m) }));
+          res.end(JSON.stringify({ agents: agents.update(m.source, m), shot: Date.now() - shotAt < 3000 }));
         } catch { res.writeHead(400).end("bad request"); }
       });
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
-    res.end(JSON.stringify({ agents: agents.agents(sourceStats), view: agents.view }));
+    res.end(JSON.stringify({ agents: agents.agents(sourceStats), view: agents.view, shot: Date.now() - shotAt < 3000 }));
     return;
   }
 
@@ -427,11 +450,13 @@ const server = createServer((req, res) => {
           const lights = dec(data.lights);
           const chart = dec(data.chart);
           const panelPng = dec(data.panel);
+          const trayPng = dec(data.tray);
           if (full) { shotPng = full; shotAt = 0; }
           if (slot) shotSlot = slot;
           if (lights) shotLights = lights;
           if (chart) shotChart = chart;
           if (panelPng) shotPanel = panelPng;
+          if (trayPng) shotTray = trayPng;
         } catch { /* 忽略坏包 */ }
         res.writeHead(200).end("ok");
       });
@@ -446,6 +471,7 @@ const server = createServer((req, res) => {
       : url.searchParams.has("lights") ? shotLights
       : url.searchParams.has("chart") ? shotChart
       : url.searchParams.has("panel") ? shotPanel
+      : url.searchParams.has("tray") ? shotTray
       : shotPng;
     if (!img) { res.writeHead(404).end("no snapshot"); return; }
     res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(img);
