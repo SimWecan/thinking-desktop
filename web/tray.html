@@ -9,25 +9,35 @@
     -webkit-user-select: none; user-select: none; }
   #tray { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 10px; }
 
-  /* 透明悬浮：无底框无底色，只有图形与颜色 */
+  /* 透明悬浮：只有 App 自己的商标图 */
   .icon {
-    width: 40px; height: 40px; border-radius: 12px; cursor: pointer; position: relative;
+    width: 40px; height: 40px; border-radius: 11px; cursor: pointer; position: relative;
     display: flex; align-items: center; justify-content: center;
-    color: rgba(255,255,255,.52);
-    transition: transform .22s cubic-bezier(.2,.8,.2,1), color .3s ease, background .3s ease,
-                box-shadow .3s ease, opacity .3s ease;
-    -webkit-backdrop-filter: blur(2px);
+    transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .3s ease, opacity .3s ease;
+    opacity: .6;
   }
-  .icon svg { width: 26px; height: 26px; display: block; overflow: visible; }
-  .icon:hover { transform: translateY(-1px) scale(1.08); color: rgba(255,255,255,.92); }
-  .icon.sel { color: var(--c, #fff); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #fff) 70%, transparent), 0 0 18px -2px var(--c, #fff); }
-  .icon.think { color: var(--c, #fff); }
+  .icon img.logo {
+    width: 30px; height: 30px; display: block; border-radius: 7px;
+    filter: grayscale(.55) brightness(.88);
+    transition: filter .35s ease, transform .22s ease;
+    -webkit-user-drag: none;
+  }
+  .icon .mono {
+    width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
+    font: 600 11px/1 ui-monospace, monospace; letter-spacing: .5px;
+    color: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.18);
+  }
+  .icon:hover { opacity: 1; transform: translateY(-1px) scale(1.06); }
+  .icon:hover img.logo { filter: none; }
+  .icon.think { opacity: 1; }
+  .icon.think img.logo { filter: none; }
   .icon.think::after {
-    content: ""; position: absolute; inset: 2px; border-radius: 12px; pointer-events: none;
-    background: radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--c, #fff) 22%, transparent), transparent 70%);
-    animation: halo 2.8s ease-in-out infinite;
+    content: ""; position: absolute; inset: 1px; border-radius: 12px; pointer-events: none;
+    box-shadow: 0 0 18px -2px var(--c, #fff), 0 0 6px -1px var(--c, #fff) inset;
+    opacity: .6; animation: halo 2.8s ease-in-out infinite;
   }
-  @keyframes halo { 0%, 100% { opacity: .28; } 50% { opacity: .7; } }
+  @keyframes halo { 0%, 100% { opacity: .3; } 50% { opacity: .75; } }
+  .icon.sel { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
   .icon.hidden { display: none; }
 
   .lbl { position: absolute; right: 46px; top: 50%; transform: translateY(-50%) translateX(4px);
@@ -36,70 +46,43 @@
     pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
   .icon:hover .lbl { opacity: 1; transform: translateY(-50%) translateX(0); }
 
-  /* 描边统一用 currentColor，粗细/圆角一致 */
-  .icon svg .st { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .icon svg .fl { fill: currentColor; }
+  /* —— 各家商标图的思考动效：只用位移/缩放/旋转，保持 logo 原样 —— */
+  .icon.think.m-float img { animation: floaty 3.4s ease-in-out infinite; }
+  @keyframes floaty { 0%, 100% { transform: translateY(1px) rotate(-2deg); } 50% { transform: translateY(-2px) rotate(2deg); } }
 
-  /* —— 综合形态：三圈 + 核心，思考时加速 —— */
-  #composite .r1, #composite .r2, #composite .r3 { transform-origin: 12px 12px; }
-  #composite .r1 { animation: spin 14s linear infinite; }
-  #composite .r2 { animation: spin 9s linear infinite reverse; }
-  #composite .r3 { animation: spin 5.5s linear infinite; opacity: .5; }
-  #composite.think .r1 { animation-duration: 5s; }
-  #composite.think .r2 { animation-duration: 3.4s; }
-  #composite.think .r3 { animation-duration: 2.1s; opacity: .85; }
+  .icon.think.m-bob img { animation: bob 3.2s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.03); } }
+
+  .icon.think.m-twinkle img { animation: twinkle 2.8s ease-in-out infinite; }
+  @keyframes twinkle { 0%, 100% { transform: scale(.94) rotate(0deg); opacity: .85; }
+                       50% { transform: scale(1.06) rotate(6deg); opacity: 1; } }
+
+  .icon.think.m-spin img { animation: spin 9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* —— DeepSeek：鲸鱼轻摆 + 喷气 —— */
-  .whale.think svg { animation: whaleBob 3.2s ease-in-out infinite; }
-  @keyframes whaleBob { 0%, 100% { transform: translateY(1px) rotate(-3deg); } 50% { transform: translateY(-2px) rotate(3deg); } }
-  .whale .spout { opacity: 0; transform-origin: 8px 6px; }
-  .whale.think .spout { animation: spout 3.2s ease-in-out infinite; }
-  @keyframes spout { 0%, 55% { opacity: 0; transform: translateY(2px) scale(.6); }
-                     70% { opacity: .9; transform: translateY(0) scale(1); }
-                     100% { opacity: 0; transform: translateY(-3px) scale(.8); } }
+  .icon.think.m-breathe img { animation: breathe 3.6s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { transform: scale(.96); } 50% { transform: scale(1.05); } }
 
-  /* —— Kimi：月牙 + 环绕小星 —— */
-  .moon .star { transform-origin: 12px 12px; }
-  .moon.think .star { animation: orbitStar 4.4s linear infinite; }
-  @keyframes orbitStar { to { transform: rotate(360deg); } }
-  .moon.think svg { animation: moonGlow 3.2s ease-in-out infinite; }
-  @keyframes moonGlow { 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
+  .icon.think.m-pulse img { animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 
-  /* —— Gemini：四角星呼吸 —— */
-  .spark4.think svg { animation: sparkle 2.6s ease-in-out infinite; transform-origin: 12px 12px; }
-  @keyframes sparkle { 0%, 100% { transform: scale(.9) rotate(0deg); opacity: .85; }
-                       50% { transform: scale(1.06) rotate(8deg); opacity: 1; } }
-
-  /* —— ChatGPT：六边结 —— */
-  .knot .ringArc { transform-origin: 12px 12px; }
-  .knot.think .ringArc { animation: knotSpin 6s linear infinite; }
-  @keyframes knotSpin { to { transform: rotate(360deg); } }
-  .knot.think svg { animation: knotBreath 3.4s ease-in-out infinite; }
-  @keyframes knotBreath { 0%, 100% { opacity: .8; } 50% { opacity: 1; } }
-
-  /* —— Claude：八角星缓慢旋转 + 收放 —— */
-  .asterisk.think svg { animation: aster 5s ease-in-out infinite; transform-origin: 12px 12px; }
-  @keyframes aster { 0%, 100% { transform: rotate(0deg) scale(.94); }
-                     50% { transform: rotate(22deg) scale(1.04); } }
-
-  /* —— Codex：终端光标闪烁 —— */
-  .term .cursor { opacity: .25; }
-  .term.think .cursor { animation: blink 1.05s steps(1, end) infinite; }
-  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: .15; } }
-  .term.think svg { animation: termNudge 2.6s ease-in-out infinite; }
-  @keyframes termNudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(1px); } }
+  /* 综合形态：多枚商标叠成的四环标记（不是厂商 logo，是「全部」入口） */
+  #composite .ringset { position: relative; width: 30px; height: 30px; }
+  #composite .r { position: absolute; inset: 0; border-radius: 50%;
+    border: 1.4px dashed rgba(255,255,255,.5); animation: spin 12s linear infinite; }
+  #composite .r.b { inset: 6px; animation-duration: 8s; animation-direction: reverse; opacity: .65; }
+  #composite .r.c { inset: 12px; animation-duration: 5s; opacity: .45; }
+  #composite.think .r { animation-duration: 4.4s; }
+  #composite.think .r.b { animation-duration: 3s; }
+  #composite.think .r.c { animation-duration: 2s; }
 </style>
 </head>
 <body>
 <div id="tray">
   <div class="icon" id="composite" title="综合形态">
-    <svg viewBox="0 0 24 24">
-      <circle class="st r1" cx="12" cy="12" r="9" stroke-dasharray="2 3" opacity=".75"/>
-      <circle class="st r2" cx="12" cy="12" r="6.2" stroke-dasharray="1 4" opacity=".6"/>
-      <circle class="st r3" cx="12" cy="12" r="3.4" stroke-dasharray="1 2.4"/>
-      <circle class="fl" cx="12" cy="12" r="1.5"/>
-    </svg>
+    <div class="ringset">
+      <div class="r"></div><div class="r b"></div><div class="r c"></div>
+    </div>
     <div class="lbl">综合形态 · 全部 agent</div>
   </div>
 </div>
@@ -110,36 +93,19 @@ const composite = document.getElementById("composite");
 const icons = new Map();
 let expanded = false, view = "all", agents = [];
 
-// 每个厂商一个 24×24 的线性图标（统一描边、圆角），思考时只加「小而克制」的动作
-const GLYPH = {
-  whale: `<svg viewBox="0 0 24 24">
-    <path class="st" d="M3.4 13.6c0-4 3.9-6.8 8.7-6.8 3.1 0 5.6 1.2 6.9 3l2.6-2.2c.3 2-.4 3.6-1.6 4.7l1.7 2.1c-1.9.5-3.5.2-4.8-.5-1.5 1.6-3.7 2.4-5.8 2.4-4.6 0-7.7-1.9-7.7-4.5z"/>
-    <circle class="fl" cx="8.3" cy="10.6" r=".95"/>
-    <path class="st spout" d="M7.6 6.1c.6-.5.7-1.2.3-1.9M9.4 5.4c.5-.4.6-1 .3-1.6"/>
-  </svg>`,
-  moon: `<svg viewBox="0 0 24 24">
-    <path class="st" d="M15.6 4.6a8 8 0 1 0 3.8 14.9 8.6 8.6 0 0 1-3.8-14.9z"/>
-    <circle class="fl star" cx="12" cy="3.6" r="1.15"/>
-  </svg>`,
-  spark4: `<svg viewBox="0 0 24 24">
-    <path class="fl" d="M12 3.2c.5 3.5 2.3 5.3 5.8 5.8-3.5.5-5.3 2.3-5.8 5.8-.5-3.5-2.3-5.3-5.8-5.8 3.5-.5 5.3-2.3 5.8-5.8z" opacity=".95"/>
-    <path class="fl" d="M12 14.4c.3 1.9 1.2 2.8 3.1 3.1-1.9.3-2.8 1.2-3.1 3.1-.3-1.9-1.2-2.8-3.1-3.1 1.9-.3 2.8-1.2 3.1-3.1z" opacity=".65"/>
-  </svg>`,
-  knot: `<svg viewBox="0 0 24 24">
-    <path class="st" d="M12 3.6l7.3 4.2v8.4L12 20.4 4.7 16.2V7.8z"/>
-    <path class="st ringArc" d="M8.2 9.1c1.4-2.4 5.4-2.4 6.8 0M15.8 14.9c-1.4 2.4-5.4 2.4-6.8 0" stroke-dasharray="1 2.2"/>
-  </svg>`,
-  asterisk: `<svg viewBox="0 0 24 24">
-    <path class="st" d="M12 4.2v15.6M4.2 12h15.6M6.5 6.5l11 11M17.5 6.5l-11 11"/>
-  </svg>`,
-  term: `<svg viewBox="0 0 24 24">
-    <rect class="st" x="3.2" y="4.6" width="17.6" height="14.8" rx="2.6"/>
-    <path class="st" d="M7.2 9.6l3 2.4-3 2.4"/>
-    <path class="st cursor" d="M12.6 14.6h4.1"/>
-  </svg>`,
+// 动效风格：用厂商商标图本身，只做位移/缩放/旋转
+const MOTION = {
+  whale: "m-float",
+  moon: "m-bob",
+  spark4: "m-twinkle",
+  knot: "m-breathe",
+  asterisk: "m-spin",
+  term: "m-pulse",
 };
 
-const CLS = { whale: "whale", moon: "moon", spark4: "spark4", knot: "knot", asterisk: "asterisk", term: "term" };
+function iconUrl(source, scale = 1) {
+  return `/icon/${encodeURIComponent(source)}.png` + (scale > 1 ? "?x=2" : "");
+}
 
 function build() {
   for (const a of agents) {
@@ -147,12 +113,21 @@ function build() {
     let el = icons.get(a.source);
     if (!el) {
       el = document.createElement("div");
-      const anim = GLYPH[a.anim] ? a.anim : "spark4";
-      el.className = "icon " + (CLS[anim] || anim);
-      el.innerHTML = GLYPH[anim] + `<div class="lbl"></div>`;
+      el.className = "icon " + (MOTION[a.anim] || "m-pulse");
+      el.dataset.src = a.source;
+      el.innerHTML =
+        `<img class="logo" alt="" src="/icon/${a.source}.png" srcset="/icon/${a.source}@2x.png 2x" draggable="false">` +
+        `<div class="lbl"></div>`;
+      // 没有本地商标图（比如只有 CLI 的 Codex）→ 中性字母牌，不伪造 logo
+      const img = el.querySelector("img");
+      img.addEventListener("error", () => {
+        img.remove();
+        const mono = document.createElement("span");
+        mono.className = "mono";
+        mono.textContent = a.short || a.source.slice(0, 2).toUpperCase();
+        el.insertBefore(mono, el.firstChild);
+      }, { once: true });
       el.onclick = () => select(a.source);
-      el.dataset.anim = a.anim;
-      el.dataset.glyph = anim;
       tray.appendChild(el);
       icons.set(a.source, el);
     }
@@ -160,8 +135,7 @@ function build() {
     el.classList.toggle("think", !!a.thinking);
     el.classList.toggle("hidden", !expanded);
     el.classList.toggle("sel", view === a.source);
-    const lbl = el.querySelector(".lbl");
-    lbl.textContent = (a.name || a.source) + (a.thinking ? " · 思考中" : "");
+    el.querySelector(".lbl").textContent = (a.name || a.source) + (a.thinking ? " · 思考中" : "");
   }
   composite.classList.toggle("think", agents.some((a) => a.enabled && a.thinking));
   composite.classList.toggle("sel", view === "all");
@@ -179,23 +153,36 @@ composite.onclick = async () => {
 };
 composite.oncontextmenu = (e) => { e.preventDefault(); expanded = !expanded; build(); };
 
-/** 自检：把托盘渲染成 PNG（没有录屏权限时也能看到图标实际长什么样） */
+/** 自检：把托盘渲染成 PNG（商标图先转成 data URL，foreignObject 才能渲染） */
 async function shot() {
   try {
     const el = document.getElementById("tray");
-    // 量一次「全部展开」后的尺寸（同步 reflow，同一帧内还原，不会闪）
     const hidden = Array.from(el.querySelectorAll(".icon.hidden"));
     hidden.forEach((n) => n.classList.remove("hidden"));
     const rect = el.getBoundingClientRect();
     hidden.forEach((n) => n.classList.add("hidden"));
     if (!rect.width || !rect.height) return null;
-    // 先把实际渲染出来的颜色读出来（foreignObject 里 CSS 变量不可靠）
+
     const liveIcons = Array.from(el.querySelectorAll(".icon"));
     const liveColors = liveIcons.map((n) => getComputedStyle(n).color);
     const clone = el.cloneNode(true);
+    clone.querySelectorAll(".icon.hidden").forEach((n) => n.classList.remove("hidden"));   // 自检时全部展开
     clone.querySelectorAll(".icon").forEach((n, i) => { if (liveColors[i]) n.style.color = liveColors[i]; });
-    // 自检时把所有图标都展开，方便一次看全
-    clone.querySelectorAll(".icon.hidden").forEach((n) => n.classList.remove("hidden"));
+
+    // 图片转 data URL（SVG 图片渲染不允许外链）
+    const liveImgs = Array.from(el.querySelectorAll("img.logo"));
+    const cloneImgs = Array.from(clone.querySelectorAll("img.logo"));
+    for (let i = 0; i < liveImgs.length; i++) {
+      const src = liveImgs[i];
+      try {
+        const cv = document.createElement("canvas");
+        cv.width = src.naturalWidth || 128;
+        cv.height = src.naturalHeight || 128;
+        cv.getContext("2d").drawImage(src, 0, 0);
+        cloneImgs[i].src = cv.toDataURL("image/png");
+      } catch { cloneImgs[i].remove(); }
+    }
+
     const css = Array.from(document.querySelectorAll("style")).map((n) => n.textContent).join("\n");
     const html = new XMLSerializer().serializeToString(clone);
     const svg =
@@ -228,15 +215,15 @@ addEventListener("error", (e) => {
 async function poll() {
   try {
     const s = await (await fetch("/agents")).json();
+    agents = s.agents;
+    if (view !== s.view) view = s.view;
+    build();
     if (s.shot) {
       const png = await shot();
       lastShotOk = !!png;
       if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ tray: png }) }).catch(() => {});
     }
     fetch("/debug", { method: "POST", body: JSON.stringify({ client: "tray", agents: agents.length, expanded, shot: !!s.shot, lastShotOk }) }).catch(() => {});
-    agents = s.agents;
-    if (view !== s.view) view = s.view;
-    build();
   } catch (e) { lastShotOk = "poll-error"; }
 }
 poll();

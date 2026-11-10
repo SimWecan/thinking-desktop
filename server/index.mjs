@@ -25,6 +25,7 @@ const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const IDLE_AFTER_MS = 4000;   // 保留：纯速率窗口，不参与环带停转判定
 const RATE_WINDOW_MS = 10_000;
 import { AgentRegistry } from "./agents.mjs";
+import { buildIcons, cachedIconPath, ensureIcon2x } from "./icons.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
@@ -422,6 +423,25 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 厂商图标：从本机安装的 .app 里提取的官方商标图（data/icons/*.png）
+  if (url.pathname.startsWith("/icon/")) {
+    const name = decodeURIComponent(url.pathname.slice("/icon/".length)).replace(/[^a-z0-9@._-]/gi, "");
+    if (!name.endsWith(".png")) { res.writeHead(404).end("not found"); return; }
+    const source = name.replace(/(@2x)?\.png$/, "");
+    let file = cachedIconPath(ROOT, source);
+    if (name.includes("@2x")) {
+      // 2x 版本按需生成
+      ensureIcon2x(ROOT, source, (err, out) => {
+        if (err || !out) { res.writeHead(404).end("no icon"); return; }
+        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(readFileSync(out));
+      });
+      return;
+    }
+    if (!existsSync(file)) { res.writeHead(404).end("no icon"); return; }
+    res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(readFileSync(file));
+    return;
+  }
+
   // 最近的思考文本：页面一启动就能把环带/视窗填满，不用等下一次事件
   if (url.pathname === "/texts") {
     const limit = Math.max(1, Math.min(40, Number(url.searchParams.get("limit")) || 12));
@@ -547,6 +567,9 @@ const server = createServer((req, res) => {
 
   res.writeHead(404).end("not found");
 });
+
+// 启动时从已安装 App 提取官方图标（异步，不阻塞服务）
+buildIcons(ROOT, (m) => console.log(m));
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`Thinking Desktop → http://127.0.0.1:${PORT}`);
