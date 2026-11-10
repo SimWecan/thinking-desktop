@@ -57,6 +57,12 @@ const PAGE_BUILD = "page-5";   // 自检用：确认壁纸加载的是新页面
 const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
 
 const hud = document.getElementById("hud");
+addEventListener("error", (e) => {
+  fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: String(e.message || e.error), src: String((e.filename || "").split("/").pop()) + ":" + e.lineno }) }).catch(() => {});
+});
+addEventListener("unhandledrejection", (e) => {
+  fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: "rejection: " + String(e.reason && e.reason.message || e.reason) }) }).catch(() => {});
+});
 const halo = document.getElementById("halo");
 // 每次加载都带时间戳，避免 WKWebView 用旧缓存的 halo 页面（改了前端却不生效的元凶）
 halo.src = "/haloflux/?t=" + Date.now();
@@ -130,6 +136,8 @@ function renderText() {
   });
   textpane.appendChild(frag);
 }
+let view = "all";        // all=综合形态；其它=单一 agent 形态（托盘选择）
+let agentsList = [];
 let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
 let busyUntil = 0;       // status running>0 的短暂宽限
 let standby = null;      // 当前待机位（null=未初始化）
@@ -155,13 +163,14 @@ function captureShot() {
 
 /** 正在工作的来源 → 光环按各自颜色点亮（25s 内有真实事件算在跑） */
 function sendSourceLights() {
-  const list = (sources || [])
+  let list = (sources || [])
     .filter((x) => x.agoMs < 12000 && x.lastType !== "status")   // 只是「开着」不算在跑；12s 没动静就淡出
     .map((x) => ({
       src: x.source,
-      color: SOURCE_COLORS[x.source] || "#9aa4b2",
+      color: colorOf(x.source),
       intensity: Math.min(1, 0.35 + (bySource[x.source] || 0) / 6),
     }));
+  if (view !== "all") list = list.filter((x) => x.src === view).map((x) => ({ ...x, intensity: 1 }));
   haloMsg({ td: "sources", list });
 }
 
@@ -239,7 +248,17 @@ window.addEventListener("message", (ev) => {
 
 function currentStandby() {
   const now = Date.now();
+  if (view !== "all") {
+    const a = agentsList.find((x) => x.source === view);
+    if (a) return !a.thinking; // 单一形态：只看该 agent
+  }
   return now - workAt > BUSY_HOLD && now > busyUntil;
+}
+
+/** agent 配置色（调色盘选择）优先于内置色 */
+function colorOf(source) {
+  const a = agentsList.find((x) => x.source === source);
+  return (a && a.color) || SOURCE_COLORS[source] || "#9aa4b2";
 }
 
 // ---------------- SSE：AI 事件驱动 ----------------
@@ -251,12 +270,17 @@ es.onmessage = (ev) => {
     workAt = e.state.lastEventAt;
     return;
   }
+  if (e.type === "view") { view = e.payload.agent || "all"; return; }  // 托盘切换：不算工作信号
   if (e.type === "status") {
     if (e.payload && e.payload.running > 0) busyUntil = e.ts + 15000;
     return;
   }
   workAt = e.ts;
-  if (e.type === "text") { pushText(e.payload.text, e.source, e.payload.kind, e.payload.stream); energy = Math.min(energy + 0.12, 1.6); return; }
+  if (e.type === "text") {
+    if (view === "all" || e.source === view) pushText(e.payload.text, e.source, e.payload.kind, e.payload.stream);
+    energy = Math.min(energy + 0.12, 1.6);
+    return;
+  }
   if (e.type === "tool_call") energy = Math.min(energy + 0.3, 1.6);
   else energy = Math.min(energy + 0.14, 1.6);
 };
@@ -271,6 +295,8 @@ setInterval(async () => {
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource; sources = s.sources || [];
+    if (s.view) view = s.view;
+    agentsList = s.agents || [];
     if (s.shot) captureShot();
     sendSourceLights();
     // 自检字段：环带是否已拿到真实文本（跨窗口同源，可直读 iframe 状态）

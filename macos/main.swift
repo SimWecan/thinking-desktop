@@ -118,4 +118,72 @@ let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown])
 }
 _ = clickMonitor
 
+// 右上角托盘：可展开的 agent 切换图标（独立浮窗，接收点击）
+final class TrayNav: NSObject, WKNavigationDelegate {
+    static let shared = TrayNav()
+    let logURL = URL(fileURLWithPath: "/Users/sim/Documents/MCPServer/Thinking Desktop/logs/tray.log")
+    func navLog(_ s: String) {
+        let line = "\(Date()) \(s)\n"
+        if let h = try? FileHandle(forWritingTo: logURL) {
+            h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+        } else {
+            try? line.data(using: .utf8)?.write(to: logURL)
+        }
+    }
+    func webView(_ wv: WKWebView, didFinish nav: WKNavigation!) {
+        navLog("didFinish url=\(wv.url?.absoluteString ?? "?")")
+    }
+    func webView(_ wv: WKWebView, didFail nav: WKNavigation!, withError e: Error) {
+        navLog("didFail err=\(e.localizedDescription)")
+        // 失败则 2s 后重试一次
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if wv.url == nil || wv.url?.absoluteString.contains("tray.html") != true {
+                wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/tray.html")!))
+            }
+        }
+    }
+    func webView(_ wv: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError e: Error) {
+        navLog("didFailProvisional err=\(e.localizedDescription)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/tray.html")!))
+        }
+    }
+}
+private func makeTray() -> NSPanel {
+    let size = NSSize(width: 64, height: 420)
+    let screen = NSScreen.main ?? NSScreen.screens[0]
+    let vf = screen.visibleFrame
+    let frame = NSRect(x: vf.maxX - size.width - 10,
+                       y: vf.maxY - size.height - 8,
+                       width: size.width, height: size.height)
+    let panel = NSPanel(contentRect: frame,
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered,
+                        defer: false)
+    panel.level = .floating             // 浮于普通窗口之上，可随时点
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+    panel.backgroundColor = .clear
+    panel.isOpaque = false
+    panel.hasShadow = false
+    panel.ignoresMouseEvents = false    // 与壁纸相反：托盘接收点击
+    panel.hidesOnDeactivate = false
+    let wv = WKWebView(frame: NSRect(origin: .zero, size: size))
+    wv.autoresizingMask = [.width, .height]
+    wv.navigationDelegate = TrayNav.shared
+    wv.isInspectable = true
+    wv.setValue(false, forKey: "drawsBackground")  // 透明底：让桌面透出来，白色图标才可见
+    let req = URLRequest(
+        url: URL(string: "http://127.0.0.1:7799/tray.html")!,
+        cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+        timeoutInterval: 30)
+    // 等 runloop 起来后再发请求，避免启动竞态导致白屏
+    DispatchQueue.main.async {
+        wv.load(req)
+    }
+    panel.contentView = wv
+    panel.orderFrontRegardless()
+    return panel
+}
+let trayPanel = makeTray()
+
 app.run()

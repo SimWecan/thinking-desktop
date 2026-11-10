@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Thinking Desktop · Tray</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden;
+    font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+    -webkit-user-select: none; user-select: none; }
+  #tray { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding: 8px; }
+  /* 透明悬浮：无底框无底色，仅厂商图形/字母悬浮于桌面 */
+  .icon {
+    width: 42px; height: 42px; border-radius: 10px; cursor: pointer; position: relative;
+    background: transparent; border: 1px solid transparent;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 13px; letter-spacing: .5px;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, color .18s ease;
+  }
+  .icon:hover { transform: scale(1.12); border-color: rgba(255,255,255,.55); }
+  .icon.sel { border-color: #fff; box-shadow: 0 0 0 1px #fff, 0 0 14px var(--c, #fff); }
+  .icon.idle { color: rgba(255,255,255,.45); }
+  .icon.hidden { display: none; }
+  .lbl { position: absolute; right: 50px; top: 50%; transform: translateY(-50%);
+    background: rgba(10,12,16,.85); border: 1px solid rgba(255,255,255,.18);
+    padding: 3px 8px; border-radius: 4px; color: #cfd2d8; white-space: nowrap; opacity: 0;
+    pointer-events: none; transition: opacity .15s; }
+  .icon:hover .lbl { opacity: 1; }
+
+  /* 综合形态：三层点环旋转，任一 agent 思考时加速 */
+  #composite .ring { position: absolute; inset: 6px; border-radius: 50%;
+    border: 1.5px dashed rgba(255,255,255,.55); animation: spin 7s linear infinite; }
+  #composite .ring.r2 { inset: 11px; animation-duration: 4.6s; animation-direction: reverse; opacity: .6; }
+  #composite .core { width: 8px; height: 8px; border-radius: 50%; background: #fff;
+    box-shadow: 0 0 10px #fff; }
+  #composite.think .ring { animation-duration: 1.6s; }
+  #composite.think .ring.r2 { animation-duration: 1.1s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* DeepSeek：鲸鱼上下游跃 */
+  .whale svg { width: 30px; height: 22px; }
+  .whale.think svg { animation: whaleJump 2.1s ease-in-out infinite; }
+  @keyframes whaleJump {
+    0%, 100% { transform: translateY(6px) rotate(-8deg); }
+    50%      { transform: translateY(-7px) rotate(8deg); }
+  }
+
+  /* Kimi：流星从图标底部划过 */
+  .meteor { overflow: hidden; }
+  .meteor .star { position: absolute; bottom: -3px; width: 14px; height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, transparent, #fff); opacity: 0; }
+  .meteor.think .star { animation: meteor 1.4s linear infinite; }
+  .meteor.think .star:nth-child(2) { animation-delay: .5s; }
+  @keyframes meteor {
+    0%   { left: -16px; bottom: 2px;  opacity: 0; }
+    15%  { opacity: 1; }
+    100% { left: 40px;  bottom: 12px; opacity: 0; }
+  }
+
+  /* Gemini：闪烁 */
+  .flicker.think { animation: flick .9s steps(2, jump-none) infinite; }
+  @keyframes flick { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+  /* Claude：四角伸缩 */
+  .corners i { position: absolute; width: 7px; height: 7px; border: 1.6px solid currentColor; opacity: .9; }
+  .corners i:nth-child(1) { top: 4px; left: 4px; border-right: 0; border-bottom: 0; }
+  .corners i:nth-child(2) { top: 4px; right: 4px; border-left: 0; border-bottom: 0; }
+  .corners i:nth-child(3) { bottom: 4px; left: 4px; border-right: 0; border-top: 0; }
+  .corners i:nth-child(4) { bottom: 4px; right: 4px; border-left: 0; border-top: 0; }
+  .corners.think i { animation: corner 1.6s ease-in-out infinite; }
+  .corners.think i:nth-child(2) { animation-delay: .2s; }
+  .corners.think i:nth-child(3) { animation-delay: .4s; }
+  .corners.think i:nth-child(4) { animation-delay: .6s; }
+  @keyframes corner { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.55); } }
+
+  /* ChatGPT：呼吸光晕 */
+  .pulse.think { animation: breathe 2s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,.35); }
+                       50% { box-shadow: 0 0 14px 3px rgba(255,255,255,.28); } }
+
+  /* Codex：轨道点 */
+  .orbit { overflow: hidden; }
+  .orbit .o { position: absolute; inset: 0; animation: spin 2.4s linear infinite; opacity: 0; }
+  .orbit.think .o { opacity: 1; }
+  .orbit .o::before { content: ""; position: absolute; top: 4px; left: 50%; margin-left: -2px;
+    width: 4px; height: 4px; border-radius: 50%; background: #fff; }
+</style>
+</head>
+<body>
+<div id="tray">
+  <div class="icon" id="composite" title="综合形态">
+    <div class="ring"></div><div class="ring r2"></div><div class="core"></div>
+    <div class="lbl">综合形态 · 全部 agent</div>
+  </div>
+</div>
+<script>
+"use strict";
+const tray = document.getElementById("tray");
+const composite = document.getElementById("composite");
+const icons = new Map();
+let expanded = false, view = "all", agents = [];
+
+const WHALE_SVG = `<svg viewBox="0 0 32 22" fill="currentColor">
+  <path d="M2 13c0-6 6-10 14-10 5 0 9 2 11 5l3-3c0 4-1 6-3 8l3 3-3 1c-2 2-5 3-8 3-8 0-14-3-14-7z"/>
+  <circle cx="9" cy="9" r="1.4" fill="#0a0c10"/></svg>`;
+
+function build() {
+  for (const a of agents) {
+    if (!a.enabled) { icons.get(a.source)?.remove(); icons.delete(a.source); continue; }
+    let el = icons.get(a.source);
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "icon " + a.anim;
+      el.innerHTML = animInner(a.anim) + `<div class="lbl"></div>`;
+      el.onclick = () => select(a.source);
+      tray.appendChild(el);
+      icons.set(a.source, el);
+    }
+    el.style.setProperty("--c", a.color);
+    el.style.color = a.thinking ? a.color : "";
+    el.classList.toggle("think", a.thinking);
+    el.classList.toggle("idle", !a.thinking);
+    el.classList.toggle("hidden", !expanded);
+    el.classList.toggle("sel", view === a.source);
+    el.querySelector(".lbl").textContent = a.name + (a.thinking ? " · 思考中" : "");
+    if (a.anim === "whale") el.querySelector("svg").setAttribute("fill", a.thinking ? a.color : "rgba(255,255,255,.4)");
+  }
+  composite.classList.toggle("think", agents.some((a) => a.enabled && a.thinking));
+  composite.classList.toggle("sel", view === "all");
+}
+
+function animInner(anim) {
+  switch (anim) {
+    case "whale": return WHALE_SVG;
+    case "meteor": return `<span class="star"></span><span class="star"></span>`;
+    case "corners": return "<i></i><i></i><i></i><i></i>";
+    case "orbit": return `<div class="o"></div>`;
+    default: return "";
+  }
+}
+
+async function select(agent) {
+  view = agent;
+  await fetch("/view", { method: "POST", body: JSON.stringify({ agent }) });
+  build();
+}
+
+composite.onclick = async () => {
+  if (!expanded) { expanded = true; build(); return; }  // 第一次点：展开
+  await select("all");
+};
+composite.oncontextmenu = (e) => { e.preventDefault(); expanded = !expanded; build(); };
+
+async function poll() {
+  try {
+    const s = await (await fetch("/agents")).json();
+    agents = s.agents;
+    if (view !== s.view) view = s.view;
+    build();
+  } catch {}
+}
+poll();
+setInterval(poll, 1500);
+</script>
+</body>
+</html>

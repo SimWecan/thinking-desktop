@@ -17,6 +17,12 @@
 - **多厂商光效**：每个厂商一个专属色——Kimi 白、DeepSeek 蓝、Codex 紫、Gemini 红、ChatGPT 绿。谁在跑（25s 内有真实工作事件，只有「开着」不算）就把**整个画面**按它的颜色染色（canvas `color` 混合，只改色相/饱和度、保留亮度）：环内外粒子、彗星、网纹、光束、环带一起变色。多厂商并行时按强度加权混色，同时各占一条环带通道做分道辉光 + 彩色粒子
 - **多源接入（每个都真接到数据）**：统一抽象 Connector，本机四个 AI 桌面端全部接入——DSH / Kimi 走会话文件真实文本，Gemini / ChatGPT 走「进程守护 + CPU 活动度」真实工作信号（它们不落盘任何对话文本，只能取强度，取不到文本）
 - **事件驱动**：token/工具/状态事件 → 强度提升 + 涟漪；报错 → 泛红
+- **桌面软件化（agent 绑定 + 调色盘 + 托盘）**：
+  - **绑定管理**：`http://127.0.0.1:7799/config.html` 配置页自动探测本机已装的 AI 桌面端（macOS 路径探测），逐个绑定/解绑；绑定后打通通道检测运行状态、拉取日志
+  - **调色盘**：配置页选中任一已绑定 agent，弹出 12 色色板 + 自定义取色器，设定该 agent 运行时粒子特效/光效的专属颜色（持久化到 `config/agents.json`）
+  - **右上角托盘**：壁纸运行时桌面右上角出现可展开图标条（透明悬浮，仅图标、无底色）；默认为**综合形态**（多 agent 并行时多粒子特效同时展示，任一 agent 思考时综合环加速旋转），点击展开为已绑定 agent 的厂商图标——未使用为静态，思考中则为厂商专属动态：DeepSeek 鲸鱼上下游跃、Kimi 流星划过、Gemini 闪烁、Claude 四角伸缩、ChatGPT 呼吸光晕、Codex 轨道点
+  - **单一/综合切换**：点选厂商图标壁纸即切换为该 agent 的单一粒子形态（仅展示其颜色与光效）；重选最上方综合图标切回综合形态
+- **Windows 原生宿主**：`win/` 提供 .NET 8 + WebView2 原生壁纸宿主（置底、点击穿透、托盘浮窗）与 `install.ps1` 自启安装脚本（⚠️ 代码已编写但未经 Windows 真机编译验证）
 - **零第三方依赖**：服务端仅使用 Node.js 标准库（DSH 会话解码复用系统 `zstd` 命令）
 - **可自检**：`npm run links` / `/health` 给出每个 AI 桌面端的连接通道、事件数、最后事件时间与闭源端实时 CPU，能直接区分「connector 注册了」和「connector 真的接到数据」
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
@@ -32,11 +38,15 @@ connectors/            ← 每个 AI 软件一个适配器，产出统一事件
    │  { source, type: thought|tool_call|tool_result|error|token, ts, payload }
    ▼
 server/index.mjs       ← 事件汇聚、速率统计、SSE 推送 (127.0.0.1:7799)
-   │  GET /stream (SSE) · GET /state (JSON)
+   │  GET /stream (SSE) · GET /state (JSON) · /agents /view（绑定与形态）
+   ▼
+server/agents.mjs      ← 厂商预设（名称/专属色/动态效果）+ 安装探测 + 注册表持久化
    ▼
 web/index.html         ← Canvas 可视化（思考粒子海），壁纸引擎加载
+web/config.html      ← 配置页：绑定管理 + 调色盘
+web/tray.html        ← 右上角托盘：综合/单一形态切换 + 厂商动态图标
    ▼
-Lively Wallpaper / Wallpaper Engine
+Lively Wallpaper / Wallpaper Engine / 原生宿主（macOS .app、Windows win/）
 ```
 
 ## 快速开始
@@ -67,7 +77,10 @@ macos/install.sh
 
 ### Windows
 
-数据服务跨平台可用；壁纸层用 Lively Wallpaper：添加壁纸 → URL → `http://127.0.0.1:7799/wall`。
+数据服务跨平台可用。两种方式任选：
+
+- **原生宿主（推荐）**：`win/install.ps1` 自动安装 .NET 8 + WebView2 原生壁纸宿主（置底、点击穿透、右上角托盘浮窗），并注册任务计划程序实现登录自启（⚠️ 尚未经 Windows 真机验证）
+- **Lively Wallpaper**：添加壁纸 → URL → `http://127.0.0.1:7799/wall`。
 
 ## 目录
 
@@ -82,7 +95,11 @@ macos/install.sh
 | `connectors/dsh-session.mjs` | DSH v4 会话行 → 统一事件：只上报真实的推理文本/工具调用/报错，忽略 title、request、job 等元数据行 |
 | `connectors/process-watch.mjs` | 桌面端进程守护（Gemini / ChatGPT / DSH 状态变化） |
 | `connectors/process-activity.mjs` | 闭源端真实活动度：`ps` 采样该 App 全部进程的 CPU，超过阈值即上报「正在工作」（Gemini / ChatGPT 没有本地文本，只能取强度） |
-| `web/index.html` | 壁纸页（光环 iframe + 右侧发散文本视窗 + 状态 HUD） |
+| `web/index.html` | 壁纸页（光环 iframe + 右侧发散文本视窗 + 状态 HUD + 综合/单一形态切换） |
+| `server/agents.mjs` | 厂商预设注册表：7 个厂商的名称/简称/专属色/动态效果，macOS 安装路径探测，持久化到 `config/agents.json` |
+| `web/config.html` | 配置页：agent 绑定开关 + 调色盘（12 色 + 自定义取色器） |
+| `web/tray.html` | 右上角托盘页：综合形态环、厂商动态图标（透明悬浮）、单一形态切换 |
+| `win/` | Windows 原生壁纸宿主（.NET 8 + WebView2）：置底点击穿透壁纸窗口 + 托盘浮窗 + 任务计划自启 |
 | `scripts/links.mjs` | 连接自检 CLI（`npm run links`）：每个来源的通道 / 事件数 / 最后事件 / 实时 CPU |
 | `scripts/simulate.mjs` | 多 agent 并行模拟（`npm run simulate`）：往 `/ingest` 注入多厂商思考事件，逐阶段请求画布快照并校验实际点亮的来源 |
 | `docs/ARCHITECTURE.md` | 架构与事件协议详细说明 |
@@ -107,6 +124,8 @@ macos/install.sh
 - [ ] 用量账本（读本地 cost 记录）
 - [x] 开机自启与崩溃自愈（launchd，`macos/install.sh`）
 - [x] DSH 会话截流（多层目录 + 多会话并行 + 元数据行过滤）
+- [x] 桌面软件化：agent 绑定注册表 + 配置页 + 调色盘 + 右上角托盘（综合/单一形态、厂商动态图标）
+- [ ] Windows 原生宿主真机验证（`win/` 已编写）
 - [ ] 演示录制脚本
 
 ## 许可

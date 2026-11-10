@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Thinking Desktop — 配置</title>
+<style>
+  :root { --line: rgba(255,255,255,.14); --text: #cfd2d8; --dim: #6b6f78; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: #08090b; color: var(--text);
+    font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; padding: 40px;
+  }
+  h1 { font-size: 18px; letter-spacing: 2px; margin: 0 0 4px; color: #fff; }
+  .sub { color: var(--dim); font-size: 11px; margin-bottom: 28px; }
+  .agent {
+    display: grid; grid-template-columns: 14px 1fr auto auto; gap: 14px; align-items: center;
+    border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; margin-bottom: 10px;
+    max-width: 720px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .name b { color: #fff; } .name small { color: var(--dim); margin-left: 8px; }
+  .status { font-size: 11px; color: var(--dim); }
+  .status.on { color: #7ee0a3; }
+  label.bind { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+  input[type=checkbox] { accent-color: #4D6BFE; }
+  .palette {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 9;
+  }
+  .palette.show { display: flex; }
+  .pal-box {
+    background: #0e0f12; border: 1px solid rgba(255,255,255,.25); border-radius: 6px;
+    padding: 22px 24px; width: 300px;
+  }
+  .pal-box h2 { margin: 0 0 14px; font-size: 13px; color: #fff; letter-spacing: 1px; }
+  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px; }
+  .sw { width: 100%; aspect-ratio: 1; border-radius: 4px; cursor: pointer; border: 1px solid rgba(255,255,255,.15); }
+  .sw:hover { transform: scale(1.12); }
+  .custom { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); }
+  input[type=color] { width: 44px; height: 28px; border: 1px solid var(--line); background: none; padding: 0; }
+  .hint { margin-top: 24px; color: var(--dim); font-size: 11px; max-width: 720px; }
+</style>
+</head>
+<body>
+<h1>THINKING DESKTOP · 配置</h1>
+<div class="sub">绑定本机 AI 桌面端 → 打通状态/日志通道 · 点色块打开调色盘，选择该 agent 运行时的粒子特效颜色</div>
+<div id="list">加载中…</div>
+
+<div class="palette" id="palette">
+  <div class="pal-box">
+    <h2 id="palTitle">选择粒子颜色</h2>
+    <div class="swatches" id="swatches"></div>
+    <div class="custom">自定义：<input type="color" id="customColor"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const SWATCHES = ["#4D6BFE","#2E9BFF","#00C853","#FFAB00","#FF5252","#E040FB",
+                  "#00BCD4","#8B5CF6","#EC407A","#AEEA00","#FF6D00","#FFFFFF"];
+const list = document.getElementById("list");
+const palette = document.getElementById("palette");
+const swatches = document.getElementById("swatches");
+const customColor = document.getElementById("customColor");
+let agents = [], editing = null;
+
+async function load() {
+  const s = await (await fetch("/agents")).json();
+  agents = s.agents;
+  list.innerHTML = "";
+  for (const a of agents) {
+    const row = document.createElement("div");
+    row.className = "agent";
+    row.innerHTML = `
+      <div class="dot" style="background:${a.color}"></div>
+      <div class="name"><b>${a.name}</b><small>${a.source}</small></div>
+      <div class="status ${a.installed ? "on" : ""}">${a.installed ? (a.thinking ? "● 思考中" : "已安装") : "未安装"}</div>
+      <label class="bind"><input type="checkbox" ${a.enabled ? "checked" : ""} ${a.installed ? "" : "disabled"}> 绑定</label>`;
+    row.querySelector(".dot").style.cursor = "pointer";
+    row.querySelector(".dot").title = "调色盘";
+    row.querySelector(".dot").onclick = () => openPalette(a);
+    row.querySelector("input[type=checkbox]").onchange = (e) => save(a.source, { enabled: e.target.checked });
+    list.appendChild(row);
+  }
+}
+
+async function save(source, patch) {
+  await fetch("/agents", { method: "POST", body: JSON.stringify({ source, ...patch }) });
+  await load();
+}
+
+function openPalette(a) {
+  editing = a;
+  document.getElementById("palTitle").textContent = `${a.name} · 粒子颜色`;
+  swatches.innerHTML = "";
+  for (const c of SWATCHES) {
+    const d = document.createElement("div");
+    d.className = "sw"; d.style.background = c;
+    d.onclick = () => { save(editing.source, { color: c }); closePalette(); };
+    swatches.appendChild(d);
+  }
+  customColor.value = a.color;
+  customColor.oninput = () => { /* 实时预览 */ document.querySelector(`[data-src="${a.source}"]`); };
+  customColor.onchange = () => { save(editing.source, { color: customColor.value }); closePalette(); };
+  palette.classList.add("show");
+}
+function closePalette() { palette.classList.remove("show"); editing = null; }
+palette.onclick = (e) => { if (e.target === palette) closePalette(); };
+
+load();
+setInterval(load, 5000);
+</script>
+<div class="hint">壁纸视图：综合形态 / 单一 agent 形态在桌面右上角托盘切换；配置即时生效并持久化到 config/agents.json。</div>
+</body>
+</html>

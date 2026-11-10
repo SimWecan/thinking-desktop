@@ -24,9 +24,11 @@ import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
 const IDLE_AFTER_MS = 4000;
 const RATE_WINDOW_MS = 10_000;
+import { AgentRegistry } from "./agents.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
+const agents = new AgentRegistry(ROOT);
 
 // zstd 只在 DSH 会话截流用得到；提前探测，缺了就在启动日志里明确告警
 const zstdAvailable = (() => {
@@ -89,6 +91,8 @@ function state() {
       agoMs: now - s.lastEventAt,
     })),
     recent: events.slice(-20),
+    agents: agents.agents(sourceStats, now),
+    view: agents.view,
   };
 }
 
@@ -270,6 +274,43 @@ const server = createServer((req, res) => {
   if (url.pathname === "/debug") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ at: Date.now(), clients: Object.fromEntries(clientDebug) }));
+    return;
+  }
+
+  // 绑定的 AI 桌面端：列表 / 绑定 / 改色
+  if (url.pathname === "/agents") {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        try {
+          const m = JSON.parse(body);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ agents: agents.update(m.source, m) }));
+        } catch { res.writeHead(400).end("bad request"); }
+      });
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({ agents: agents.agents(sourceStats), view: agents.view }));
+    return;
+  }
+
+  // 壁纸视图选择：all = 综合形态；其它 = 单一 agent 形态
+  if (url.pathname === "/view" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      try {
+        const m = JSON.parse(body);
+        const view = agents.setView(m.agent);
+        // 广播给所有 SSE 客户端（壁纸页据此切换形态）
+        const ev = `data: ${JSON.stringify({ source: "thinking-desktop", type: "view", ts: Date.now(), payload: { agent: view } })}\n\n`;
+        for (const res2 of clients) { try { res2.write(ev); } catch { clients.delete(res2); } }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ view }));
+      } catch { res.writeHead(400).end("bad request"); }
+    });
     return;
   }
 
