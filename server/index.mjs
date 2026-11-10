@@ -18,6 +18,7 @@ import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
 import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
+import { EVENT_TYPES } from "../connectors/base.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 
 const PORT = Number(process.env.THINKING_DESKTOP_PORT || 7799);
@@ -275,6 +276,30 @@ const server = createServer((req, res) => {
   if (url.pathname === "/state") {
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify(state()));
+    return;
+  }
+
+  // 事件注入口：本机调试 / 多 agent 并行模拟（只监听回环地址，不对外）
+  if (url.pathname === "/ingest" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      let ok = false;
+      try {
+        const d = JSON.parse(body);
+        const type = String(d.type || "text");
+        if (EVENT_TYPES.includes(type)) {
+          pushEvent({
+            source: String(d.source || "sim").slice(0, 40),
+            type,
+            ts: Date.now(),
+            payload: d.payload && typeof d.payload === "object" ? d.payload : {},
+          });
+          ok = true;
+        }
+      } catch { /* 坏包 */ }
+      res.writeHead(ok ? 200 : 400, { "Content-Type": "text/plain" }).end(ok ? "ok" : "bad request");
+    });
     return;
   }
 

@@ -1949,7 +1949,10 @@ function syncPanel() {
     window.__tdSources = function (list) {
       lastMsg = Date.now();
       const prev = new Map(lights.map((l) => [l.src, l]));
-      lights = (Array.isArray(list) ? list : []).map((x) => {
+      const ORDER = { 'kimi-desktop': 0, 'deepseek-harness': 1, codex: 2, 'gemini-desktop': 3, 'chatgpt-desktop': 4 };
+      const arr = (Array.isArray(list) ? list : []).slice()
+        .sort((a, b) => (ORDER[a.src] ?? 9) - (ORDER[b.src] ?? 9));
+      lights = arr.map((x) => {
         const old = prev.get(x.src);
         return {
           src: x.src,
@@ -1982,19 +1985,25 @@ function syncPanel() {
       list.forEach((L, i) => {
         const frac = n === 1 ? 0.5 : (i + 0.5) / n;                        // 多厂商并行 → 各占一条环带通道
         const rad = (R + (RO - R) * frac) * z;
-        const w = Math.max(16, band * (n === 1 ? 0.55 : 0.34));
+        const w = Math.max(10, band * (n === 1 ? 0.55 : 0.52 / n));   // 多条时收窄，避免相邻通道糊成一片
         const a = L.intensity * (0.55 + 0.45 * Math.sin(now / 1100 + i * 1.7));
         const [r, gg, b] = L.rgb;
         const grd = g.createRadialGradient(c0.x, c0.y, Math.max(1, rad - w), c0.x, c0.y, rad + w);
         grd.addColorStop(0, `rgba(${r},${gg},${b},0)`);
-        grd.addColorStop(0.35, `rgba(${r},${gg},${b},${(0.5 * a).toFixed(3)})`);
-        grd.addColorStop(0.6, `rgba(${r},${gg},${b},${(0.34 * a).toFixed(3)})`);
+        grd.addColorStop(0.35, `rgba(${r},${gg},${b},${(0.78 * a).toFixed(3)})`);
+        grd.addColorStop(0.6, `rgba(${r},${gg},${b},${(0.46 * a).toFixed(3)})`);
         grd.addColorStop(1, `rgba(${r},${gg},${b},0)`);
         g.fillStyle = grd;
         g.beginPath();
         g.arc(c0.x, c0.y, rad + w, 0, TAU);
         g.arc(c0.x, c0.y, Math.max(1, rad - w), 0, TAU, true);
         g.fill('evenodd');
+        // 通道中心一条细亮线，让每条来源的颜色有明确边界
+        g.beginPath();
+        g.arc(c0.x, c0.y, rad, 0, TAU);
+        g.strokeStyle = `rgba(${r},${gg},${b},${(0.85 * a).toFixed(3)})`;
+        g.lineWidth = n > 1 ? 1.4 : 2.2;
+        g.stroke();
         draws++;
 
         // 环带内外的彩色粒子
@@ -2023,14 +2032,17 @@ function syncPanel() {
     let tints = [];
     try { tints = (window.__tdTintList || []); } catch (e) { tints = []; }
     if (!tints.length) return;
-    let r = 0, g = 0, b = 0, wsum = 0;
+    // 取「强度 × 饱和度」最高的厂商当主色：多厂商堆一起时不会混成一团灰，
+    // 其它厂商的颜色由环带上的分道辉光负责展示。
+    let best = tints[0], bestScore = -1;
     for (const t of tints) {
-      const w = Math.max(0.05, t.intensity ?? 0.5);
-      r += t.rgb[0] * w; g += t.rgb[1] * w; b += t.rgb[2] * w; wsum += w;
+      const mx = Math.max(1, ...t.rgb), mn = Math.min(...t.rgb);
+      const sat = (mx - mn) / mx;
+      const score = Math.max(0.05, t.intensity ?? 0.5) * (1 + sat * 2.5);
+      if (score > bestScore) { bestScore = score; best = t; }
     }
-    if (!wsum) return;
-    r = Math.round(r / wsum); g = Math.round(g / wsum); b = Math.round(b / wsum);
-    const alpha = Math.min(0.9, 0.55 + 0.35 * Math.min(1, wsum));
+    const [r, g, b] = best.rgb;
+    const alpha = Math.min(0.9, 0.6 + 0.3 * Math.min(1, best.intensity ?? 0.5));
     S.save();
     S.setTransform(DPR, 0, 0, DPR, 0, 0);
     if ('color' === (S.globalCompositeOperation = 'color')) {

@@ -47,6 +47,7 @@ node server/index.mjs          # 启动数据服务，监听 127.0.0.1:7799
 # 浏览器打开 http://127.0.0.1:7799 预览效果（?debug=1 打开状态面板）
 
 # 自检 / 测试
+npm run simulate                        # 多 agent 并行模拟：注入多厂商事件 → 逐阶段截图 + 校验点亮来源
 npm run links                           # 每个 AI 桌面端：数据通道 / 事件数 / 最后事件 / 实时 CPU
 curl -s http://127.0.0.1:7799/health    # 同上，原始 JSON（含 zstd 状态）
 npm test                                # connector + 事件映射 + 活动度解析的单元测试
@@ -81,6 +82,7 @@ macos/install.sh
 | `connectors/process-activity.mjs` | 闭源端真实活动度：`ps` 采样该 App 全部进程的 CPU，超过阈值即上报「正在工作」（Gemini / ChatGPT 没有本地文本，只能取强度） |
 | `web/index.html` | 壁纸页（光环 iframe + 右侧发散文本视窗 + 状态 HUD） |
 | `scripts/links.mjs` | 连接自检 CLI（`npm run links`）：每个来源的通道 / 事件数 / 最后事件 / 实时 CPU |
+| `scripts/simulate.mjs` | 多 agent 并行模拟（`npm run simulate`）：往 `/ingest` 注入多厂商思考事件，逐阶段请求画布快照并校验实际点亮的来源 |
 | `docs/ARCHITECTURE.md` | 架构与事件协议详细说明 |
 | `test/` | `node --test` 单元测试（connector 增量消费、事件映射） |
 
