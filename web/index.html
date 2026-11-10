@@ -6,6 +6,14 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #06080d; cursor: crosshair; }
   #c { display: block; width: 100vw; height: 100vh; }
+  #halo {
+    position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0;
+    opacity: 0; transition: opacity 1.8s ease; z-index: 1;
+  }
+  #idlewrap {
+    position: fixed; inset: 0; z-index: 2;
+    opacity: 1; transition: opacity 2.2s ease;
+  }
   #hud {
     position: fixed; left: 16px; bottom: 14px;
     font: 11px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
@@ -16,8 +24,11 @@
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="hud"></div>
+<iframe id="halo" src="/haloflux/"></iframe>
+<div id="idlewrap">
+  <canvas id="c"></canvas>
+  <div id="hud"></div>
+</div>
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
@@ -25,6 +36,8 @@ const BUSY_HOLD = 30000;   // 任一来源 30 秒内有事件 → 思考态（�
 
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 const hud = document.getElementById("hud");
+const idleWrap = document.getElementById("idlewrap");
+const halo = document.getElementById("halo");
 let W, H, DPR;
 function resize() {
   DPR = Math.min(devicePixelRatio || 1, 1.5);
@@ -41,6 +54,40 @@ let stateTimer = 0;
 const ripples = [];   // 事件涟漪
 const shocks = [];    // 点击冲击波
 const mouse = { x: -9999, y: -9999, down: false };
+let active = false, lastParamPush = 0;
+
+function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
+
+// iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
+halo.addEventListener("load", () => {
+  haloMsg({ td: "pause", value: !active });
+  pushParams(performance.now() + 1000);
+});
+window.addEventListener("message", (ev) => {
+  let m; try { m = ev.data; } catch { return; }
+  if (m && m.td === "ready") { haloMsg({ td: "pause", value: !active }); pushParams(performance.now() + 1000); }
+});
+
+/** 待机 ⇄ 思考 形态切换：HALOFLUX 淡入淡出，待机时暂停渲染省 CPU */
+function setActive(on) {
+  if (active === on) return;
+  active = on;
+  halo.style.opacity = on ? 1 : 0;
+  idleWrap.style.opacity = on ? 0 : 1;
+  haloMsg({ td: "pause", value: !on });
+  setTimeout(() => haloMsg({ td: "pause", value: !active }), 800); // iframe 后加载完成时再补一次
+}
+
+/** 活动强度 → HALOFLUX 参数 */
+function pushParams(now) {
+  if (now - lastParamPush < 1000) return;
+  lastParamPush = now;
+  const r = Math.min(rate, 3);
+  haloMsg({ td: "set", key: "tempo", value: +(0.65 + r * 0.2 + energy * 0.15).toFixed(2) });
+  haloMsg({ td: "set", key: "ringSpeed", value: +(0.55 + r * 0.18 + energy * 0.2).toFixed(2) });
+  haloMsg({ td: "set", key: "beamGlow", value: +(2.6 + energy * 0.9).toFixed(2) });
+  haloMsg({ td: "set", key: "glow", value: +(1.1 + energy * 0.4).toFixed(2) });
+}
 
 // ---------------- SSE：AI 事件驱动 ----------------
 const es = new EventSource("/stream");
@@ -112,7 +159,8 @@ function frame(now) {
   const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
 
   const idle = now - lastEventAt > BUSY_HOLD;
-  const thinking = !idle;
+  setActive(!idle);
+  if (active) pushParams(now);
   const breath = 0.85 + 0.15 * Math.sin(now / 2600);          // 呼吸
   const target = idle ? 0.16 : 0.85 + Math.min(rate, 3) / 3 * 0.6;
   energy += (target - energy) * 0.04;

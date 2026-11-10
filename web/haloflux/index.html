@@ -1625,10 +1625,16 @@ function syncPanel() {
 <script id="td-bridge">
 /* Thinking Desktop bridge — 个人非商业二创
    原作: HALOFLUX by Ryder191 (RYDER CODE / Ms MAIKEBAIs CAT)
-   Source: https://github.com/Ryder191/haloflux · PolyForm Noncommercial */
+   Source: https://github.com/Ryder191/haloflux · PolyForm Noncommercial
+   客制化：去掉全部面板小窗口（只留光环本体）、壁纸静音、事件驱动参数、待机暂停 */
 (function () {
   'use strict';
   window.__wpPaused = true; // 初始待机，由主页面唤起
+  // 加载完成后通知主页面同步状态（解决启动早期消息丢失）
+  window.addEventListener('load', () => {
+    try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {}
+  });
+  setTimeout(() => { try { parent.postMessage({ td: 'ready' }, '*'); } catch (e) {} }, 600);
 
   window.addEventListener('message', (ev) => {
     let m;
@@ -1639,14 +1645,31 @@ function syncPanel() {
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} }
   }, false);
 
-  // 壁纸不带背景音乐
+  // 客制化：隐藏 header KPI 与底部 panels，只保留光环画面
+  // （沿用 wp.js applyUI 的做法：脱离布局+不可见，保持画布尺寸防止绘制卡死）
+  function haloOnly() {
+    const app = document.querySelector('.app');
+    document.querySelectorAll('header, .panels').forEach((el) => {
+      el.style.position = 'absolute';
+      el.style.left = el.style.right = '0';
+      el.style.visibility = 'hidden';
+      el.style.pointerEvents = 'none';
+      el.style.top = el.tagName === 'HEADER' ? '0' : '';
+      el.style.bottom = el.tagName === 'HEADER' ? '' : '0';
+    });
+    if (app) app.style.gridTemplateRows = 'minmax(0,1fr)';
+    if (typeof resizeAll === 'function') { requestAnimationFrame(() => setTimeout(resizeAll, 30)); setTimeout(resizeAll, 220); }
+  }
+  [0, 400, 1200, 3000].forEach((t) => setTimeout(haloOnly, t));
+
+  // 壁纸静音
   function mute() { if (window.__bgm) { try { window.__bgm.set(false); } catch (e) { return false; } return true; } return false; }
   [400, 1200, 3000, 6000].forEach((t) => setTimeout(mute, t));
 
-  // 画面署名（许可要求保留）
+  // 版权署名（许可要求保留）
   const credit = document.createElement('div');
   credit.textContent = 'HALOFLUX by Ryder191 · github.com/Ryder191/haloflux';
-  credit.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:9;font:10px ui-monospace,monospace;color:rgba(207,210,216,.45);pointer-events:none;letter-spacing:.5px';
+  credit.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:9;font:10px ui-monospace,monospace;color:rgba(207,210,216,.4);pointer-events:none;letter-spacing:.5px';
   document.body.appendChild(credit);
 })();
 </script>
