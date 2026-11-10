@@ -3,19 +3,18 @@
 <head>
 <meta charset="utf-8">
 <title>Thinking Desktop</title>
+<!--
+  单一运行界面（HALOFLUX 光环，web/haloflux/）：
+  · 待机 —— tdSetStandby(true)：环带原地停止，环内/环外粒子特效消失，环上保留截流文本
+  · 活动 —— tdSetStandby(false)：环带转动、粒子特效重现，强度随事件速率
+  · 环上文本 —— 开源 AI 截流真实思考文本；闭源 AI 预设动画
+  · 鼠标 —— 悬停环带局部放大查看文字（桌面端由原生宿主转发全局鼠标）
+-->
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #06080d; cursor: crosshair; }
-  #c { display: block; width: 100vw; height: 100vh; }
-  #halo {
-    position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0;
-    z-index: 1; /* 常驻显示：待机 = 运行中的圆环原地停止，不淡出 */
-  }
-  #idlewrap {
-    position: fixed; inset: 0; z-index: 2;
-    opacity: 1; transition: opacity 2.2s ease;
-  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #08090b; }
+  #halo { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; z-index: 1; }
   #hud {
-    position: fixed; left: 16px; bottom: 14px;
+    position: fixed; left: 16px; bottom: 14px; z-index: 2;
     font: 11px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
     color: #9fb4d0; opacity: 0; transition: opacity .4s; pointer-events: none;
     text-shadow: 0 1px 4px #000;
@@ -25,77 +24,39 @@
 </head>
 <body>
 <iframe id="halo" src="/haloflux/"></iframe>
-<div id="idlewrap">
-  <canvas id="c"></canvas>
-  <div id="hud"></div>
-</div>
+<div id="hud"></div>
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const BUSY_HOLD = 30000;   // 任一来源 30 秒内有事件 → 思考态（形态不变，强度提升）
+const BUSY_HOLD = 30000;   // 任一来源 30 秒内有真实工作信号 → 活动态
 
-const cv = document.getElementById("c"), ctx = cv.getContext("2d");
 const hud = document.getElementById("hud");
-const idleWrap = document.getElementById("idlewrap");
 const halo = document.getElementById("halo");
-// 预览调试：?force=idle 强制待机形态 / ?force=active 强制思考形态（立即到位，便于预览与截图）
-const FORCE = new URLSearchParams(location.search).get("force");
-let W, H, DPR;
-function resize() {
-  DPR = Math.min(devicePixelRatio || 1, 1.5);
-  W = innerWidth; H = innerHeight;
-  cv.width = W * DPR; cv.height = H * DPR;
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-}
-addEventListener("resize", resize); resize();
 
 // ---------------- 状态 ----------------
-let lastEventAt = 0, energy = 0, errFlash = 0;
+let energy = 0, rate = 0, byType = {}, bySource = {};
 let workAt = 0;          // 最后一次真实工作信号（token/文本/工具/编辑）
 let busyUntil = 0;       // status running>0 的短暂宽限
-let rate = 0, byType = {}, bySource = {};
-let stateTimer = 0;
-const ripples = [];   // 事件涟漪
-const shocks = [];    // 点击冲击波
-const mouse = { x: -9999, y: -9999, down: false };
-let active = false, lastParamPush = 0;
-// 待机淡出计数：0 = 思考形态，1 = 完全待机（粒子海渐隐，光环常驻原地停止）
-let ringAlpha = FORCE ? (FORCE === "idle" ? 1 : 0) : 0;
+let standby = null;      // 当前待机位（null=未初始化）
+let lastParamPush = 0, stateTimer = 0;
 
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
-// 桌面壁纸点击穿透收不到鼠标：由原生宿主转发全局鼠标位置与点击。
-// NSView 是左下角原点，在此换算成页面（左上角原点）坐标。
-window.__tdMouse = (x, y) => {
-  mouse.x = x; mouse.y = H - y;   // 待机圆环的悬停互动在壁纸上同样生效
-  haloMsg({ td: "mouse", x, y });
-};
-window.__tdClick = (x, y) => {
-  shocks.push({ x, y: H - y, r: 8, a: 0.9 });
-};
+// 桌面壁纸点击穿透收不到鼠标：由原生宿主转发全局鼠标位置（预览页直接用原生 mousemove）
+window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
+addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
 
-// iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
-halo.addEventListener("load", () => {
-  haloMsg({ td: "standby", value: !active });
-  pushParams(performance.now() + 1000);
-});
-window.addEventListener("message", (ev) => {
-  let m; try { m = ev.data; } catch { return; }
-  if (m && m.td === "ready") { haloMsg({ td: "standby", value: !active }); pushParams(performance.now() + 1000); }
-});
-
-/** 待机 ⇄ 思考 形态切换：HALOFLUX 常驻显示，待机即暂停（圆环原地停止），
- *  思考恢复运转；待机时粒子海渐隐让位。 */
-function setActive(on) {
-  if (active === on) return;
-  active = on;
-  idleWrap.style.opacity = on ? 0 : 1;
-  haloMsg({ td: "standby", value: !on });
-  setTimeout(() => haloMsg({ td: "standby", value: !active }), 800); // iframe 后加载完成时再补一次
+/** 待机 ⇄ 活动：同一张光环界面，环带停/转、粒子隐/现 */
+function setStandby(on) {
+  if (standby === on) return;
+  standby = on;
+  haloMsg({ td: "standby", value: on });
+  setTimeout(() => { if (standby === on) haloMsg({ td: "standby", value: on }); }, 800);
 }
 
 /** 活动强度 → HALOFLUX 参数 */
-function pushParams(now) {
+function pushParams() {
+  const now = Date.now();
   if (now - lastParamPush < 1000) return;
   lastParamPush = now;
   const r = Math.min(rate, 3);
@@ -105,221 +66,74 @@ function pushParams(now) {
   haloMsg({ td: "set", key: "glow", value: +(1.1 + energy * 0.4).toFixed(2) });
 }
 
+// iframe 加载完成后同步当前状态（启动早期的消息 iframe 还没监听，会丢失）
+halo.addEventListener("load", () => {
+  standby = null;
+  setStandby(currentStandby());
+  pushParams();
+});
+window.addEventListener("message", (ev) => {
+  if (ev.data && ev.data.td === "ready") {
+    standby = null;
+    setStandby(currentStandby());
+    pushParams();
+  }
+});
+
+function currentStandby() {
+  const now = Date.now();
+  return now - workAt > BUSY_HOLD && now > busyUntil;
+}
+
 // ---------------- SSE：AI 事件驱动 ----------------
 const es = new EventSource("/stream");
 es.onmessage = (ev) => {
   const e = JSON.parse(ev.data);
   if (e.type === "hello") {
     rate = e.state.rate; byType = e.state.byType; bySource = e.state.bySource;
-    lastEventAt = e.state.lastEventAt;
     workAt = e.state.lastEventAt;
     return;
   }
-  lastEventAt = e.ts;
   if (e.type === "status") {
     if (e.payload && e.payload.running > 0) busyUntil = e.ts + 15000;
     return;
   }
   workAt = e.ts;
-  if (e.type === "error") errFlash = 1;
-  else if (e.type === "text") { haloMsg({ td: "text", text: e.payload.text }); energy = Math.min(energy + 0.12, 1.6); return; }
-  else if (e.type === "tool_call") { energy = Math.min(energy + 0.3, 1.6); ripples.push({ r: 24, a: 0.7, w: 3 }); }
-  else if (e.type === "token") energy = Math.min(energy + 0.12, 1.6);
-  else if (e.type === "status") energy = Math.min(energy + 0.10, 1.6);
-  else energy = Math.min(energy + 0.15, 1.6);
-  if (e.type !== "status") ripples.push({ r: 18, a: 0.4, w: 1.5 });
+  if (e.type === "text") { haloMsg({ td: "text", text: e.payload.text }); energy = Math.min(energy + 0.12, 1.6); return; }
+  if (e.type === "tool_call") energy = Math.min(energy + 0.3, 1.6);
+  else energy = Math.min(energy + 0.14, 1.6);
 };
 es.onerror = () => { /* 断线由 EventSource 自动重连 */ };
 
 setInterval(async () => {
+  const idle = currentStandby();
+  setStandby(idle);
+  if (!idle) pushParams();
+  energy *= 0.995;
   try {
     const s = await (await fetch("/state")).json();
     rate = s.rate; byType = s.byType; bySource = s.bySource;
     fetch("/debug", {
       method: "POST",
       body: JSON.stringify({
-        idle: Date.now() - workAt > BUSY_HOLD && Date.now() > busyUntil,
-        workAt, busyUntil, ring: +ringAlpha.toFixed(3),
+        idle, standby, workAt, busyUntil, energy: +energy.toFixed(3),
         haloOpacity: getComputedStyle(halo).opacity,
-        idleOpacity: getComputedStyle(idleWrap).opacity,
       }),
     }).catch(() => {});
   } catch {}
-}, 2000);
-
-// ---------------- 交互（浏览器预览中生效；桌面壁纸点击穿透） ----------------
-addEventListener("mousemove", (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
-addEventListener("mouseleave", () => { mouse.x = mouse.y = -9999; });
-addEventListener("mousedown", () => {
-  mouse.down = true;
-  shocks.push({ x: mouse.x, y: mouse.y, r: 8, a: 0.9 });
-});
-addEventListener("mouseup", () => { mouse.down = false; });
-addEventListener("touchstart", (e) => {
-  const t = e.touches[0];
-  mouse.x = t.clientX; mouse.y = t.clientY;
-  shocks.push({ x: mouse.x, y: mouse.y, r: 8, a: 0.9 });
-}, { passive: true });
-addEventListener("touchmove", (e) => {
-  const t = e.touches[0];
-  mouse.x = t.clientX; mouse.y = t.clientY;
-}, { passive: true });
-
-// ---------------- 粒子：向中心汇聚的螺旋流 ----------------
-const N = 340;
-const ps = Array.from({ length: N }, () => spawn(true));
-function spawn(anywhere) {
-  // 从屏幕边缘出生，向中心汇聚
-  const side = Math.floor(Math.random() * 4);
-  const m = 30;
-  let x, y;
-  if (side === 0) { x = Math.random() * W; y = -m; }
-  else if (side === 1) { x = W + m; y = Math.random() * H; }
-  else if (side === 2) { x = Math.random() * W; y = H + m; }
-  else { x = -m; y = Math.random() * H; }
-  if (anywhere) { // 首屏铺满：沿出生点到中心的轨迹随机落位
-    const t = Math.random();
-    x = x + (W / 2 - x) * t;
-    y = y + (H / 2 - y) * t;
-  }
-  return { x, y, vx: 0, vy: 0, size: 0.7 + Math.random() * 1.9, hue: 200 + Math.random() * 45 };
-}
-
-// ---------------- 主循环 ----------------
-let prev = performance.now();
-function frame(now) {
-  const dt = Math.min((now - prev) / 1000, 0.05); prev = now;
-
-  const nowMs = Date.now(); // 事件时间戳是 epoch 毫秒，不能用 performance.now 比
-  const idle = FORCE ? FORCE === "idle" : nowMs - workAt > BUSY_HOLD && nowMs > busyUntil;
-  setActive(!idle);
-  if (active) pushParams(now);
-
-  // 形态交叉淡化：待机时独立圆环渐显、粒子海渐隐（圆环缓慢呼吸常动，不是冻结）
-  ringAlpha += ((idle ? 1 : 0) - ringAlpha) * Math.min(1, dt * (idle ? 0.9 : 3.2));
-  const breath = 0.85 + 0.15 * Math.sin(now / 2600);          // 呼吸
-  const target = idle ? 0.16 : 0.85 + Math.min(rate, 3) / 3 * 0.6;
-  energy += (target - energy) * 0.04;
-  errFlash *= 0.90;
-
-  const motion = 1 - ringAlpha;      // 待机后粒子运动逐步让位给圆环
-  const dim = 1 - ringAlpha * 0.72;  // 核心光晕保留微弱静态
-  const cx = W / 2, cy = H / 2;
-  const glow = (0.4 + energy * 1.0) * breath * dim;
-  const pull = (idle ? 22 : 40 + energy * 55) * breath * motion;
-  const swirl = (30 + energy * 45) * motion;
-
-  ctx.fillStyle = "rgba(6,8,13,0.22)";
-  ctx.fillRect(0, 0, W, H);
-
-  // 核心光晕（多层呼吸）
-  for (const [rad, mul] of [[300 + energy * 160, 1], [130, 1.7]]) {
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-    const err = errFlash > 0.3;
-    g.addColorStop(0, `rgba(${err ? "255,90,90" : "130,190,255"},${0.15 * glow * mul})`);
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  ctx.globalCompositeOperation = "lighter";
-  if (ringAlpha < 0.98) {
-    ctx.globalAlpha = 1 - ringAlpha;
-    for (const p of ps) {
-    let dx = cx - p.x, dy = cy - p.y;
-    let d = Math.hypot(dx, dy) || 1;
-    const nx = dx / d, ny = dy / d;
-
-    // 汇聚力 + 螺旋切向力
-    p.vx += (nx * pull + -ny * swirl) * dt;
-    p.vy += (ny * pull + nx * swirl * 0.72) * dt;
-
-    // 鼠标排斥（靠近光标的粒子被推开）
-    const mdx = p.x - mouse.x, mdy = p.y - mouse.y;
-    const md = Math.hypot(mdx, mdy);
-    if (md < 160 && md > 1) {
-      const f = (1 - md / 160) * (mouse.down ? 320 : 130);
-      p.vx += (mdx / md) * f * dt;
-      p.vy += (mdy / md) * f * dt;
-    }
-
-    // 点击冲击波推离
-    for (const s of shocks) {
-      const sdx = p.x - s.x, sdy = p.y - s.y;
-      const sd = Math.hypot(sdx, sdy);
-      if (sd < s.r && sd > 1) {
-        const f = (1 - sd / s.r) * 900 * s.a;
-        p.vx += (sdx / sd) * f * dt;
-        p.vy += (sdy / sd) * f * dt;
-      }
-    }
-
-    p.vx *= 0.96 * motion + 0.02; p.vy *= 0.96 * motion + 0.02;
-    p.x += p.vx * dt * 2.4;
-    p.y += p.vy * dt * 2.4;
-
-    // 抵达核心 → 吸收重生
-    if (d < 34) { Object.assign(p, spawn(false)); continue; }
-
-    const speed = Math.hypot(p.vx, p.vy);
-    const a = Math.min(0.9, 0.35 + glow * 0.45 + speed * 0.012);
-    ctx.beginPath();
-    ctx.fillStyle = `hsla(${p.hue + errFlash * -160}, 85%, ${56 + glow * 16}%, ${a})`;
-    ctx.arc(p.x, p.y, p.size * (1 + energy * 0.35), 0, 7);
-    ctx.fill();
-    // 速度拖尾
-    const tl = Math.min(10, 2 + speed * 0.25);
-    ctx.beginPath();
-    ctx.strokeStyle = `hsla(${p.hue}, 85%, 62%, ${a * 0.4})`;
-    ctx.lineWidth = p.size * 0.75;
-    ctx.moveTo(p.x, p.y);
-    ctx.lineTo(p.x - p.vx * tl * 0.12, p.y - p.vy * tl * 0.12);
-    ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // 事件涟漪（从核心扩散）
-  for (let i = ripples.length - 1; i >= 0; i--) {
-    const rp = ripples[i];
-    rp.r += (220 + energy * 160) * dt * (1 - ringAlpha * 0.9); rp.a *= 0.91;
-    if (rp.a < 0.02) { ripples.splice(i, 1); continue; }
-    ctx.beginPath();
-    ctx.strokeStyle = `rgba(150,205,255,${rp.a * glow})`;
-    ctx.lineWidth = rp.w;
-    ctx.arc(cx, cy, rp.r, 0, 7);
-    ctx.stroke();
-  }
-
-  // 点击冲击波环
-  for (let i = shocks.length - 1; i >= 0; i--) {
-    const s = shocks[i];
-    s.r += 620 * dt; s.a *= 0.90;
-    if (s.a < 0.03) { shocks.splice(i, 1); continue; }
-    ctx.beginPath();
-    ctx.strokeStyle = `rgba(190,225,255,${s.a})`;
-    ctx.lineWidth = 2.5;
-    ctx.arc(s.x, s.y, s.r, 0, 7);
-    ctx.stroke();
-  }
-  ctx.globalCompositeOperation = "source-over";
-
   // HUD（?debug=1）
   if (DEBUG) {
     hud.style.opacity = 1;
-    if (now - stateTimer > 500) {
-      stateTimer = now;
+    if (Date.now() - stateTimer > 500) {
+      stateTimer = Date.now();
       hud.innerHTML =
         `<b>Thinking Desktop</b> · ${idle ? "待机 · 圆环停止" : "思考中"} · 速率 <b>${rate}</b> 事件/s` +
         `<br>来源: ${Object.entries(bySource).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
         `<br>类型: ${Object.entries(byType).map(([k, v]) => `${k}×${v}`).join(" ") || "—"}` +
-        `<br><span style="opacity:.7">移动鼠标推开粒子 · 点击产生冲击波</span>`;
+        `<br><span style="opacity:.7">悬停圆带 → 局部放大查看截流文本</span>`;
     }
   }
-
-  requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
+}, 1000);
 </script>
 </body>
 </html>
