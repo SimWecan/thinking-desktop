@@ -842,6 +842,7 @@ function drawBokeh(dt) {
 /* ---------- ring: pre-rendered dot-matrix data blocks on a black band ---------- */
 const RING_SC = 2.4;
 let slots = [];
+let hoverBoost = 0, hoverInRing = false, hoverSeenAt = 0;   // 悬停增亮与命中状态：drawRing（外）每帧读，__tdMouse（桥接闭包）写
 const easeOX = t => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
 const rot = { from: 0, to: 0, t: 1, dur: 1, hold: 0, ease: easeIO };
 function ringMove() {
@@ -1939,7 +1940,6 @@ function syncPanel() {
   })();
 
   /* ---------- 悬停环带：只用来触发右侧截流视窗，不做任何特写/放大 ---------- */
-  let hoverInRing = false, hoverSeenAt = 0, hoverBoost = 0;
   function tdOverRing(x, y) {
     const c0 = toScreen(cx, cy);
     const d = Math.hypot(x - c0.x, y - c0.y);
