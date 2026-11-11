@@ -189,6 +189,18 @@ func hideHoverPanel() {
     }, completionHandler: { p.orderOut(nil); hoverLogLine("hide") })
 }
 
+// 壁纸页在 ring 配置变化后 ping 一次，宿主立刻刷新几何（不用等 3s 定时器）
+final class GeomBridge: NSObject, WKScriptMessageHandler {
+    weak var view: WallpaperView?
+    func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "geom" else { return }
+        DispatchQueue.main.async {
+            self.view?.refreshGeom()
+            hoverLogLine("geom refresh (ring changed)")
+        }
+    }
+}
+
 final class HoverBridge: NSObject, WKScriptMessageHandler {
     func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "popup" else { return }
@@ -204,6 +216,7 @@ var hoverBridge: HoverBridge?
 
 final class WallpaperView: NSView {
     private var webView: WKWebView?
+    private var geomBridge: GeomBridge?
     /// 环带几何缓存（页面坐标）：命中判定在 Swift 侧完成，只在状态翻转时跨进程调 JS
     var geom: (cx: CGFloat, cy: CGFloat, r: CGFloat, ro: CGFloat, z: CGFloat)?
     var hoverRing = false
@@ -215,6 +228,10 @@ final class WallpaperView: NSView {
         let bridge = HoverBridge()
         config.userContentController.add(bridge, name: "popup")   // 自检用：页面可直接开关弹窗
         hoverBridge = bridge
+        let gb = GeomBridge()
+        gb.view = self
+        config.userContentController.add(gb, name: "geom")        // ring 变化后立即刷新命中几何
+        geomBridge = gb
         let wv = WKWebView(frame: bounds, configuration: config)
         wv.autoresizingMask = [.width, .height]
         // 常驻壁纸页：强制绕过本地缓存，改完前端重启宿主即生效

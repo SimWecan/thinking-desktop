@@ -220,6 +220,8 @@ function pushRing() {
   if (key === lastRingKey) return;
   lastRingKey = key;
   haloMsg({ td: "ring", ring: { x: +r.x, y: +r.y, scale: +r.scale } });
+  // 让宿主立刻刷新命中几何，避免拖完环带后要等 3s 才能正常悬停
+  try { window.webkit?.messageHandlers?.geom?.postMessage("ring"); } catch (e) {}
 }
 
 function pushParams() {

@@ -130,6 +130,7 @@
       <span>圆环 <b id="ringMeta">—</b></span>
       <button class="btn ghost" id="ringReset" style="padding:2px 10px;font-size:10px">重置位置</button>
       <span id="ringSaved" style="color:var(--faint)"></span>
+      <span id="ringWarn" style="color:#e8c07a"></span>
     </div>
 
     <h2 class="sec">运行状态</h2>
@@ -307,6 +308,12 @@ function ringLayout() {
   HANDLE.style.left = ring.x * 100 + "%";
   HANDLE.style.top = ring.y * 100 + "%";
   $("ringMeta").textContent = `x ${ring.x.toFixed(2)} · y ${ring.y.toFixed(2)} · ${ring.scale.toFixed(2)}×`;
+  // 圆心贴边时提示：环形大部分会落到桌面外，只看到一段弧
+  const warn = $("ringWarn");
+  if (warn) {
+    const edge = ring.x < 0.12 || ring.x > 0.88 || ring.y < 0.12 || ring.y > 0.88;
+    warn.textContent = edge ? "圆心贴近屏幕边缘，桌面只会看到一段弧" : "";
+  }
 }
 function applyRing(save) {
   try { PREV.contentWindow && PREV.contentWindow.postMessage({ td: "ring", ring }, "*"); } catch (e) {}
