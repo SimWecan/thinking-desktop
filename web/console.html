@@ -6,28 +6,17 @@
 <title>Thinking Desktop — 控制台</title>
 <link rel="icon" type="image/png" href="/icon/thinking-desktop-64.png?v=0.5.1">
 <link rel="icon" type="image/svg+xml" href="/icon/thinking-desktop.svg?v=0.5.1">
+<link rel="stylesheet" href="/ui/terafin.css">
 <style>
-  /* TerraFin 黑白系列（Black & White）——与配置页同一套色卡 */
   :root {
-    --ink:    #000000;
-    --paper:  #FFFFFF;
-    --panel:  #0B0B0D;
-    --raise:  #151518;
-    --line:   rgba(255,255,255,.12);
-    --line-2: rgba(255,255,255,.30);
-    --dim:    #9C9CA3;
-    --faint:  #595960;
+    /* 控制台窗口更紧凑的节标题 */
+    --sec-fs: 10px;
+    --sec-margin: 20px 0 10px;
+    --sec-gap: 12px;
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
   body {
     height: 100vh; display: flex; flex-direction: column;
-    background: var(--ink); color: var(--paper);
-    font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
-    background-image:
-      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
-    background-size: 56px 56px;
+    font-size: 12px; line-height: 1.6;
   }
 
   /* ---------- 顶栏 ---------- */
@@ -38,22 +27,12 @@
   header .logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }
   header .tt { font-size: 13px; letter-spacing: 5px; font-weight: 600; }
   header .tt .thin { color: var(--dim); font-weight: 400; }
-  .ver { color: var(--faint); font-size: 11px; letter-spacing: 2px; }
-  .svc { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; letter-spacing: 1px; }
-  .svc .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--paper); box-shadow: 0 0 8px rgba(255,255,255,.8); }
-  .svc.down .dot { background: var(--faint); box-shadow: none; }
 
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); } }
 
   /* ---------- 左列：状态 + 操作 ---------- */
   .left { border-right: 1px solid var(--line); overflow-y: auto; padding: 18px 22px 22px; }
-  h2.sec {
-    font-size: 10px; letter-spacing: 4px; color: var(--dim); font-weight: 400;
-    margin: 20px 0 10px; display: flex; align-items: center; gap: 12px;
-  }
-  h2.sec:first-child { margin-top: 0; }
-  h2.sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
   .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .tile { border: 1px solid var(--line); background: var(--panel); padding: 10px 12px; }
@@ -68,14 +47,7 @@
   table.ch td .ago.hot { color: var(--paper); }
 
   .ops { display: flex; gap: 10px; flex-wrap: wrap; }
-  .btn {
-    background: transparent; color: var(--paper); border: 1px solid var(--line-2);
-    padding: 7px 18px; font: inherit; font-size: 11px; letter-spacing: 2px; cursor: pointer;
-    transition: background .15s, color .15s;
-  }
-  .btn:hover { background: var(--paper); color: var(--ink); }
-  .btn.ghost { border-color: var(--line); color: var(--dim); }
-  .btn.ghost:hover { background: var(--raise); color: var(--paper); }
+  /* .btn / .btn.ghost 见 /ui/terafin.css */
   .note { color: var(--faint); font-size: 10px; letter-spacing: 1px; margin-top: 10px; }
 
   /* ---------- 右列：实时日志 ---------- */

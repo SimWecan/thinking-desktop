@@ -1,0 +1,65 @@
+/**
+ * terafin.css — TerraFin 黑白系列（Black & White）共享色卡与窗口件
+ *
+ * 设计约束：只用纯黑、纯白与两者之间的灰阶；色彩只作为「数据」出现
+ * （各 agent 的代表色），从不进入窗口配色本身。
+ *
+ * 页面级差异（字号/间距/布局）通过 :root 变量覆盖，样式本身只有这一份。
+ * 使用方：config.html（配置页）、console.html（控制台窗口）。
+ */
+
+/* ---------- 色卡 ---------- */
+:root {
+  --ink:    #000000;   /* 纯黑 · 页面底 */
+  --paper:  #FFFFFF;   /* 纯白 · 主文字与焦点 */
+  --panel:  #0B0B0D;   /* 面板底 */
+  --raise:  #151518;   /* 抬升面 */
+  --line:   rgba(255,255,255,.12);   /* 发丝线 */
+  --line-2: rgba(255,255,255,.30);   /* 强调线 */
+  --dim:    #9C9CA3;   /* 次级文字 */
+  --faint:  #595960;   /* 弱化文字 */
+
+  /* 页面可覆盖的节标题参数 */
+  --sec-fs:     11px;
+  --sec-margin: 42px 0 14px;
+  --sec-gap:    14px;
+}
+
+/* ---------- 基底 ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--ink); color: var(--paper);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  background-image:
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* ---------- 服务状态点（配置页/控制台顶栏共用） ---------- */
+.svc { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+.svc .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--paper); box-shadow: 0 0 8px rgba(255,255,255,.8); }
+.svc.down .dot { background: var(--faint); box-shadow: none; }
+
+/* ---------- 版本号 ---------- */
+.ver { color: var(--faint); font-size: 11px; letter-spacing: 2px; }
+
+/* ---------- 节标题：细字距 + 右侧发丝线 ---------- */
+h2.sec {
+  font-size: var(--sec-fs); letter-spacing: 4px; color: var(--dim); font-weight: 400;
+  margin: var(--sec-margin); display: flex; align-items: center; gap: var(--sec-gap);
+}
+h2.sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+h2.sec:first-child { margin-top: 0; }
+h2.sec .num { color: var(--faint); }
+
+/* ---------- 按钮：透明底 + 强调线框，悬停反白 ---------- */
+.btn {
+  background: transparent; color: var(--paper); border: 1px solid var(--line-2);
+  padding: 7px 18px; font: inherit; font-size: 11px; letter-spacing: 2px; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.btn:hover { background: var(--paper); color: var(--ink); }
+.btn.ghost { border-color: var(--line); color: var(--dim); }
+.btn.ghost:hover { background: var(--raise); color: var(--paper); }

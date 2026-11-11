@@ -6,32 +6,9 @@
 <title>Thinking Desktop — 配置</title>
 <link rel="icon" type="image/png" href="/icon/thinking-desktop-64.png?v=0.5.1">
 <link rel="icon" type="image/svg+xml" href="/icon/thinking-desktop.svg?v=0.5.1">
+<link rel="stylesheet" href="/ui/terafin.css">
 <style>
-  /* ============================================================
-     TerraFin 黑白系列（Black & White）
-     只用纯黑、纯白与两者之间的灰阶；色彩只作为「数据」出现
-     （各 agent 的代表色），从不进入窗口配色本身。
-     ============================================================ */
-  :root {
-    --ink:    #000000;   /* 纯黑 · 页面底 */
-    --paper:  #FFFFFF;   /* 纯白 · 主文字与焦点 */
-    --panel:  #0B0B0D;   /* 面板底 */
-    --raise:  #151518;   /* 抬升面 */
-    --line:   rgba(255,255,255,.12);   /* 发丝线 */
-    --line-2: rgba(255,255,255,.30);   /* 强调线 */
-    --dim:    #9C9CA3;   /* 次级文字 */
-    --faint:  #595960;   /* 弱化文字 */
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    min-height: 100vh; background: var(--ink); color: var(--paper);
-    font: 13px/1.65 ui-monospace, "SF Mono", Menlo, monospace;
-    background-image:
-      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
-    background-size: 56px 56px;
-  }
+  body { min-height: 100vh; font-size: 13px; line-height: 1.65; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 44px 40px 64px; }
 
   /* ---------- 顶栏 ---------- */
@@ -39,18 +16,7 @@
   header .logo { width: 40px; height: 40px; border-radius: 9px; flex: none; }
   h1 { font-size: 20px; letter-spacing: 6px; margin: 0; font-weight: 600; }
   h1 .thin { color: var(--dim); font-weight: 400; }
-  .ver { color: var(--faint); font-size: 11px; letter-spacing: 2px; }
-  .svc { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; letter-spacing: 1px; }
-  .svc .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--paper); box-shadow: 0 0 8px rgba(255,255,255,.8); }
-  .svc.down .dot { background: var(--faint); box-shadow: none; }
   .lede { color: var(--dim); font-size: 12px; margin-bottom: 36px; max-width: 640px; }
-
-  h2.sec {
-    font-size: 11px; letter-spacing: 4px; color: var(--dim); font-weight: 400;
-    margin: 42px 0 14px; display: flex; align-items: center; gap: 14px;
-  }
-  h2.sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  h2.sec .num { color: var(--faint); }
 
   .cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: start; }
   @media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
@@ -73,12 +39,8 @@
     border: 0; pointer-events: none;   /* 纯展示，不抢鼠标 */
   }
   .pv-cap { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
-  .btn {
-    background: transparent; color: var(--paper); border: 1px solid var(--line-2);
-    padding: 6px 16px; font: inherit; font-size: 11px; letter-spacing: 2px; cursor: pointer;
-    transition: background .15s, color .15s;
-  }
-  .btn:hover { background: var(--paper); color: var(--ink); }
+  /* .btn 见 /ui/terafin.css（padding 微调见下） */
+  .btn { padding: 6px 16px; }
   .pv-cap .note { color: var(--faint); font-size: 11px; }
   .pv-still {
     margin-top: 12px; display: none; border: 1px solid var(--line);
@@ -143,8 +105,7 @@
 
   /* ---------- 运行 ---------- */
   .opsrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .btn.ghost { border-color: var(--line); color: var(--dim); }
-  .btn.ghost:hover { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+  /* .btn.ghost 见 /ui/terafin.css */
   .opsrow .note { color: var(--faint); font-size: 11px; }
 
   /* ---------- 调色盘 ---------- */
