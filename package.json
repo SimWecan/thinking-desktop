@@ -10,7 +10,8 @@
     "links": "node scripts/links.mjs",
     "simulate": "node scripts/simulate.mjs",
     "simulate:transition": "node scripts/simulate-transition.mjs",
-    "backfill": "node scripts/backfill-today.mjs"
+    "backfill": "node scripts/backfill-today.mjs",
+    "demo": "node scripts/demo.mjs"
   },
   "engines": {
     "node": ">=20"
