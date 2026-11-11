@@ -8,7 +8,7 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "node:fs";
-import { spawnSync, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { join, dirname, normalize, extname, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -448,7 +448,7 @@ function wallPage() {
 
 // 会改状态的接口：拒绝来自其它网站的跨站请求（本机服务只监听 127.0.0.1，
 // 但浏览器里的任意网页都能向它发请求）。同源页面通常不带 Origin，带了就必须是本机。
-const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/config"]);
+const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/config", "/restart"]);
 const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const MAX_BODY = 12 * 1024 * 1024;   // POST 体上限（canvas 快照 base64 较大，12MB 足够）
@@ -747,6 +747,33 @@ const server = createServer((req, res) => {
       : shotPng;
     if (!img) { res.writeHead(404).end("no snapshot"); return; }
     res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(img);
+    return;
+  }
+
+  // 重启服务 / 壁纸宿主：由游离子进程延迟 1 秒 kickstart（即便目标是服务自身，
+  // launchd KeepAlive + kickstart -k 都能保证拉起来）
+  if (url.pathname === "/restart" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      let target = "both";
+      try { target = String(JSON.parse(body || "{}").target || "both"); } catch {}
+      const uid = process.getuid();
+      const labels = {
+        server: [`gui/${uid}/com.simwecan.thinking-desktop`],
+        wallpaper: [`gui/${uid}/com.simwecan.thinking-desktop-wallpaper`],
+        both: [`gui/${uid}/com.simwecan.thinking-desktop`, `gui/${uid}/com.simwecan.thinking-desktop-wallpaper`],
+      }[target] || [];
+      for (const label of labels) {
+        const p = spawn("bash", ["-c", `sleep 1; launchctl kickstart -k '${label}'`, "_"], {
+          detached: true, stdio: "ignore",
+        });
+        p.unref();
+      }
+      console.log(`[restart] 收到重启请求: ${target}（${labels.length} 个服务，1 秒后执行）`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, target, restarting: labels.length }));
+    });
     return;
   }
 

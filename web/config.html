@@ -141,6 +141,12 @@
   #saveUi { margin-top: 16px; }
   #uiMsg { margin-left: 12px; color: var(--paper); font-size: 11px; letter-spacing: 1px; }
 
+  /* ---------- 运行 ---------- */
+  .opsrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .btn.ghost { border-color: var(--line); color: var(--dim); }
+  .btn.ghost:hover { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+  .opsrow .note { color: var(--faint); font-size: 11px; }
+
   /* ---------- 调色盘 ---------- */
   .palette { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none;
     align-items: center; justify-content: center; z-index: 9; }
@@ -198,8 +204,7 @@
     <h2 class="sec"><span class="num">02</span>AI 客户端 · 通道与代表色</h2>
     <div id="list">加载中…</div>
 
-    <h2 class="sec"><span class="num">03</span>界面行为</h2>
-    <div class="uirow"><label>环带文本</label>
+    <h2 class="sec"><span class="num">03</span>界面行为</h2>    <div class="uirow"><label>环带文本</label>
       <select id="uiRingText"><option value="headline">首句摘要</option><option value="full">整段原文</option></select>
       <span class="why">首句摘要更清爽；整段原文信息全但会铺满一圈</span></div>
     <div class="uirow"><label>右侧看板</label>
@@ -212,6 +217,14 @@
     <div class="uirow"><label>光源淡出（秒）</label><input type="number" id="uiLights" min="3" max="600" step="1">
       <span class="why">厂商色/粒子在多长时间没有事件后消失</span></div>
     <button class="btn" id="saveUi">保存界面行为</button><span id="uiMsg"></span>
+
+    <h2 class="sec"><span class="num">04</span>运行</h2>
+    <div class="opsrow">
+      <button class="btn" id="restartServer">重启服务</button>
+      <button class="btn" id="restartWallpaper">重启壁纸</button>
+      <button class="btn ghost" id="restartBoth">全部重启</button>
+      <span class="note" id="restartMsg">释放 CPU / 让服务端改动生效；壁纸重启会清空渲染内存</span>
+    </div>
   </div>
 </div>
 
@@ -374,6 +387,32 @@ document.getElementById("saveUi").onclick = async () => {
 };
 
 fetch("/version").then((r) => r.ok ? r.text() : "").then((v) => { document.getElementById("ver").textContent = v.trim(); }).catch(() => {});
+
+/* 重启：后端 /restart 让 launchd 1 秒后拉起；重启壁纸后等 /debug 重新在线 */
+async function restart(target, btn) {
+  const msg = document.getElementById("restartMsg");
+  btn.disabled = true;
+  msg.textContent = target === "server" ? "服务重启中（约 5 秒）…" : "壁纸重启中（约 5 秒）…";
+  try {
+    const res = await fetch("/restart", { method: "POST", body: JSON.stringify({ target }) });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+  } catch (e) {
+    msg.textContent = "重启请求失败：" + e.message;
+    btn.disabled = false;
+    return;
+  }
+  // 等服务恢复在线（服务重启时 /health 会短暂拒绝连接）
+  let up = false;
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try { const h = await fetch("/health"); if (h.ok) { up = true; break; } } catch {}
+  }
+  msg.textContent = up ? "已重启完成 ✓" : "重启超时，请查 launchctl 状态";
+  setTimeout(() => { btn.disabled = false; load(); }, 800);
+}
+document.getElementById("restartServer").onclick = (e) => restart("server", e.target);
+document.getElementById("restartWallpaper").onclick = (e) => restart("wallpaper", e.target);
+document.getElementById("restartBoth").onclick = (e) => restart("both", e.target);
 
 loadUi();
 load();
