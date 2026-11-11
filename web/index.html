@@ -12,6 +12,13 @@
 -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #08090b; }
+  /* 弹出窗口模式：透明底、只留看板 */
+  body.panel-only { background: transparent; }
+  body.panel-only #halo, body.panel-only #mini, body.panel-only #hud { display: none; }
+  body.panel-only #panel {
+    position: fixed; inset: 0; width: auto; max-height: none; transform: none; opacity: 1;
+    margin: 0; border-radius: 10px;
+  }
   #halo { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; z-index: 1; }
   #hud {
     position: fixed; left: 16px; bottom: 14px; z-index: 3;
@@ -148,12 +155,16 @@
 <script>
 "use strict";
 // 预览实例（?preview=1）用独立遥测 key，避免覆盖壁纸宿主的 debug 记录
-const TD_CLIENT = new URLSearchParams(location.search).has("preview") ? "wall-preview" : "wall";
+const PARAMS = new URLSearchParams(location.search);
+const TD_CLIENT = PARAMS.has("preview") ? "wall-preview" : PARAMS.has("panel") ? "wall-panel" : "wall";
+const PANEL_ONLY = PARAMS.has("panel");     // 弹出窗口：只渲染右侧看板
+const HOST_POPUP = PARAMS.has("hostpopup"); // 桌面壁纸：看板由原生弹窗负责，页内不再画
 const DEBUG = __DEBUG__;
 const PAGE_BUILD = "panel-7";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
 const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
+if (PANEL_ONLY) document.body.classList.add("panel-only");
 const hud = document.getElementById("hud");
 const panel = document.getElementById("panel");
 const mini = document.getElementById("mini");
@@ -178,7 +189,9 @@ addEventListener("unhandledrejection", (e) => {
 const halo = document.getElementById("halo");
 // 每次加载都带时间戳，避免 WKWebView 用旧缓存的 halo 页面（改了前端却不生效的元凶）
 // preview=1 原样透传：配置窗口的小窗预览以低负载模式运行（DPR 封顶 + 25fps）
-halo.src = "/haloflux/?t=" + Date.now() + (new URLSearchParams(location.search).has("preview") ? "&preview=1" : "");
+if (!PANEL_ONLY) {
+  halo.src = "/haloflux/?t=" + Date.now() + (PARAMS.has("preview") ? "&preview=1" : "");
+}
 
 // ---------------- 状态 ----------------
 let energy = 0, rate = 0, byType = {}, bySource = {}, sources = [];
@@ -443,7 +456,12 @@ function renderPanel() {
 }
 
 function syncPanel() {
-  const show = overRing || UI.panel === "always";
+  if (HOST_POPUP) {                  // 桌面壁纸：交给原生弹窗，页内保持干净
+    panel.classList.remove("show");
+    mini.classList.remove("hide");
+    return;
+  }
+  const show = PANEL_ONLY || overRing || UI.panel === "always";
   panel.classList.toggle("show", show);
   mini.classList.toggle("hide", show);
 }
@@ -596,7 +614,7 @@ async function panelShot() {
 }
 
 /** 自检截图 */
-let lastShotAt = 0, lastTestClick = 0;
+let lastShotAt = 0, lastTestClick = 0, lastTestPopup = 0;
 async function captureShot() {
   if (Date.now() - lastShotAt < 1500) return;
   lastShotAt = Date.now();
@@ -666,6 +684,16 @@ setInterval(async () => {
     if (s.view) view = s.view;
     agentsList = s.agents || [];
     if (s.shot) captureShot();
+    if (s.testPopup && !PANEL_ONLY) {
+      const now2 = Date.now();
+      if (now2 - lastTestPopup > 6000) {
+        lastTestPopup = now2;
+        try {
+          window.webkit?.messageHandlers?.popup?.postMessage("show");
+          setTimeout(() => { try { window.webkit?.messageHandlers?.popup?.postMessage("hide"); } catch {} }, 2600);
+        } catch {}
+      }
+    }
     if (s.testClick) {
       const now = Date.now();
       if (now - lastTestClick > 2000) {

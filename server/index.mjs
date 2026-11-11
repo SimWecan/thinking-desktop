@@ -77,7 +77,8 @@ const events = [];
 const MAX_EVENTS = 500;
 const clientDebug = new Map();
 let shotAt = 0;
-let testClickAt = 0;            // 最近一次「截屏请求」时间
+let testClickAt = 0;
+let testPopupAt = 0;            // 最近一次「截屏请求」时间
 let shotPng = null;
 let shotSlot = null;
 let shotLights = null;
@@ -266,6 +267,7 @@ function state() {
     bySource,
     shot: Date.now() - shotAt < 3000,   // 3s 内请求过截屏 → 页面回传一帧
     testClick: Date.now() - testClickAt < 3000,   // 自检：让壁纸在环心触发一次冲击波
+    testPopup: Date.now() - testPopupAt < 6000,   // 自检：让宿主弹出/收起悬停看板窗口
     // 每个来源最后一次真实事件：用于确认某个 connector 是真的接到数据，而不是只注册成功
     sources: [...sourceStats.entries()].map(([source, s]) => ({
       source,
@@ -689,6 +691,13 @@ const server = createServer((req, res) => {
       .map((e) => ({ source: e.source, ts: e.ts, text: e.text ?? "", kind: e.kind }));
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify(texts));
+    return;
+  }
+
+  // 自检：让宿主弹出悬停看板窗口（验证原生弹窗链路）
+  if (url.pathname === "/selftest" && url.searchParams.has("popup")) {
+    testPopupAt = Date.now();
+    res.writeHead(200, { "Content-Type": "text/plain" }).end("popup");
     return;
   }
 

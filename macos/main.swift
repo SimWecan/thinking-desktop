@@ -8,7 +8,7 @@
 import Cocoa
 import WebKit
 
-let WALL_URL = "http://127.0.0.1:7799/wall"
+let WALL_URL = "http://127.0.0.1:7799/wall?hostpopup=1"   // 看板交给原生弹窗，页内不再画
 
 // 单实例守卫：launchd KeepAlive 与手动启动可能并存，重复实例会叠两层壁纸窗口、双倍渲染。
 // 注意不能用 NSRunningApplication（launchd 直启二进制时不走 LaunchServices，统计不到旧实例），
@@ -36,6 +36,81 @@ final class WallpaperWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
+// 悬停环带时弹出的看板窗口：浮在普通窗口之上、透明、不抢焦点、不拦截点击
+var hoverPanel: NSPanel?
+let hoverLog = URL(fileURLWithPath: "/Users/sim/Documents/MCPServer/repo/Thinking Desktop/logs/hover.log")
+func hoverLogLine(_ s: String) {
+    let line = "\(Date()) \(s)\n"
+    if let h = try? FileHandle(forWritingTo: hoverLog) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close() }
+    else { try? line.data(using: .utf8)?.write(to: hoverLog) }
+}
+
+func hoverPanelScreen() -> NSScreen {
+    let p = NSEvent.mouseLocation
+    return NSScreen.screens.first { NSMouseInRect(p, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+}
+
+func positionHoverPanel(_ panel: NSPanel) {
+    let vf = hoverPanelScreen().visibleFrame
+    let s = panel.frame.size
+    // 贴在环带那侧的右下：右侧留 24，垂直居中偏下
+    panel.setFrame(NSRect(x: vf.maxX - s.width - 24, y: vf.midY - s.height * 0.45, width: s.width, height: s.height), display: false)
+}
+
+func makeHoverPanel() -> NSPanel {
+    let size = NSSize(width: 430, height: 700)
+    let panel = NSPanel(
+        contentRect: NSRect(origin: .zero, size: size),
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false)
+    panel.level = .floating
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+    panel.backgroundColor = .clear
+    panel.isOpaque = false
+    panel.hasShadow = true
+    panel.ignoresMouseEvents = true    // 只看不改：不挡住下面的窗口点击
+    panel.hidesOnDeactivate = false
+    let cfg = WKWebViewConfiguration()
+    let wv = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: cfg)
+    wv.autoresizingMask = [.width, .height]
+    wv.setValue(false, forKey: "drawsBackground")
+    wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/wall?panel=1")!,
+                       cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30))
+    panel.contentView = wv
+    return panel
+}
+
+func showHoverPanel() {
+    if hoverPanel == nil { hoverPanel = makeHoverPanel(); hoverLogLine("panel created") }
+    guard let p = hoverPanel else { return }
+    positionHoverPanel(p)
+    p.alphaValue = 0
+    p.orderFrontRegardless()
+    NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.16
+        p.animator().alphaValue = 1
+    }
+    hoverLogLine("show")
+}
+
+func hideHoverPanel() {
+    guard let p = hoverPanel, p.isVisible else { return }
+    NSAnimationContext.runAnimationGroup({ ctx in
+        ctx.duration = 0.14
+        p.animator().alphaValue = 0
+    }, completionHandler: { p.orderOut(nil); hoverLogLine("hide") })
+}
+
+final class HoverBridge: NSObject, WKScriptMessageHandler {
+    func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "popup" else { return }
+        let v = String(describing: message.body)
+        DispatchQueue.main.async { v.contains("show") ? showHoverPanel() : hideHoverPanel() }
+    }
+}
+var hoverBridge: HoverBridge?
+
 final class WallpaperView: NSView {
     private var webView: WKWebView?
     /// 环带几何缓存（页面坐标）：命中判定在 Swift 侧完成，只在状态翻转时跨进程调 JS
@@ -46,6 +121,9 @@ final class WallpaperView: NSView {
         super.viewDidMoveToWindow()
         guard webView == nil else { return }
         let config = WKWebViewConfiguration()
+        let bridge = HoverBridge()
+        config.userContentController.add(bridge, name: "popup")   // 自检用：页面可直接开关弹窗
+        hoverBridge = bridge
         let wv = WKWebView(frame: bounds, configuration: config)
         wv.autoresizingMask = [.width, .height]
         // 常驻壁纸页：强制绕过本地缓存，改完前端重启宿主即生效
@@ -83,6 +161,7 @@ final class WallpaperView: NSView {
         hoverRing = over
         // 光标反馈：壁纸点击穿透，系统光标由桌面控制，悬停环带时换成手型
         if over { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        if over { showHoverPanel() } else { hideHoverPanel() }
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 
