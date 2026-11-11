@@ -30,6 +30,8 @@ import { AgentRegistry } from "./agents.mjs";
 import { buildIcons, cachedIconPath, ensureIcon2x } from "./icons.mjs";
 import { loadUiConfig, normalizeUiConfig } from "./config.mjs";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+// 版本号：/version 端点 + 配置页/控制台顶栏展示；与 package.json 保持同步
+const APP_VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 const HOME = homedir();
 const APP_SUPPORT = join(HOME, "Library", "Application Support");
 const agents = new AgentRegistry(ROOT);
@@ -784,6 +786,21 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 服务日志尾部：控制台窗口的实时日志视图用（只读，随轮换最多保留末尾 200KB）
+  if (url.pathname === "/logs") {
+    const maxLines = Math.min(500, Math.max(20, parseInt(url.searchParams.get("lines") || "120", 10) || 120));
+    try {
+      const text = readFileSync(join(ROOT, "logs", "server.log"), "utf8");
+      const lines = text.split("\n").filter((l) => l.trim()).slice(-maxLines);
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ ok: true, lines, sizeKb: Math.round(text.length / 1024) }));
+    } catch {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, lines: [], sizeKb: 0 }));
+    }
+    return;
+  }
+
   // 自检：每个 AI 桌面端的连接方式 + 最后一次真实事件（区分「注册了」和「真的接到数据」）
   if (url.pathname === "/health") {
     const sources = state().sources;
@@ -854,9 +871,9 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // 页面别名：/tray、/config（Windows 宿主、README 里用的都是不带 .html 的地址）
-  if (url.pathname === "/tray" || url.pathname === "/config") {
-    const file = join(ROOT, "web", url.pathname === "/tray" ? "tray.html" : "config.html");
+  // 页面别名：/tray、/config、/console（Windows 宿主、README 里用的都是不带 .html 的地址）
+  if (url.pathname === "/tray" || url.pathname === "/config" || url.pathname === "/console") {
+    const file = join(ROOT, "web", url.pathname === "/tray" ? "tray.html" : url.pathname === "/config" ? "config.html" : "console.html");
     try {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Set-Cookie": COOKIE }).end(readFileSync(file));
     } catch { res.writeHead(404).end("not found"); }

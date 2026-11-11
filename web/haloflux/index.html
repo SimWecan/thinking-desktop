@@ -1065,6 +1065,9 @@ function drawRing(dt) {
     for (let n = n0; n <= n1; n++) { const a = n * step + ringRot; fn(Math.cos(a), Math.sin(a), n); }
   };
   const RB = rimW();
+  // 悬停反馈：鼠标移上环带时缘线微微增亮（120ms 级平滑，成本仅是三次乘法）
+  hoverBoost += ((hoverInRing ? 1 : 0) - hoverBoost) * 0.12;
+  const HB = 1 + hoverBoost * 0.9;
   // inner + outer rim bands: dense white hairlines that give the edge its thickness
   S.beginPath();
   tick(0.14 / C.rimDensity * Math.PI / 180, (ca, sa, n) => {
@@ -1075,11 +1078,11 @@ function drawRing(dt) {
     S.moveTo(ca * (RO - 1.5), sa * (RO - 1.5)); S.lineTo(ca * (RO - 1.5 - lo), sa * (RO - 1.5 - lo));
   });
   S.globalCompositeOperation = 'lighter';
-  S.strokeStyle = `rgba(232,235,242,${Math.min(1, 0.035 * C.rimBright * C.rimBright)})`; S.lineWidth = 1.2 + 2.4 * C.rimBright; S.stroke();   // glow grows with brightness
-  S.strokeStyle = `rgba(232,235,242,${Math.min(1, 0.08 * C.rimBright)})`; S.lineWidth = 1.4; S.stroke();
-  S.globalCompositeOperation = 'source-over'; S.strokeStyle = `rgba(240,242,248,${Math.min(1, 0.88 * C.rimBright)})`; S.lineWidth = 0.55; S.stroke();
+  S.strokeStyle = `rgba(232,235,242,${Math.min(1, 0.035 * C.rimBright * C.rimBright * HB)})`; S.lineWidth = 1.2 + 2.4 * C.rimBright; S.stroke();   // glow grows with brightness
+  S.strokeStyle = `rgba(232,235,242,${Math.min(1, 0.08 * C.rimBright * HB)})`; S.lineWidth = 1.4; S.stroke();
+  S.globalCompositeOperation = 'source-over'; S.strokeStyle = `rgba(240,242,248,${Math.min(1, 0.88 * C.rimBright * HB)})`; S.lineWidth = 0.55; S.stroke();
   // rims
-  const arc = (r, lw, a) => { S.strokeStyle = `rgba(232,235,242,${a})`; S.lineWidth = lw; S.beginPath(); S.arc(0, 0, r, -thV, thV); S.stroke(); };
+  const arc = (r, lw, a) => { S.strokeStyle = `rgba(232,235,242,${Math.min(1, a * HB)})`; S.lineWidth = lw; S.beginPath(); S.arc(0, 0, r, -thV, thV); S.stroke(); };
   arc(R, 1.5, 1); arc(R + RB + 3, 0.6, 0.6); arc(RO - RB - 3, 0.6, 0.55);
   S.globalCompositeOperation = 'lighter'; arc(RO, 3.5, 0.1); S.globalCompositeOperation = 'source-over';
   arc(RO, 1.3, 0.95);
@@ -1936,7 +1939,7 @@ function syncPanel() {
   })();
 
   /* ---------- 悬停环带：只用来触发右侧截流视窗，不做任何特写/放大 ---------- */
-  let hoverInRing = false, hoverSeenAt = 0;
+  let hoverInRing = false, hoverSeenAt = 0, hoverBoost = 0;
   function tdOverRing(x, y) {
     const c0 = toScreen(cx, cy);
     const d = Math.hypot(x - c0.x, y - c0.y);

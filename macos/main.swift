@@ -81,6 +81,8 @@ final class WallpaperView: NSView {
         let over = hitRing(x, y)
         guard over != hoverRing else { return }
         hoverRing = over
+        // 光标反馈：壁纸点击穿透，系统光标由桌面控制，悬停环带时换成手型
+        if over { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 
@@ -131,13 +133,20 @@ NotificationCenter.default.addObserver(
     name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
 // 全局鼠标转发：壁纸窗口点击穿透收不到 move，靠全局监听换算成页面坐标。
-// 命中判定与状态翻转都在 Swift 侧（几何缓存 3s 刷新），移动过程不跨进程调 JS
+// 命中判定与状态翻转都在 Swift 侧（几何缓存 3s 刷新），移动过程不跨进程调 JS；
+// 25ms 采样把「移上环带 → 面板弹出」的检测延迟压到一帧以内
 var lastMouseSend: TimeInterval = 0
 let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
     matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { event in
     let now = Date().timeIntervalSince1970
-    guard now - lastMouseSend > 0.05, let pt = event.cgEvent?.location else { return }
+    guard now - lastMouseSend > 0.025, let pt = event.cgEvent?.location else { return }
     lastMouseSend = now
+    // 悬停环带期间桌面（Finder）随时可能把光标重置回箭头，这里随采样常驻重设手型
+    var hovering = false
+    for win in windows {
+        if let v = win.contentView as? WallpaperView, v.hoverRing { hovering = true; break }
+    }
+    if hovering { NSCursor.pointingHand.set() }
     for win in windows {
         let f = win.frame
         let x = pt.x - f.origin.x

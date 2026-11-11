@@ -142,6 +142,20 @@ await restartServer(true);
 await sleep(1500);   // 等壁纸页 SSE 重连 + hello 状态
 
 try {
+  // ---------- P0 基础设施端点（回归：/version 曾引用未定义变量，一请求就崩服务） ----------
+  console.log("\n■ P0 基础设施端点");
+  {
+    const v = await api("/version");
+    const vt = v.ok ? (await v.text()).trim() : "";
+    check("P0", "/version 返回版本号", v.ok && /^\d+\.\d+\.\d+$/.test(vt), vt || `status=${v.status}`);
+    const l = await api("/logs?lines=50");
+    let lcount = -1, lerr = "";
+    if (l.ok) { try { lcount = (await l.json()).lines.length; } catch (e) { lerr = String(e); } }
+    check("P0", "/logs 返回日志行", l.ok && lcount >= 0, lerr || `${lcount} 行`);
+    const c = await api("/console");
+    check("P0", "/console 控制台页可访问", c.ok && (c.headers.get("content-type") || "").includes("text/html"));
+  }
+
   // ---------- P1 单 agent 运行（单独形态） ----------
   console.log("\n■ P1 单 agent 运行（单独形态 gemini-desktop，8s）");
   await setView(SOLO);
