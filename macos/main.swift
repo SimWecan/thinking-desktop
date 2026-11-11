@@ -186,9 +186,11 @@ private func makeTray() -> NSPanel {
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered,
                         defer: false)
-    panel.level = .floating             // 浮于普通窗口之上，可随时点
-    // fullScreenAuxiliary：全屏 App 的空间里也保持可见（否则全屏看视频时托盘消失）
-    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+    // 与壁纸同一桌面层级（+1 只保证浮在壁纸之上）：只随桌面显示，
+    // 应用窗口覆盖右上角时托盘自然被遮住，绝不浮在其他应用之上
+    panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
+    // 注意不再加 .fullScreenAuxiliary：全屏 App 的空间里也不许冒头
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.hasShadow = false
