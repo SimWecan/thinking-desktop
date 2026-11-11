@@ -1,4 +1,6 @@
-/** routes/agents.mjs — 绑定的 AI 桌面端（列表/绑定/改色）与壁纸视图形态切换 */
+/** routes/agents.mjs — 绑定的 AI 桌面端（列表/绑定/改色/自定义路径）与壁纸视图形态切换 */
+import { existsSync } from "node:fs";
+
 export function register(router, ctx) {
   const { store, agents, hub } = ctx;
   const shotRequested = () => Date.now() - store.flags.shotAt < 3000;
@@ -6,8 +8,11 @@ export function register(router, ctx) {
   router.add("POST", "/agents", async ({ res, readJson }) => {
     const m = await readJson();
     if (!m) { res.writeHead(400).end("bad request"); return; }
+    const list = agents.update(m.source, m);
+    // 自定义路径当场校验：不存在时给控制台一个明确提示（仍会保存，方便先填后建）
+    const pathOk = typeof m.path !== "string" || !m.path.trim() || existsSync(m.path.trim());
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    res.end(JSON.stringify({ agents: agents.update(m.source, m), shot: shotRequested() }));
+    res.end(JSON.stringify({ agents: list, shot: shotRequested(), pathOk }));
   });
 
   router.add("GET", "/agents", ({ res }) => {

@@ -272,10 +272,16 @@ try {
     const g0 = (await wall()).haloGeom || {};
     const s0 = uiBefore?.ring?.scale || 0.3;
     await api("/ui", { method: "POST", body: JSON.stringify({ ring: { x: 0.5, y: 0.5, scale: 0.35 } }) });
-    await sleep(2500);
-    const g1 = (await wall()).haloGeom || {};
-    const ratio = g0.R ? g1.R / g0.R : 0;
     const want = 0.35 / s0;
+    // 轮询等待几何生效（页面 1s 主循环推送，重启/重连时可能晚几拍）
+    let g1 = {}, ratio = 0;
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      await sleep(700);
+      g1 = (await wall()).haloGeom || {};
+      ratio = g0.R ? g1.R / g0.R : 0;
+      if (Math.abs(ratio - want) < 0.06) break;
+    }
     check("P3c", "控制台调整圆环几何实时生效", Math.abs(ratio - want) < 0.06,
       `R ${g0.R}→${g1.R}（scale ${s0}→0.35，比值 ${ratio.toFixed(3)} / 期望 ${want.toFixed(3)}）`);
     if (uiBefore?.ring) await api("/ui", { method: "POST", body: JSON.stringify({ ring: uiBefore.ring }) });

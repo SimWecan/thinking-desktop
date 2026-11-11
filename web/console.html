@@ -189,6 +189,7 @@
   </div>
 </div>
 
+<script src="/lib/ring-geom.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 let upSince = null, restarting = false;
@@ -295,9 +296,10 @@ async function restart(target, btn) {
 // ---------- 桌面预览：拖拽移动圆环 / 右下角缩放，实时写回 /ui ----------
 const STAGE = $("prevStage"), HANDLE = $("ringHandle"), KNOB = $("ringKnob"), PREV = $("prevHalo");
 let ring = { x: 0.5, y: 0.5, scale: 0.30 };
-let ringDirty = 0, ringSaveTimer = 0;
+let ringUserTouched = false;   // 只有用户拖拽/重置过才回写，避免打开控制台就覆盖别人的配置
+let ringSaveTimer = 0;
 
-function ringBase(w, h) { return Math.max(h * 0.78, w * 0.30); }
+const ringBase = (w, h) => TDRing.base(w, h);
 function ringLayout() {
   const w = STAGE.clientWidth, h = STAGE.clientHeight;
   const r = ringBase(w, h) * ring.scale;
@@ -306,11 +308,14 @@ function ringLayout() {
   HANDLE.style.top = ring.y * 100 + "%";
   $("ringMeta").textContent = `x ${ring.x.toFixed(2)} · y ${ring.y.toFixed(2)} · ${ring.scale.toFixed(2)}×`;
 }
-function applyRing() {
+function applyRing(save) {
   try { PREV.contentWindow && PREV.contentWindow.postMessage({ td: "ring", ring }, "*"); } catch (e) {}
   ringLayout();
-  clearTimeout(ringSaveTimer);
-  ringSaveTimer = setTimeout(saveRing, 400);
+  if (save) {
+    ringUserTouched = true;
+    clearTimeout(ringSaveTimer);
+    ringSaveTimer = setTimeout(saveRing, 400);
+  }
 }
 async function saveRing() {
   try {
@@ -322,17 +327,13 @@ async function saveRing() {
 }
 function dragRing(ev) {
   const rect = STAGE.getBoundingClientRect();
-  ring.x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-  ring.y = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
-  applyRing();
+  ring = { ...ring, ...TDRing.fromMove(rect, ev.clientX, ev.clientY) };
+  applyRing(true);
 }
 function pinchRing(ev) {
   const rect = STAGE.getBoundingClientRect();
-  const dx = ev.clientX - (rect.left + ring.x * rect.width);
-  const dy = ev.clientY - (rect.top + ring.y * rect.height);
-  const r = Math.max(20, Math.hypot(dx, dy));
-  ring.scale = Math.max(0.15, Math.min(1.6, r / ringBase(rect.width, rect.height)));
-  applyRing();
+  ring = { ...ring, scale: TDRing.fromResize(rect, ring, ev.clientX, ev.clientY) };
+  applyRing(true);
 }
 let dragMode = null;
 HANDLE.addEventListener("pointerdown", (e) => {
@@ -345,7 +346,7 @@ HANDLE.addEventListener("pointermove", (e) => {
   dragMode === "size" ? pinchRing(e) : dragRing(e);
 });
 HANDLE.addEventListener("pointerup", () => { dragMode = null; });
-$("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.30 }; applyRing(); };
+$("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.30 }; applyRing(true); };
 
 // 预览 iframe 就绪后同步一次几何
 PREV.addEventListener("load", () => applyRing());
@@ -368,8 +369,13 @@ async function renderBinds() {
         `<input type="color" value="${a.color || "#ffffff"}">`;
       const [chk, , path, color] = [row.querySelector("input[type=checkbox]"), row.querySelector("span"), row.querySelector("input[type=text]"), row.querySelector("input[type=color]")];
       const patch = async (body, msg) => {
-        await fetch("/agents", { method: "POST", body: JSON.stringify({ source: a.source, ...body }) });
-        if (msg) { $("restartMsg").textContent = msg; setTimeout(() => { $("restartMsg").textContent = ""; }, 2500); }
+        let note = msg || "";
+        try {
+          const r = await fetch("/agents", { method: "POST", body: JSON.stringify({ source: a.source, ...body }) });
+          const d = await r.json();
+          if (d.pathOk === false) note = "路径不存在，已保存但不会生效";
+        } catch (e) { note = "保存失败：" + e.message; }
+        if (note) { $("restartMsg").textContent = note; setTimeout(() => { $("restartMsg").textContent = ""; }, 3000); }
         renderBinds();
       };
       chk.onchange = () => patch({ enabled: chk.checked });

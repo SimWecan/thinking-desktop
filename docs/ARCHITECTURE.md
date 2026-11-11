@@ -53,7 +53,8 @@ web/
   config.html        配置页（外壳 + 页面级样式）
   console.html       控制台窗口（外壳 + 页面级样式）
   ui/terafin.css     TerraFin 黑白设计系统：色卡 + .svc/.ver/h2.sec/.btn 窗口件
-  lib/               纯函数共享逻辑（td-logic.js 风洞曲线 / panel.js 曲线绘制），服务端测试可直接引用
+  lib/               纯函数共享逻辑：td-logic.js（风洞曲线/摘要）、panel.js（曲线绘制）、
+                     ring-geom.js（控制台预览的圆环几何换算），服务端测试直接引用
   icon/              软件商标 + 厂商商标缓存回退
 ```
 
@@ -64,6 +65,29 @@ web/
 - `__DEBUG__` 只由服务端在 `/wall` HTML 里替换；外部 js 经外壳内联脚本透传
   `window.__TD_DEBUG__`。
 - 页面差异样式（尺寸/间距）通过 CSS 变量覆盖，共享样式只有 `ui/terafin.css` 一份。
+
+## 圆环几何与悬停视图
+
+- `config/ui.json` 的 `ring {x,y,scale}` 是唯一事实来源：圆心为归一化坐标（0–1），
+  半径为 `max(H*0.78, W*0.30) * scale`（与原 halo 公式一致）。
+- 链路：控制台预览拖拽/缩放 → `POST /ui` → 壁纸页 1s 主循环发现变化 →
+  `postMessage({td:'ring'})` → halo `__tdSetRing()` → `resizeStage()` 重建几何。
+  `__tdSetRing` 是幂等入口，宿主/页面任意时刻都可调用。
+- 悬停视图：原生宿主做环带命中（`hitRing`），进入 → `showHoverPanel()`；
+  离开 → 3s 倒计时（每 100ms 经 `evaluateJavaScript` 推剩余秒数给弹窗页的
+  `__tdHoverCountdown()`），到点 `hideHoverPanel()`；回到环带取消倒计时。
+- 粒子角度范围：内环完整可见（`R ≤ min(cx, W-cx, cy, H-cy)+24`）时 `thV/thS` 放开到 2π，
+  否则沿用原「可见扇区」近似；整圆时按比例收 strand/haze 数量保持帧率。
+
+## 控制台（/console）数据流
+
+| 区块 | 数据来源 | 写入 |
+|---|---|---|
+| 桌面预览 | `/ui` 的 ring + `/haloflux/?preview=1` iframe | `POST /ui`（拖动/缩放，400ms 防抖） |
+| 绑定客户端 | `/agents`（含 installed/enabled/color/path） | `POST /agents`（color/enabled/path，path 返回 `pathOk`） |
+| 运行状态 | `/health`（cpuPct/rssMb/load/cores/perf） | —（60s 环形缓冲画 CPU 曲线） |
+| 通道表 | `/health.connectors` | — |
+| 系统集成 | `/ax` | —（AX 授权状态） |
 
 ## 硬约束（任何改动不得破坏）
 
