@@ -21,6 +21,7 @@ mkdir -p "$PAYLOAD/$INSTALL_ROOT" "$SCRIPTS"
 # 项目本体（排除运行时与仓库元数据）
 rsync -a --exclude '.git' --exclude 'dist' --exclude 'logs' --exclude 'data' \
   --exclude '.verify' --exclude "$APP" --exclude '.DS_Store' --exclude 'node_modules' \
+  --exclude '._*' --exclude '.Spotlight-V100' --exclude '.fseventsd' \
   "$ROOT/" "$PAYLOAD/$INSTALL_ROOT/"
 # 已编译的宿主 App 放项目目录内（install 脚本按相对路径引用）
 cp -R "$ROOT/$APP" "$PAYLOAD/$INSTALL_ROOT/$APP"
