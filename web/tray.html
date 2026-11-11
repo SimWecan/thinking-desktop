@@ -118,6 +118,7 @@ const MOTION = {
   term: "m-pulse",
 };
 
+/* 未使用：图标地址现在直接内联在 <img src>/srcset 里，保留备查
 function SRC_NAME(source) {
   const a = agents.find((x) => x.source === source);
   return (a && a.name) || source;
@@ -126,42 +127,58 @@ function SRC_NAME(source) {
 function iconUrl(source, scale = 1) {
   return `/icon/${encodeURIComponent(source)}.png` + (scale > 1 ? "?x=2" : "");
 }
+*/
 
 function build() {
   reportHeight();
+
+  // 同一商标的厂商（ChatGPT / Codex）合并成一个图标，点击切到该商标的主来源
+  const groups = new Map();
   for (const a of agents) {
-    if (!a.enabled) { icons.get(a.source)?.remove(); icons.delete(a.source); continue; }
-    let el = icons.get(a.source);
+    if (!a.enabled) continue;
+    const key = a.icon || a.source;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  }
+  for (const key of [...icons.keys()]) {
+    if (!groups.has(key)) { icons.get(key)?.remove(); icons.delete(key); }
+  }
+
+  for (const [key, list] of groups) {
+    const primary = list.find((a) => a.source === key) || list[0];
+    const thinking = list.some((a) => a.thinking);
+    let el = icons.get(key);
     if (!el) {
       el = document.createElement("div");
-      el.className = "icon " + (MOTION[a.anim] || "m-pulse");
-      el.dataset.src = a.source;
+      el.className = "icon " + (MOTION[primary.anim] || "m-pulse");
+      el.dataset.src = key;
       el.innerHTML =
         `<div class="fx"><i class="aura"></i><i class="ring"></i>` +
         `<div class="orbit"><i></i><i class="b"></i></div><i class="ping"></i></div>` +
-        `<img class="logo" alt="" src="/icon/${a.source}.png" srcset="/icon/${a.source}@2x.png 2x" draggable="false">`;
-      el.title = a.name || a.source;
-      // 没有本地商标图（比如只有 CLI 的 Codex）→ 中性字母牌，不伪造 logo
+        `<img class="logo" alt="" src="/icon/${key}.png" srcset="/icon/${key}@2x.png 2x" draggable="false">`;
+      // 没有本地商标图时才用中性字母牌（不伪造 logo）
       const img = el.querySelector("img");
       img.addEventListener("error", () => {
         img.remove();
         const mono = document.createElement("span");
         mono.className = "mono";
-        mono.textContent = a.short || a.source.slice(0, 2).toUpperCase();
+        mono.textContent = primary.short || key.slice(0, 2).toUpperCase();
         el.insertBefore(mono, el.firstChild);
       }, { once: true });
-      // 点任意厂商图标：切到它的粒子特效形态，同时收回侧栏
-      el.onclick = async () => { await select(a.source); expanded = false; build(); };
+      el.onclick = async () => { await select(primary.source); expanded = false; build(); };
       tray.appendChild(el);
-      icons.set(a.source, el);
+      icons.set(key, el);
     }
-    el.style.setProperty("--c", a.color);
-    el.classList.toggle("think", !!a.thinking);
+    el.style.setProperty("--c", primary.color);
+    el.classList.toggle("think", thinking);
     el.classList.toggle("hidden", !expanded);
-    el.classList.toggle("sel", view === a.source);
-    el.title = (a.name || a.source) + (a.thinking ? " · 思考中" : "") + (view === a.source ? " · 当前形态" : "");
+    el.classList.toggle("sel", list.some((a) => a.source === view));
+    const names = list.map((a) => a.name || a.source).join(" / ");
+    el.title = names + (thinking ? " · 思考中" : "") + (list.some((a) => a.source === view) ? " · 当前形态" : "");
   }
+
   const solo = view !== "all" ? agents.find((x) => x.source === view) : null;
+  const soloIcon = solo ? (solo.icon || solo.source) : null;
   composite.classList.toggle("solo-mode", !!solo);
   composite.classList.toggle("sel", view === "all");
   if (solo) {
@@ -170,13 +187,13 @@ function build() {
     composite.title = `${solo.name || solo.source} · 当前形态（点击展开）`;
     const img = composite.querySelector(".solo");
     const mono = composite.querySelector(".solo-mono");
-    mono.textContent = solo.short || solo.source.slice(0, 2).toUpperCase();
-    if (img.dataset.src !== solo.source) {
-      img.dataset.src = solo.source;
+    mono.textContent = solo.short || soloIcon.slice(0, 2).toUpperCase();
+    if (img.dataset.src !== soloIcon) {
+      img.dataset.src = soloIcon;
       composite.classList.remove("no-icon");
       img.onerror = () => composite.classList.add("no-icon");
-      img.src = `/icon/${solo.source}.png`;
-      img.srcset = `/icon/${solo.source}@2x.png 2x`;
+      img.src = `/icon/${soloIcon}.png`;
+      img.srcset = `/icon/${soloIcon}@2x.png 2x`;
     }
   } else {
     composite.classList.remove("no-icon");

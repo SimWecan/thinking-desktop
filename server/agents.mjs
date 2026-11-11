@@ -17,7 +17,7 @@ export const VENDOR_PRESETS = {
   "gemini-desktop":   { name: "Gemini",         short: "G",  color: "#7C6BF2", anim: "spark4" }, // 蓝紫
   "chatgpt-desktop":  { name: "ChatGPT",        short: "C",  color: "#8B5CF6", anim: "knot" },   // 紫
   "claude-desktop":   { name: "Claude",         short: "Cl", color: "#D97757", anim: "asterisk" },
-  "codex":            { name: "Codex",          short: "Cx", color: "#8B5CF6", anim: "term" },   // 紫
+  "codex":            { name: "Codex",          short: "Cx", color: "#8B5CF6", anim: "term", icon: "chatgpt-desktop" },   // 紫；与 ChatGPT 共用商标
   "anthropic":        { name: "Claude Code",    short: "Cc", color: "#D97757", anim: "asterisk" },
 };
 
@@ -104,6 +104,7 @@ export class AgentRegistry {
         source,
         name: b.name ?? p.name,
         short: p.short,
+        icon: b.icon ?? p.icon ?? source,   // 同商标的厂商（ChatGPT/Codex）合并显示为一个图标
         color: b.color ?? p.color,
         anim: p.anim,
         installed: !!installed[source],

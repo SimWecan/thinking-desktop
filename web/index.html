@@ -82,8 +82,10 @@
   #panel .ag:not(.off) .dot { animation: dotPulse 2.4s ease-in-out infinite; }
   @keyframes dotPulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
   #panel .ag .name { color: rgba(255,255,255,.85); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 未使用：agent 行已改用迷你曲线（canvas.sp），旧横条样式保留备查
   #panel .ag .bar { height: 3px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; }
   #panel .ag .bar i { display: block; height: 100%; background: currentColor; border-radius: 2px; transition: width .5s ease; }
+  */
   #panel .ag .age { text-align: right; color: rgba(255,255,255,.4); font-size: 9px; }
   #panel .ag .cnt { text-align: right; color: rgba(255,255,255,.62); font-variant-numeric: tabular-nums; }
   #pn-ctx .crow { display: grid; grid-template-columns: 8px minmax(0,1fr) 70px 42px; align-items: center; gap: 7px; padding: 2px 0; }
@@ -333,9 +335,11 @@ function hexA(color, a) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+/* 未使用（agent 活跃度已改由 TDLogic.agentBars 计算，保留备查）
 function agentActivity(src) {
   return bySource[src] || 0;
 }
+*/
 
 function renderPanel() {
   pnRate.textContent = rate.toFixed(1);
@@ -347,12 +351,31 @@ function renderPanel() {
   drawSpark(miniSpark, series, accent, { height: 26 });
 
   // agents
-  const bars = new Map(TDLogic.agentBars(agentsList, view).map((b) => [b.source, b.pct]));
-  const list = (agentsList || []).filter((a) => a.enabled !== false && (view === "all" || a.source === view));
+  // 同一商标（ChatGPT / Codex）合并成一行，事件数相加
+  const grouped = new Map();
+  for (const a of (agentsList || []).filter((x) => x.enabled !== false)) {
+    const key = a.icon || a.source;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(a);
+  }
+  const list = [...grouped.entries()]
+    .map(([key, g]) => {
+      const primary = g.find((a) => a.source === key) || g[0];
+      return {
+        ...primary,
+        source: key,
+        name: g.map((a) => a.name || a.source).join(" / "),
+        events: g.reduce((n, a) => n + (a.events || 0), 0),
+        thinking: g.some((a) => a.thinking),
+        agoMs: Math.min(...g.map((a) => (a.agoMs == null ? Infinity : a.agoMs))),
+      };
+    })
+    .filter((a) => view === "all" || a.source === view || (agentsList || []).some((x) => x.source === view && (x.icon || x.source) === a.source));
+  const bars = new Map(TDLogic.agentBars(list, "all").map((b) => [b.source, b.pct]));
   pnAgents.innerHTML = "";
   if (!list.length) pnAgents.innerHTML = `<div class="empty">未绑定 agent</div>`;
   for (const a of list) {
-    const act = agentActivity(a.source);
+    /* const act = agentActivity(a.source); // 未使用：柱高改用 bars 预计算 */
     const row = document.createElement("div");
     row.className = "ag" + (a.thinking ? "" : " off");
     row.style.color = a.color;
