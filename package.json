@@ -15,7 +15,8 @@
     "test:e2e": "node scripts/e2e-test.mjs",
     "release:check": "node scripts/release-check.mjs",
     "build:pkg": "bash scripts/build-pkg.sh",
-    "build:win": "bash scripts/build-win.sh"
+    "build:win": "bash scripts/build-win.sh",
+    "test:injection": "node scripts/isolated-injection-test.mjs"
   },
   "engines": {
     "node": ">=20"
