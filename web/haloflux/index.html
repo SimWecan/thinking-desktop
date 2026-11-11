@@ -1504,6 +1504,7 @@ frame = function frame(now) {
     fpsN++;
     if (now - fpsWin0 >= 4000) {
       const fps = (fpsN * 1000) / (now - fpsWin0);
+      window.__tdLastFps = Math.round(fps * 10) / 10;   // 遥测：最近一个采样窗的实际帧率
       if (!PREVIEW && (window.__tdCalm || 0) < 1) {
         if (fps < 40) adaptDown();
         else if (fps > 57) { if (++adaptUpStreak >= 3) adaptUp(); }
@@ -1952,6 +1953,7 @@ function syncPanel() {
     paints: window.__tdTextPaints,
     adaptCap: ADAPT_CAP,   // 自适应分辨率当前档位（掉帧时 2→1.5→1.25→1）
     dpr: DPR,
+    fps: window.__tdLastFps || null,   // 最近 4s 采样窗实际帧率（卡顿排查遥测）
     textLens: (window.__tdText || []).slice(-4).map((t) => t.length),
     lights: (() => { try { return window.__tdLightState ? window.__tdLightState() : null; } catch (e) { return null; } })(),
   });

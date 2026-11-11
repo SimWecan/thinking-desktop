@@ -10,10 +10,23 @@ import WebKit
 
 let WALL_URL = "http://127.0.0.1:7799/wall"
 
-// 单实例守卫：launchd KeepAlive 与手动 open 可能并存，重复实例会叠两层壁纸窗口
-if NSRunningApplication.runningApplications(withBundleIdentifier: "com.simwecan.thinking-desktop-wallpaper").count > 1 {
-    exit(0)
-}
+// 单实例守卫：launchd KeepAlive 与手动启动可能并存，重复实例会叠两层壁纸窗口、双倍渲染。
+// 注意不能用 NSRunningApplication（launchd 直启二进制时不走 LaunchServices，统计不到旧实例），
+// 改用 PID 锁文件：锁里记录的进程还活着就退出。
+let lockURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/Thinking Desktop/wallpaper.lock")
+do {
+    try FileManager.default.createDirectory(
+        at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    if let data = try? Data(contentsOf: lockURL),
+       let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+       let oldPid = Int32(s), oldPid != ProcessInfo.processInfo.processIdentifier,
+       kill(oldPid, 0) == 0 {
+        exit(0)   // 旧实例仍活着：本实例退出
+    }
+    try String(ProcessInfo.processInfo.processIdentifier)
+        .write(to: lockURL, atomically: true, encoding: .utf8)
+} catch { /* 锁文件读写失败不阻断启动 */ }
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // 无 Dock 图标，不占焦点
@@ -25,6 +38,9 @@ final class WallpaperWindow: NSWindow {
 
 final class WallpaperView: NSView {
     private var webView: WKWebView?
+    /// 环带几何缓存（页面坐标）：命中判定在 Swift 侧完成，只在状态翻转时跨进程调 JS
+    var geom: (cx: CGFloat, cy: CGFloat, r: CGFloat, ro: CGFloat, z: CGFloat)?
+    var hoverRing = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -42,13 +58,35 @@ final class WallpaperView: NSView {
         webView = wv
     }
 
-    /// 全局鼠标转发：壁纸窗口点击穿透收不到 move，靠全局监听换算成页面坐标（仅用于「是否停在环带上」）
-    func forwardMouse(x: CGFloat, y: CGFloat) {
+    /// 从页面取一次环心/半径（3 秒定时刷新）；取不到时命中判定退化为「总是转发」
+    func refreshGeom() {
+        webView?.evaluateJavaScript(
+            "window.__tdGeomGet ? JSON.stringify(window.__tdGeomGet()) : null") { res, _ in
+            guard let str = res as? String, let d = str.data(using: .utf8),
+                  let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  let cx = j["cx"] as? CGFloat, let cy = j["cy"] as? CGFloat,
+                  let r = j["R"] as? CGFloat, let ro = j["RO"] as? CGFloat else { return }
+            self.geom = (cx, cy, r, ro, (j["camZ"] as? CGFloat) ?? 1)
+        }
+    }
+
+    func hitRing(_ x: CGFloat, _ y: CGFloat) -> Bool {
+        guard let g = geom else { return true }
+        let d = hypot(x - g.cx, y - g.cy)
+        return d >= g.r * g.z - 12 && d <= g.ro * g.z + 12
+    }
+
+    /// 悬停环带：只在「进入/离开」两个翻转点跨进程通知页面，移动过程零 JS 调用
+    func updateHover(x: CGFloat, y: CGFloat) {
+        let over = hitRing(x, y)
+        guard over != hoverRing else { return }
+        hoverRing = over
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 
-    /// 全局点击转发：待机圆环的冲击波互动（点击穿透下唯一的点击来源）
-    func forwardClick(x: CGFloat, y: CGFloat) {
+    /// 点击冲击波：命中环带才转发（点击穿透下唯一的点击来源）
+    func click(x: CGFloat, y: CGFloat) {
+        guard hitRing(x, y) else { return }
         webView?.evaluateJavaScript("window.__tdClick(\(x),\(y))") { _, _ in }
     }
 }
@@ -92,19 +130,20 @@ NotificationCenter.default.addObserver(
     watcher, selector: #selector(ScreenWatcher.screensChanged(_:)),
     name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
-// 全局鼠标转发：只用来判断鼠标是否停在环带上（30ms 节流；不做任何放大/特写）
+// 全局鼠标转发：壁纸窗口点击穿透收不到 move，靠全局监听换算成页面坐标。
+// 命中判定与状态翻转都在 Swift 侧（几何缓存 3s 刷新），移动过程不跨进程调 JS
 var lastMouseSend: TimeInterval = 0
 let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
     matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { event in
     let now = Date().timeIntervalSince1970
-    guard now - lastMouseSend > 0.03, let pt = event.cgEvent?.location else { return }
+    guard now - lastMouseSend > 0.05, let pt = event.cgEvent?.location else { return }
     lastMouseSend = now
     for win in windows {
         let f = win.frame
         let x = pt.x - f.origin.x
         let y = f.height - (pt.y - f.origin.y)
         if x >= 0, x <= f.width, y >= 0, y <= f.height {
-            (win.contentView as? WallpaperView)?.forwardMouse(x: x, y: y)
+            (win.contentView as? WallpaperView)?.updateHover(x: x, y: y)
         }
     }
 }
@@ -118,11 +157,17 @@ let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown])
         let x = pt.x - f.origin.x
         let y = f.height - (pt.y - f.origin.y) // 同上：翻成页面坐标
         if x >= 0, x <= f.width, y >= 0, y <= f.height {
-            (win.contentView as? WallpaperView)?.forwardClick(x: x, y: y)
+            (win.contentView as? WallpaperView)?.click(x: x, y: y)
         }
     }
 }
 _ = clickMonitor
+
+// 环带几何 3 秒定时刷新（页面加载初期取不到就下轮再取）
+let geomTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+    for win in windows { (win.contentView as? WallpaperView)?.refreshGeom() }
+}
+RunLoop.main.add(geomTimer, forMode: .common)
 
 // 右上角托盘：可展开的 agent 切换图标（独立浮窗，接收点击）
 final class TrayNav: NSObject, WKNavigationDelegate {
@@ -186,10 +231,10 @@ private func makeTray() -> NSPanel {
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered,
                         defer: false)
-    // 与壁纸同一桌面层级（+1 只保证浮在壁纸之上）：只随桌面显示，
-    // 应用窗口覆盖右上角时托盘自然被遮住，绝不浮在其他应用之上
-    panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
-    // 注意不再加 .fullScreenAuxiliary：全屏 App 的空间里也不许冒头
+    // 普通窗口层级 + 前台应用联动显隐（见文件尾部 syncTrayVisibility）：
+    // 桌面层级（desktopWindow）实测收不到任何点击（点击落到 Finder 桌面），
+    // 普通层级必然浮在其他应用窗口之上，所以只在 Finder 为前台应用时显示托盘
+    panel.level = .normal
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
     panel.backgroundColor = .clear
     panel.isOpaque = false
@@ -219,5 +264,20 @@ private func makeTray() -> NSPanel {
     return panel
 }
 let trayPanel = makeTray()
+
+// 托盘显隐：只在桌面可见时出现（Finder 为前台应用），任何其他应用前台/全屏时隐藏，
+// 保证托盘绝不浮在其他应用窗口之上，同时保持可交互（普通层级点击可达）
+func syncTrayVisibility() {
+    let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    if front == "com.apple.finder" {
+        trayPanel.orderFrontRegardless()
+    } else {
+        trayPanel.orderOut(nil)
+    }
+}
+NSWorkspace.shared.notificationCenter.addObserver(
+    forName: NSWorkspace.didActivateApplicationNotification,
+    object: nil, queue: .main) { _ in syncTrayVisibility() }
+syncTrayVisibility()
 
 app.run()
