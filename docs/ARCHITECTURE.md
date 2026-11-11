@@ -1,81 +1,54 @@
-# Thinking Desktop — 架构说明
+# Thinking Desktop 架构（v2，2026-11 重写）
 
-## 设计目标
+> 目标：底层健壮、模块化、规范化；消灭巨型文件与散装重复；每一层只依赖下一层。
+> 前端效果与 HTTP 契约对 v1 保持完全兼容（壁纸/托盘/配置页/e2e 无感切换）。
 
-1. **一切皆事件**：任何本机 AI 软件的活动都被归一化为一条事件流，壁纸只消费事件流。
-2. **零依赖**：服务端只用 Node 标准库，便于在壁纸机长期驻留。
-3. **可扩展**：新增一个 AI 软件 = 新增一个 Connector 文件并在 `server/index.mjs` 注册。
+## 分层与依赖方向
 
-## 统一事件协议
-
-每个 Connector 产出如下结构的 Event：
-
-```ts
-type ThinkingEvent = {
-  source: string;                 // 来源标识，如 "claude-code"、"kimi-desktop"
-  type:
-    | "thought"      // 推理/输出中（无文本可上墙时的轻量信号）
-    | "tool_call"    // 发起一次工具调用（payload.name）
-    | "tool_result"  // 工具返回结果
-    | "token"        // token 计量
-    | "error"        // 报错（payload.message）
-    | "status"       // 状态变化（payload.running 等）
-    | "text";        // 截流到的真实思考/输出文本（payload.text，右侧视窗展示）
-  ts: number;                     // Unix 毫秒时间戳
-  payload?: Record<string, any>; // 可选详情：工具名、token 数、模型名等
-};
+```
+hosts/mac, hosts/win          原生宿主（壁纸窗口 / 托盘 / 控制台 / axread）
+        │  HTTP + SSE
+        ▼
+server/routes/*    ← 唯一接触 HTTP 的层；每个域名一个模块，只声明「路径 → 处理」
+        │  调用
+        ▼
+server/core/*      store（状态+持久化）· stream-hub（SSE）· security（令牌/源校验）· http（路由器）
+        ▲  被装配
+server/app.mjs     组合根：创建 core → 装配 connectors → 注册 routes → listen
+server/index.mjs   入口：读环境变量 → app.start()（<20 行，不含任何业务）
 ```
 
-## 安全
+依赖只允许向下；`core` 不知道 HTTP 存在（`pushEvent` 通过注入的监听器外发），
+`routes` 之间不互相 import，共享状态一律经组合根注入的 `ctx`。
 
-- 只监听 `127.0.0.1`；所有会改状态的接口（`/ingest`、`/texts`、`/view`、`/agents`、`/snapshot`、`/debug`、`/selftest`）在带 `Origin` 头时会校验必须是本机来源，挡掉浏览器里其它网页的跨站请求（CSRF）。同源页面通常不带 `Origin`，不受影响。
+## 模块契约
 
-## 服务端 API
+| 模块 | 职责 | 不做什么 |
+|---|---|---|
+| `core/store.mjs` | 事件入栈、速率/来源/工具/token 统计、文本 backlog、今日统计落盘、快照缓冲、`state()` 派生 | 不做任何网络 I/O |
+| `core/stream-hub.mjs` | SSE 客户端集：hello / broadcast / 心跳清理死连接 | 不构造事件 payload |
+| `core/security.mjs` | 令牌签发与校验、Host 头（防 DNS rebinding）/Origin 校验、写接口判定 | 不读请求体 |
+| `core/http.mjs` | 微型路由器（method + 精确路径 + 前缀通配）、JSON 体读取 | 不含任何业务路由 |
+| `routes/*.mjs` | 一个域名一组端点（agents/debug/ingest/pages/snapshot/state/stream/system/test/texts/ui） | 不持有可变状态 |
+| `connectors.mjs` | 按本机安装情况装配 connector 列表（替代 v1 在 index 里的 6 段散装注册） | 连接器实现仍在 `connectors/` |
 
-| 端点 | 说明 |
-|---|---|
-| `GET /stream` | SSE 长连接，实时推送 ThinkingEvent 与聚合状态 |
-| `GET /state` | 一次性 JSON：当前事件速率、各来源活跃度、最近事件 |
-| `GET /wall` | 壁纸页面（即 `web/index.html`） |
-| `GET /health` | 自检：zstd 是否可用、每个来源的连接通道（session/file/sqlite/json/process/activity）、事件数与最后事件、闭源端最近一次 CPU 采样 |
-| `POST /ingest` | 本机事件注入口（调试 / 多 agent 并行模拟）：`{source,type,payload}` → 走与真实 connector 完全相同的事件管线 |
-| `GET /state` | 附加聚合：`series`（60s 每秒事件数）、`agentSeries`（每个来源各自的 60s 序列）、`tools`（工具分布 Top8）、`tokens`（按来源的上下文计量：model/used/window/pct）、`totalEvents`、`agents`/`view`（绑定与形态） |
-| `GET /snapshot?panel=1` | 把右侧看板（DOM + 内嵌图表）经 SVG foreignObject 渲染成 PNG，用于无录屏权限时验证 |
-| `GET /icon/<source>.png` | 从本机 .app 提取的厂商官方图标（`@2x` 变体按需生成 512px）；`server/icons.mjs` 负责 ICNS→PNG 与缓存，`config/icons.json` 可手动覆盖 |
-| `GET/POST /ui` | 界面行为配置：读取/更新 `config/ui.json`（`/state.ui` 每秒下发） |
-| `GET /selftest?click=1` | 自检：让壁纸在环心连发三次冲击波（配合 `?ripple=1` 快照验证点击链路） |
-| `POST /texts` | 用数组原子替换思考文本缓冲（回填/清理用），同时落盘 `data/texts.json` |
-| `GET /texts?limit=N` | 最近的思考文本，页面启动时回填环带与视窗 |
-| `GET /snapshot?request=1` / `GET /snapshot` | 请求并取回壁纸画布快照（`?slot=1` 单个环槽、`?lights=1` 光效层），无录屏权限时用于验证真实画面 |
+## 前端结构（v2 目标，分切片落地）
 
-## 呈现规则
+```
+web/
+  wall/        壁纸宿主页：index.html + app/（SSE 客户端、右侧面板、光环桥接）
+  halo/        光环渲染器：js/ 按场景模块拆分（config/ring/slots/lights/texts/particles/ripple/standby/adaptive/bridge）
+  tray/        托盘：index.html + tray.css + tray.js + glyphs.js
+  ui/          TerraFin 设计系统：terafin.css（config/console 共用，消除两份重复样式）
+  lib/         纯函数共享逻辑（td-logic.js 风洞曲线等，服务端测试可直接引用）
+```
 
-- **机位**：`C.camera = 0`，`updateCam` 恒定停在 z=1 中心机位——不再有自动推近/拉远的「特写」；节奏/转速/辉光由页面按事件速率小幅映射（舒适档）。
-- **切换缓动**：halo 里每个来源维护 `cur`（当前强度）与 `lane`（当前通道位置），用指数平滑逼近目标值（亮起 `dt*5`、暗下 `dt*1.8`、通道 `dt*2.6`）；消失的来源先置 `target=0` 留在数组里渐隐，`cur<0.02` 才移除。整帧染色色也按帧插值（`k≈0.06`）。进入待机时 `__tdLightsReset()` 清空光效层。
-- **今日统计落盘**：`data/stats-YYYY-MM-DD.json` 保存 EVENTS、工具分布、各来源计数与上下文计量，启动时若日期一致就载入（跨天自动从 0 开始），SIGTERM 时强制落盘。
-- **AX 读屏（可选）**：`macos/axread.swift` 编译成 `bin/axread`，读取指定 App 前台窗口的 AX 文本树；`connectors/ax-text.mjs` 每 2s 调一次，按前缀差量上报新增文本。未授权时只告警一次并跳过。bundle id：Gemini `com.google.GeminiMacOS`、ChatGPT（本机为 Codex 分发）`com.openai.codex`。
-- **本机令牌**：启动时生成并写入 `data/.token`（0600），写状态接口校验 `x-td-token` 头或 `td_token` Cookie；HTML 页面响应会下发该 Cookie。
-- **Codex 过滤**：`connectors/codex-filter.mjs` 按 target/level 分类（ERROR→error；apply_patch/shell/exec/mcp_tool→tool_call；stream_events/outgoing_message/message_processor→thought），config/http/otel/login 等噪声一律忽略；单轮最多 8 条防刷屏。
-- **停环判定**：客户端以 `workAt`（最后一条非 status 事件）为准，超过 `BUSY_HOLD = 20s` 进入待机；`status.running === 0`（回合结束）立即把 `busyUntil` 归零。`/debug` 暴露 `idleFor / busyIn / hold` 便于排查。
-- **上下文计量**：DSH 的 `assistant/message.data.usage`（inputTokens + cacheReadTokens）配合 `request/context.contextWindow` 算出占用率；窗口缺失时沿用上一次或按来源兜底（DSH 1M）。Kimi 用自己的 `maxUsage` 比例。两者在 `/state.tokens` 里统一成 `{model, used, window, pct}`。
-- **舞台染色**：父页面把活跃来源（颜色/强度）发给 halo；halo 在 `drawStage` 末尾用 canvas `color` 混合模式按加权混色给整帧染色——只改色相/饱和度、保留亮度，于是白色粒子/光束/环带会整体变成该厂商的颜色（旧 WebKit 不支持时退化为 multiply）。
-- **光效配色**：`deepseek-harness` 深蓝 `#1E3A8A`、`kimi-desktop` 白 `#FFFFFF`、`gemini-desktop` 蓝紫 `#7C6BF2`、`chatgpt-desktop` / `codex` 紫 `#8B5CF6`（可在配置页调色盘覆盖）。父页面每秒把「12s 内有真实工作事件」的来源连同颜色/强度发给 halo，halo 用独立覆盖层画每条来源的环带通道辉光 + 环内外彩色粒子；多来源时按 `(i+0.5)/n` 分配到不同半径，互不遮挡。
-- **环形数据块**：思考态用真实截流文本填充（`window.__tdRingText`），0.3s 刷新；每个环槽的版式（分块/配色/索引列）只随机一次并缓存，重绘只换文字，避免整环「沸腾」。闭源 AI 没有文本通道时退回 HALOFLUX 预设动画。
-- **右侧视窗**：只在鼠标停在环带上时出现（halo 用环心 `toScreen(cx,cy)` 与 `R..RO` 做命中判定，600ms 无鼠标事件视为离开），离开立即收起。
-- **鼠标**：仅用于环带命中判定；不做悬停放大/特写。点击由原生宿主全局转发，触发冲击波。
-- **待机**：环带原地停转（保留最后一屏文本），粒子隐没，退出 rAF 由事件唤醒。
+## 硬约束（任何改动不得破坏）
 
-## 空闲判定
-
-客户端以「最后一次真实工作信号」为准：任一来源 30 s 内没有 token/文本/工具/状态事件 → 进入待命形态（环带原地停转、粒子隐没、退出 rAF 由事件驱动重绘）；重新收到事件立即恢复思考形态。服务端 `/state` 同时给出 `idleMs` 与每个来源的 `agoMs` 便于排查「到底是谁在驱动壁纸」。
-
-## Connector 实现指南
-
-继承 `connectors/base.mjs` 的 `Connector` 类，实现 `start()`：在检测到活动时用 `this.emit(event)` 上报即可。
-现有实现：
-
-- `FileTailConnector`：尾随任意文本文件（日志、jsonl 会话），按行正则提取事件类型。
-- `ZstdJsonlPollConnector`：面向以 zstd 多帧追加写的会话文件（DSH）。递归发现 `dir/workspace/session-*/session.v4.jsonl.zstd`，同时跟踪多个活跃会话；按 size/mtime 判断是否变化，避免每轮全量解码；启动时登记偏移量、不回放历史，文件被重写回滚时不刷屏。
-- `ProcessActivityConnector`：闭源桌面端（Gemini / ChatGPT）没有本地文本通道，用 `/bin/ps` 采样该 App 全部进程的 CPU 合计值作为真实工作信号：超过阈值（默认 8%）即按 1.2s 节流上报 `thought`，低于阈值持续 6s 静默复位；`/health.activity` 暴露最近一次采样值便于调阈值。
-- `summarizeDshLine`（`connectors/dsh-session.mjs`）：把 DSH v4 会话行映射成事件——`assistant/message` 优先取**推理日志**（`reasoning`，整段保留，`kind=think`），没有推理才用最终输出（`kind=output`）→ `text`，`tool/call` / `tool/result` → 对应事件，`turn/*` → `status`，其余元数据行（title、request、permission、sandbox、job、step、delivery-accepted）一律忽略，防止壁纸被空转事件刷成常亮。
-- `KimiWireConnector`：并行尾随窗口期内**所有**会话的 wire.jsonl（Kimi 可同时跑多个 agent），（`sessions/<workspace>/conv-xxxx/agents/main/wire.jsonl`），解析 Kimi 3.x 的真实行型：`agent.message.appended`（user/assistant → 真实文本）、`context.append_loop_event` 的 `content.part`（think/text）、`tool.call` / `tool.result`，以及 `context.apply_compaction` 截流摘要；自动跟随最近活跃的会话文件，`stop()` 可干净退出。
+1. **安全**：监听仅 127.0.0.1；Host 必须回环；写接口要令牌（Cookie / `x-td-token`）；
+   SSE 与 JSON 一律不加 CORS 头（事件流里有本机 AI 真实思考文本）。
+2. **零依赖**：服务端只准用 Node 标准库。
+3. **测试隔离**：`THINKING_DESKTOP_CONNECTORS=off` 必须切断全部真实连接器；
+   `POST /ingest?test=1` 的事件在暂停期间仍放行（e2e 依赖）。
+4. **契约**：`/state`、`/stream` 消息形状、`/debug` 遥测字段、页面别名（/tray /config /console /wall）
+   保持兼容——e2e 与两个原生宿主是这些契约的活测试。
