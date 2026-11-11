@@ -230,11 +230,16 @@ final class WallpaperView: NSView {
     /// 从页面取一次环心/半径（3 秒定时刷新）；取不到时命中判定退化为「总是转发」
     func refreshGeom() {
         webView?.evaluateJavaScript(
-            "window.__tdGeomGet ? JSON.stringify(window.__tdGeomGet()) : null") { res, _ in
+            "window.__tdGeomGet ? JSON.stringify(window.__tdGeomGet()) : null") { res, err in
+            if let err = err, self.geom == nil { hoverLogLine("geom eval error: \(err.localizedDescription)") }
             guard let str = res as? String, let d = str.data(using: .utf8),
                   let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
                   let cx = j["cx"] as? CGFloat, let cy = j["cy"] as? CGFloat,
-                  let r = j["R"] as? CGFloat, let ro = j["RO"] as? CGFloat else { return }
+                  let r = j["R"] as? CGFloat, let ro = j["RO"] as? CGFloat else {
+                if self.geom == nil { hoverLogLine("geom parse failed: \(String(describing: res).prefix(120))") }
+                return
+            }
+            if self.geom == nil { hoverLogLine("geom cx=\(Int(cx)) cy=\(Int(cy)) R=\(Int(r)) RO=\(Int(ro))") }
             self.geom = (cx, cy, r, ro, (j["camZ"] as? CGFloat) ?? 1)
         }
     }
@@ -242,7 +247,9 @@ final class WallpaperView: NSView {
     /// 环带命中（带迟滞）：进入需要压进环带 6px，离开要退出 10px——
     /// 鼠标压在缘线上时不会来回抖动（进入/离开各有一次明确的翻转）
     func hitRing(_ x: CGFloat, _ y: CGFloat) -> Bool {
-        guard let g = geom else { return true }
+        // 几何拿不到时不要「永远命中」——那会让弹窗在桌面任意位置乱弹且不收回；
+        // 宁可暂时不弹，等下一次 refreshGeom 成功（3s 内）
+        guard let g = geom else { return false }
         let d = hypot(x - g.cx, y - g.cy)
         let inner = g.r * g.z - 12, outer = g.ro * g.z + 12
         if hoverRing { return d >= inner - 10 && d <= outer + 10 }
@@ -263,6 +270,7 @@ final class WallpaperView: NSView {
         hoverRing = over
         // 光标反馈：壁纸点击穿透，系统光标由桌面控制，悬停环带时换成手型
         if over { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        hoverLogLine("hover \(over ? "enter" : "leave") at \(Int(x)),\(Int(y))")
         if over { cancelHoverCountdown(); showHoverPanel() }
         else { startHoverCountdown() }
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }

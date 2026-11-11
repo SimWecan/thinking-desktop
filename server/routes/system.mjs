@@ -1,7 +1,7 @@
 /** routes/system.mjs — 系统域：重启 / 版本 / 日志 / 健康自检 / AX 读屏 */
 import { spawn, execFileSync } from "node:child_process";
 import os from "node:os";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { psStats } from "../../connectors/ps-sample.mjs";
 
@@ -39,10 +39,20 @@ export function register(router, ctx) {
   router.add("GET", "/logs", ({ res, query }) => {
     const maxLines = Math.min(500, Math.max(20, parseInt(query.get("lines") || "120", 10) || 120));
     try {
-      const text = readFileSync(join(root, "logs", "server.log"), "utf8");
-      const lines = text.split("\n").filter((l) => l.trim()).slice(-maxLines);
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      res.end(JSON.stringify({ ok: true, lines, sizeKb: Math.round(text.length / 1024) }));
+      // 只读末尾 200KB：控制台每 2s 拉一次，整文件读（~1MB）纯属浪费
+      const file = join(root, "logs", "server.log");
+      const fd = openSync(file, "r");
+      let text = "";
+      try {
+        const size = fstatSync(fd).size;
+        const start = Math.max(0, size - 200 * 1024);
+        const buf = Buffer.alloc(Math.min(size, 200 * 1024));
+        readSync(fd, buf, 0, buf.length, start);
+        text = buf.toString("utf8");
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        const lines = text.split("\n").filter((l) => l.trim()).slice(-maxLines);
+        res.end(JSON.stringify({ ok: true, lines, sizeKb: Math.round(size / 1024) }));
+      } finally { closeSync(fd); }
     } catch {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, lines: [], sizeKb: 0 }));

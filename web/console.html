@@ -121,10 +121,10 @@
 
 <main>
   <div class="left">
-    <h2 class="sec">桌面预览 · 拖拽圆环移动，拖右下角缩放</h2>
+    <h2 class="sec">桌面预览 · 拖拽圆环移动，滚轮缩放大小</h2>
     <div class="prev-stage" id="prevStage">
       <iframe id="prevHalo" src="/haloflux/?preview=1" title="壁纸预览"></iframe>
-      <div class="ring-handle" id="ringHandle"><span class="knob" id="ringKnob"></span></div>
+      <div class="ring-handle" id="ringHandle"></div>
     </div>
     <div class="prev-meta">
       <span>圆环 <b id="ringMeta">—</b></span>
@@ -294,7 +294,7 @@ async function restart(target, btn) {
 }
 
 // ---------- 桌面预览：拖拽移动圆环 / 右下角缩放，实时写回 /ui ----------
-const STAGE = $("prevStage"), HANDLE = $("ringHandle"), KNOB = $("ringKnob"), PREV = $("prevHalo");
+const STAGE = $("prevStage"), HANDLE = $("ringHandle"), PREV = $("prevHalo");
 let ring = { x: 0.5, y: 0.5, scale: 0.30 };
 let ringUserTouched = false;   // 只有用户拖拽/重置过才回写，避免打开控制台就覆盖别人的配置
 let ringSaveTimer = 0;
@@ -330,22 +330,24 @@ function dragRing(ev) {
   ring = { ...ring, ...TDRing.fromMove(rect, ev.clientX, ev.clientY) };
   applyRing(true);
 }
-function pinchRing(ev) {
-  const rect = STAGE.getBoundingClientRect();
-  ring = { ...ring, scale: TDRing.fromResize(rect, ring, ev.clientX, ev.clientY) };
-  applyRing(true);
-}
 let dragMode = null;
 HANDLE.addEventListener("pointerdown", (e) => {
-  dragMode = e.target === KNOB ? "size" : "move";
+  dragMode = "move";
   HANDLE.setPointerCapture(e.pointerId);
   e.preventDefault();
 });
 HANDLE.addEventListener("pointermove", (e) => {
-  if (!dragMode) return;
-  dragMode === "size" ? pinchRing(e) : dragRing(e);
+  if (dragMode === "move") dragRing(e);
 });
 HANDLE.addEventListener("pointerup", () => { dragMode = null; });
+
+// 滚轮缩放：向上放大、向下缩小（指针位置不影响圆心）
+STAGE.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.0015);
+  ring = { ...ring, scale: TDRing.clampRing({ ...ring, scale: ring.scale * factor }).scale };
+  applyRing(true);
+}, { passive: false });
 $("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.30 }; applyRing(true); };
 
 // 预览 iframe 就绪后同步一次几何

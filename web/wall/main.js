@@ -190,6 +190,13 @@ let lastTextAt = 0, textSeq = 0;
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
 // 悬停：原生宿主转发全局鼠标位置 → 光环只判断「是否停在环带上」
+// 原生宿主做环带命中判定时，会 evaluateJavaScript("window.__tdGeomGet()")；
+// 这个函数定义在 halo iframe 里（td-bridge.js），壁纸页必须代理出来，
+// 否则宿主拿不到几何、命中判定退化成「永远在环上」→ 弹窗表现异常。
+window.__tdGeomGet = () => {
+  try { return halo.contentWindow?.__tdGeomGet ? halo.contentWindow.__tdGeomGet() : null; } catch { return null; }
+};
+
 window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
 addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
 // 点击穿透：原生宿主转发全局点击坐标 → 光环冲击波
@@ -348,8 +355,10 @@ setInterval(async () => {
       }
     }
     sendSourceLights();
+    const panelVisible = PANEL_ONLY || panel.classList.contains("show");
+    const needPanel = panelVisible || !!s.shot;
     const __p0 = performance.now();
-    renderPanel();
+    if (needPanel) renderPanel();
     panelMs = panelMs ? panelMs * 0.8 + (performance.now() - __p0) * 0.2 : (performance.now() - __p0);
     let haloState = {};
     try {
@@ -379,10 +388,10 @@ setInterval(async () => {
         tools: tools.slice(0, 3).map((t) => t.name),
         agentsShown: (agentsList || []).filter((a) => a.enabled !== false).length,
         panelShown: panel.classList.contains("show"),
-        panelRect: [panel.offsetWidth, panel.offsetHeight],
-        lineW: (textpane.querySelector(".tp-line") || {}).offsetWidth || 0,
-        rowW: (pnAgents.querySelector(".ag") || {}).offsetWidth || 0,
-        sparkRect: [spark.offsetWidth, spark.offsetHeight],
+        panelRect: needPanel ? [panel.offsetWidth, panel.offsetHeight] : null,
+        lineW: needPanel ? ((textpane.querySelector(".tp-line") || {}).offsetWidth || 0) : null,
+        rowW: needPanel ? ((pnAgents.querySelector(".ag") || {}).offsetWidth || 0) : null,
+        sparkRect: needPanel ? [spark.offsetWidth, spark.offsetHeight] : null,
         panelShotInfo: window.__panelShotInfo || null,
         panelMs: Math.round(panelMs * 100) / 100,
         build: PAGE_BUILD,

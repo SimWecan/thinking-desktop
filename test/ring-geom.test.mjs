@@ -9,7 +9,7 @@ import vm from "node:vm";
 const code = readFileSync(new URL("../web/lib/ring-geom.js", import.meta.url), "utf8");
 const sandbox = { window: {} };
 vm.runInNewContext(code, sandbox);
-const { base, clampRing, fromMove, fromResize, pixelRadius } = sandbox.window.TDRing;
+const { base, clampRing, fromMove, fromResize, pixelRadius, MIN_SCALE, MAX_SCALE } = sandbox.window.TDRing;
 const plain = (v) => JSON.parse(JSON.stringify(v));   // vm 沙箱对象跨 realm，先转普通对象再比较
 
 const rect = { left: 100, top: 50, width: 800, height: 450 };
@@ -35,6 +35,8 @@ test("缩放：按指针到圆心的像素距离换算 scale", () => {
 
 test("clampRing：越界与非法值回落", () => {
   assert.deepEqual(plain(clampRing({ x: -3, y: 9, scale: 99 })), { x: 0, y: 1, scale: 2.5 });
+  assert.equal(clampRing({ scale: 0.01 }).scale, MIN_SCALE);
+  assert.equal(MAX_SCALE, 2.5);
   assert.deepEqual(plain(clampRing({})), { x: 0, y: 0, scale: 0.3 });
 });
 
