@@ -32,16 +32,38 @@ server/index.mjs   入口：读环境变量 → app.start()（<20 行，不含�
 | `routes/*.mjs` | 一个域名一组端点（agents/debug/ingest/pages/snapshot/state/stream/system/test/texts/ui） | 不持有可变状态 |
 | `connectors.mjs` | 按本机安装情况装配 connector 列表（替代 v1 在 index 里的 6 段散装注册） | 连接器实现仍在 `connectors/` |
 
-## 前端结构（v2 目标，分切片落地）
+## 前端结构（v2，已落地）
 
 ```
 web/
-  wall/        壁纸宿主页：index.html + app/（SSE 客户端、右侧面板、光环桥接）
-  halo/        光环渲染器：js/ 按场景模块拆分（config/ring/slots/lights/texts/particles/ripple/standby/adaptive/bridge）
-  tray/        托盘：index.html + tray.css + tray.js + glyphs.js
-  ui/          TerraFin 设计系统：terafin.css（config/console 共用，消除两份重复样式）
-  lib/         纯函数共享逻辑（td-logic.js 风洞曲线等，服务端测试可直接引用）
+  index.html         壁纸宿主页外壳（style + DOM + 脚本引用，165 行）
+  wall/              壁纸编排层（经典脚本，共享全局作用域，按加载顺序）
+    text.js          思考文本缓冲、上环扁平化、滚动区渲染（81 行）
+    panel.js         右侧看板：曲线/agent/工具/上下文/迷你仪表 + 截图自检（217 行）
+    main.js          halo iframe 接线、待机·动态静默、SSE、1s 主循环、调试 HUD（384 行）
+  haloflux/          光环渲染器（上游 HALOFLUX 个人非商业二创，许可声明保留）
+    index.html       外壳：核心 CSS + stage DOM（46 行）
+    halo.js          光环本体：环带/网格/粒子/彗尾/节拍/自适应分辨率（1237 行）
+    td-bridge.js     TD 客制化桥：待机全停/动态静默/文本上环/多厂商光源/冲击波/悬停（566 行）
+    wp.js            Wallpaper Engine 兼容 shim（上游原样）
+  tray.html          托盘外壳（透明悬浮样式 + DOM，216 行）
+  tray/              托盘脚本
+    icons.js         厂商商标 + 内容层动效构建（鲸鱼腾跃/流星/四芒星…）（114 行）
+    main.js          形态切换 / 宿主高度上报 / 自检截图 / 1.5s 轮询（141 行）
+  config.html        配置页（外壳 + 页面级样式）
+  console.html       控制台窗口（外壳 + 页面级样式）
+  ui/terafin.css     TerraFin 黑白设计系统：色卡 + .svc/.ver/h2.sec/.btn 窗口件
+  lib/               纯函数共享逻辑（td-logic.js 风洞曲线 / panel.js 曲线绘制），服务端测试可直接引用
+  icon/              软件商标 + 厂商商标缓存回退
 ```
+
+前端模块化约定：
+- 外壳只留 style + DOM + `<script src>`；业务脚本一律外置。
+- 页面脚本按经典脚本加载（非 ES module），顶层 `let/const/function` 跨脚本共享——
+  加载顺序即依赖顺序（lib → 页面模块 → main），函数体内引用运行时解析。
+- `__DEBUG__` 只由服务端在 `/wall` HTML 里替换；外部 js 经外壳内联脚本透传
+  `window.__TD_DEBUG__`。
+- 页面差异样式（尺寸/间距）通过 CSS 变量覆盖，共享样式只有 `ui/terafin.css` 一份。
 
 ## 硬约束（任何改动不得破坏）
 
