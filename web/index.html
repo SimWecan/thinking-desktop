@@ -146,7 +146,7 @@
 <script>
 "use strict";
 const DEBUG = __DEBUG__;
-const PAGE_BUILD = "panel-6";   // 自检用：确认壁纸加载的是新页面
+const PAGE_BUILD = "panel-7";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", holdSec: 20, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
 const BUSY_HOLD = () => UI.holdSec * 1000;
 
@@ -185,13 +185,13 @@ let lastTextAt = 0, textSeq = 0;
 // 与 server/agents.mjs 的 VENDOR_PRESETS 保持一致——/agents 拉取失败时的兜底色
 // 也必须和注册表相同，否则粒子颜色会闪变
 const SOURCE_COLORS = {
-  "deepseek-harness": "#4D6BFE",
-  "kimi-desktop": "#2E9BFF",
-  "gemini-desktop": "#8AB4F8",
-  "chatgpt-desktop": "#10A37F",
+  "deepseek-harness": "#1E3A8A",  // 深蓝
+  "kimi-desktop": "#FFFFFF",      // 白
+  "gemini-desktop": "#7C6BF2",    // 蓝紫
+  "chatgpt-desktop": "#8B5CF6",   // 紫
+  "codex": "#8B5CF6",             // 紫
   "claude-desktop": "#D97757",
   "anthropic": "#D97757",
-  codex: "#8B5CF6",
 };
 const SRC_LABEL = {
   "deepseek-harness": "DSH",
