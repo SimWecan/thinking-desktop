@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { makeApi } from "./lib/http.mjs";
 
 const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -23,8 +24,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let TOKEN = process.env.TD_TOKEN || "";
 if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
-const api = (path, opts = {}) =>
-  fetch(`${BASE}${path}`, { ...opts, headers: { ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...(opts.headers || {}) } });
+const api = makeApi({ base: BASE, token: TOKEN });   // 自带 ECONNRESET 重试
 
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -124,28 +124,23 @@ try {
 } finally {
   // ---------- 还原真实数据 ----------
   console.log("\n▶ 还原：恢复 /stats 与 /texts，恢复真实连接器，重启壁纸宿主");
-  // 还原 POST 的响应偶发 ECONNRESET（服务端已处理但连接被重置），
-  // 因此这里容忍写失败，一律以 GET 回读校验为准。
-  const tryPost = (p, body) => api(p, { method: "POST", body: JSON.stringify(body) }).then((r) => r.ok).catch(() => false);
-  // 大 body POST 后 keep-alive 池里可能留下被重置的 socket，GET 需重试
-  const getJson = async (p, tries = 4) => {
-    for (let i = 0; i < tries; i++) {
-      try { return await (await api(p)).json(); } catch { await sleep(600); }
-    }
-    return null;
-  };
-  await tryPost("/stats", backup.stats);
-  await tryPost("/texts", backup.texts);
-  await tryPost("/test/resume", null);
+  // makeApi 自带 ECONNRESET 重试；还原 POST 是整段替换（幂等），重试安全。
+  // 顺序有讲究：先还原（清掉测试污染，回到暂停前状态），再 resume——
+  // 暂停期间缓冲的真实事件会在 resume 时回放，叠加在还原后的真实数据之上。
+  await api("/stats", { method: "POST", body: JSON.stringify(backup.stats) });
+  await api("/texts", { method: "POST", body: JSON.stringify(backup.texts) });
+  const resumed = await (await api("/test/resume", { method: "POST" })).json();
   const r = spawnSync("launchctl", ["kickstart", "-k", `gui/${process.getuid()}/com.simwecan.thinking-desktop-wallpaper`], { encoding: "utf8" });
   await sleep(800);
-  const after = await getJson("/stats");
-  const afterTexts = await getJson("/texts?limit=40");
-  // 还原后真实连接器立即恢复工作，事件数允许少量新增；文本墙不允许残留注入标记
+  const after = await (await api("/stats")).json();
+  const afterTexts = await (await api("/texts?limit=40")).json();
+  // 还原后暂停期间的真实事件被回放，事件数 = 注入前 + 回放数（允许连接器恢复后的少量新增）
+  const replayed = resumed?.replayed ?? 0;
   const statsOk = after?.totalEvents != null && backup.stats?.totalEvents != null &&
-    after.totalEvents >= backup.stats.totalEvents && after.totalEvents <= backup.stats.totalEvents + 5;
-  check("真实统计已还原（允许恢复后少量真实新增）", statsOk,
-    `今日事件 ${after?.totalEvents ?? "?"}（注入前 ${backup.stats?.totalEvents ?? "?"}）`);
+    after.totalEvents >= backup.stats.totalEvents &&
+    after.totalEvents <= backup.stats.totalEvents + replayed + 10;
+  check("真实统计已还原（含暂停期间回放的真实事件）", statsOk,
+    `今日事件 ${after?.totalEvents ?? "?"}（注入前 ${backup.stats?.totalEvents ?? "?"}，回放 ${replayed} 条）`);
   // 真实连接器会尾随本测试脚本自身的会话日志，其中含有标记字符串的源码原文；
   // 因此残留判定用「注入文本精确全等」而非子串匹配（源码模板带 ${} 未展开，不会误伤）。
   const INJECTED = new Set([
@@ -155,7 +150,7 @@ try {
   ]);
   check("文本墙无注入残留", !(afterTexts || []).some((x) => INJECTED.has((x.text || "").trim())),
     `文本墙 ${afterTexts?.length ?? "?"} 条`);
-  const stEnd = await getJson("/state");
+  const stEnd = await (await api("/state")).json();
   check("真实连接器已恢复", stEnd?.testPaused === false);
   check("壁纸宿主已重启", r.status === 0);
 }

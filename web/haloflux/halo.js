@@ -2,6 +2,10 @@ const TAU = Math.PI * 2, rnd = Math.random;
 const rr = (a, b) => a + rnd() * (b - a);
 const pick = a => a[(rnd() * a.length) | 0];
 const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
+// 极端几何（窗口塌缩到 0 宽高等）下渐变参数会算出非有限值，Canvas 直接抛错——统一兜底
+const fin = (v, d) => (Number.isFinite(v) ? v : d);
+const radial = (x, x0, y0, r0, x1, y1, r1) =>
+  x.createRadialGradient(fin(x0, 0), fin(y0, 0), Math.max(0, fin(r0, 0)), fin(x1, 0), fin(y1, 0), Math.max(0, fin(r1, 0)));
 // 预览模式（?preview=1，配置窗口的小窗实时预览用）：DPR 封顶 1 + 25fps 节流，
 // 与桌面壁纸的全速实例共存时不抢 GPU/合成器（整屏卡顿的根因修复）
 const PREVIEW = new URLSearchParams(location.search).has('preview');
@@ -266,7 +270,7 @@ function buildWeb() {
   all.forEach(c => c.x.translate(R + 2, R + 2));
   const b = webBase.x;
   b.beginPath(); b.arc(0, 0, R, 0, TAU);
-  const g = b.createRadialGradient(0, 0, R * 0.2, 0, 0, R);
+  const g = radial(b, 0, 0, R * 0.2, 0, 0, R);
   g.addColorStop(0, '#111215'); g.addColorStop(1, '#0c0d0f');
   b.fillStyle = g; b.fill();
   all.forEach(c => { c.x.save(); c.x.beginPath(); c.x.arc(0, 0, R, 0, TAU); c.x.clip(); });
@@ -407,7 +411,7 @@ function buildOuter() {
   wedges = strandLayers[2].wedges.concat(strandLayers[4].wedges);
   hazes = []; flares = [];
   GR = {};
-  const mkG = (stops, r1) => { const g = S.createRadialGradient(cx, cy, RO, cx, cy, r1); stops.forEach(s => g.addColorStop(s[0], s[1])); return g; };
+  const mkG = (stops, r1) => { const g = radial(S, cx, cy, RO, cx, cy, r1); stops.forEach(s => g.addColorStop(s[0], s[1])); return g; };
   GR.s0 = mkG([[0, 'rgba(248,248,255,1)'], [0.35, 'rgba(228,226,242,.8)'], [1, 'rgba(190,190,214,.3)']], RMAX * 0.95);
   GR.s2 = mkG([[0, 'rgba(225,245,242,1)'], [0.3, 'rgba(176,214,210,.8)'], [1, 'rgba(140,180,186,.3)']], RMAX * 0.95);
   GR.s1 = mkG([[0, 'rgba(240,236,255,1)'], [0.3, 'rgba(196,182,244,.82)'], [1, 'rgba(160,140,228,.3)']], RMAX * 0.95);
@@ -1005,7 +1009,7 @@ function drawStage(dt) {
   // ring occlusion: the web darkens toward the ring, separating the two planes
   if (C.ringShadow > 0) {
     if (!gradCache.sg) {
-      const sg = S.createRadialGradient(cx, cy, R - 110, cx, cy, R);
+      const sg = radial(S, cx, cy, R - 110, cx, cy, R);
       sg.addColorStop(0, 'rgba(4,5,6,0)'); sg.addColorStop(1, `rgba(4,5,6,${Math.min(1, 0.8 * C.ringShadow)})`);
       gradCache.sg = sg;
     }
@@ -1056,7 +1060,7 @@ function drawStage(dt) {
   // atmosphere: faint scattered light just beyond the ring
   if (C.atmos > 0) {
     if (!gradCache.ag) {
-      const ag = S.createRadialGradient(cx, cy, RO, cx, cy, RO + (RMAX - RO) * 0.7);
+      const ag = radial(S, cx, cy, RO, cx, cy, RO + (RMAX - RO) * 0.7);
       ag.addColorStop(0, `rgba(190,180,240,${Math.min(1, 0.07 * C.atmos)})`); ag.addColorStop(0.4, `rgba(150,145,210,${Math.min(1, 0.028 * C.atmos)})`); ag.addColorStop(1, 'rgba(0,0,0,0)');
       gradCache.ag = ag;
     }
@@ -1080,7 +1084,7 @@ function drawStage(dt) {
   if (C.vignette > 0) {
     S.setTransform(DPR, 0, 0, DPR, 0, 0);
     if (!gradCache.vg) {
-      const vg = S.createRadialGradient(W * 0.45, H * 0.5, Math.min(W, H) * 0.35, W * 0.45, H * 0.5, Math.hypot(W, H) * 0.62);
+      const vg = radial(S, W * 0.45, H * 0.5, Math.min(W, H) * 0.35, W * 0.45, H * 0.5, Math.hypot(W, H) * 0.62);
       vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.75 * C.vignette)})`);
       gradCache.vg = vg;
     }

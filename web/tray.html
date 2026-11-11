@@ -27,6 +27,10 @@
   }
   .icon:hover { opacity: .85; }
   .icon.think { opacity: 1; }
+  /* 状态分层：未接入（无检测通道）最暗；未运行（软件没开）次暗——与「 idle 静默」区分开 */
+  .icon.offline { opacity: .22; filter: grayscale(.7); }
+  .icon.offline:hover { opacity: .4; }
+  .icon.notrun { opacity: .34; }
   /* 只在商标边缘加一层外发光，不改变商标本身的颜色/形状 */
   .icon.think img.logo { filter: drop-shadow(0 0 6px var(--c, #fff)); }
   .icon.sel { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #fff) 70%, transparent); }

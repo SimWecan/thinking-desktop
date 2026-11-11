@@ -10,7 +10,7 @@ const TD_CLIENT = PARAMS.has("preview") ? "wall-preview" : PARAMS.has("panel") ?
 const PANEL_ONLY = PARAMS.has("panel");     // 弹出窗口：只渲染右侧看板
 const HOST_POPUP = PARAMS.has("hostpopup"); // 桌面壁纸：看板由原生弹窗负责，页内不再画
 const DEBUG = !!window.__TD_DEBUG__;
-const PAGE_BUILD = "wall-2";   // 自检用：确认壁纸加载的是新页面
+const PAGE_BUILD = "wall-3";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
 const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
@@ -56,123 +56,6 @@ function colorOf(source) {
   return (a && a.color) || SOURCE_COLORS[source] || "rgba(255,255,255,.55)";
 }
 
-// ---------------- 右侧看板 ----------------
-/** 速率曲线：面积 + 折线 + 末点高亮 */
-/* 未使用（agent 活跃度已改由 TDLogic.agentBars 计算，保留备查）
-function agentActivity(src) {
-  return bySource[src] || 0;
-}
-*/
-
-function renderPanel() {
-  pnRate.textContent = rate.toFixed(1);
-  miniRate.textContent = rate.toFixed(1);
-  pnView.textContent = view === "all" ? "ALL AGENTS" : (SRC_LABEL[view] || view).toUpperCase();
-
-  const accent = view === "all" ? "#ffffff" : colorOf(view);
-  drawSpark(spark, series, accent, { height: 54 });
-  drawSpark(miniSpark, series, accent, { height: 26 });
-
-  // agents
-  // 同一商标（ChatGPT / Codex）合并成一行，事件数相加
-  const grouped = new Map();
-  for (const a of (agentsList || []).filter((x) => x.enabled !== false)) {
-    const key = a.icon || a.source;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key).push(a);
-  }
-  const list = [...grouped.entries()]
-    .map(([key, g]) => {
-      const primary = g.find((a) => a.source === key) || g[0];
-      return {
-        ...primary,
-        source: key,
-        name: g.map((a) => a.name || a.source).join(" / "),
-        events: g.reduce((n, a) => n + (a.events || 0), 0),
-        thinking: g.some((a) => a.thinking),
-        agoMs: Math.min(...g.map((a) => (a.agoMs == null ? Infinity : a.agoMs))),
-      };
-    })
-    .filter((a) => view === "all" || a.source === view || (agentsList || []).some((x) => x.source === view && (x.icon || x.source) === a.source));
-  const bars = new Map(TDLogic.agentBars(list, "all").map((b) => [b.source, b.pct]));
-  pnAgents.innerHTML = "";
-  if (!list.length) pnAgents.innerHTML = `<div class="empty">未绑定 agent</div>`;
-  for (const a of list) {
-    /* const act = agentActivity(a.source); // 未使用：柱高改用 bars 预计算 */
-    const row = document.createElement("div");
-    row.className = "ag" + (a.thinking ? "" : " off");
-    row.style.color = a.color;
-    row.innerHTML =
-      `<span class="dot"></span>` +
-      `<span class="name">${a.name || a.source}</span>` +
-      `<canvas class="sp" data-src="${a.source}"></canvas>` +
-      `<span class="cnt">${a.events || 0}</span>` +
-      `<span class="age">${a.thinking ? "active" : fmtAgo(a.agoMs)}</span>`;
-    pnAgents.appendChild(row);
-  }
-  // 每个 agent 自己的 60s 曲线
-  pnAgents.querySelectorAll("canvas.sp").forEach((cv) => {
-    const src = cv.dataset.src;
-    drawSpark(cv, agentSeries[src] || [], colorOf(src), { height: 16, dense: true });
-  });
-
-  // stats 行
-  const enabled = (agentsList || []).filter((a) => a.enabled !== false).length;
-  document.getElementById("pn-stats").innerHTML =
-    `<span>EVENTS <b>${totalEvents}</b></span>` +
-    `<span>TOOLS <b>${tools.length}</b></span>` +
-    `<span>AGENTS <b>${enabled}</b></span>`;
-
-  // tools
-  const tmax = Math.max(1, ...tools.map((t) => t.count));
-  pnTools.innerHTML = tools.length ? "" : `<div class="empty">暂无工具调用</div>`;
-  for (const t of tools.slice(0, 5)) {
-    const row = document.createElement("div");
-    row.className = "tool";
-    row.innerHTML =
-      `<span class="tn">${t.name}</span><span class="tv">${t.count}</span>` +
-      `<span class="tb"><i style="width:${Math.round((t.count / tmax) * 100)}%"></i></span>`;
-    pnTools.appendChild(row);
-  }
-
-  // context：每个 agent 一行（模型 + 占用率）
-  pnCtx.innerHTML = "";
-  const ctxRows = list.filter((a) => tokens[a.source]);
-  if (!ctxRows.length) pnCtx.innerHTML = `<div class="empty">暂无上下文计量</div>`;
-  for (const a of ctxRows) {
-    const t = tokens[a.source];
-    const pct = Math.max(0, Math.min(1, Number(t.pct) || 0));
-    const row = document.createElement("div");
-    row.className = "crow";
-    row.style.color = a.color;
-    const usedTxt = t.used != null && t.window
-      ? `${Math.round(t.used / 1000)}k/${Math.round(t.window / 1000)}k`
-      : (t.model || "");
-    row.innerHTML =
-      `<span class="dot"></span>` +
-      `<span class="nm">${a.name || a.source}</span>` +
-      `<span class="md">${usedTxt}</span>` +
-      `<span class="pc">${(pct * 100).toFixed(0)}%</span>`;
-    pnCtx.appendChild(row);
-  }
-
-  // mini dots
-  const lit = (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status");
-  miniDots.innerHTML = lit.slice(0, 6).map((x) => `<span class="dot" style="background:${colorOf(x.source)}"></span>`).join("");
-}
-
-function syncPanel() {
-  if (HOST_POPUP) {                  // 桌面壁纸：交给原生弹窗，页内保持干净
-    panel.classList.remove("show");
-    mini.classList.remove("hide");
-    return;
-  }
-  const show = PANEL_ONLY || overRing || UI.panel === "always";
-  panel.classList.toggle("show", show);
-  mini.classList.toggle("hide", show);
-}
-
-const halo = document.getElementById("halo");
 // 每次加载都带时间戳，避免 WKWebView 用旧缓存的 halo 页面（改了前端却不生效的元凶）
 // preview=1 原样透传：配置窗口的小窗预览以低负载模式运行（DPR 封顶 + 25fps）
 if (!PANEL_ONLY) {
@@ -378,6 +261,7 @@ setInterval(async () => {
       const w = halo.contentWindow;
       haloState = {
         haloText: (w.__tdText || []).length,
+        fps: w.__tdLastFps ?? null,   // halo 采样窗实测帧率（与服务端 /health 的 perf.fps 对齐口径）
         ringText: !!w.__tdRingText,
         haloRaf: !!w.__tdRafOn,
         haloTextId: w.__tdTextId || 0,

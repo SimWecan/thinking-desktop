@@ -134,8 +134,16 @@ export function createStore({ root, fs: fsp }) {
     };
   }
 
+  const pausedQueue = [];            // 测试暂停期间缓冲的真实事件（resume 后回放，不丢数据）
+  const PAUSED_QUEUE_MAX = 500;      // 上限防长时间暂停导致内存膨胀（超出丢最旧）
+
   function pushEvent(event) {
-    if (flags.testPausedAt && !event.__test) return;   // 测试隔离：真实 agent 的活动不干扰 e2e
+    if (flags.testPausedAt && !event.__test) {
+      // 测试隔离：真实 agent 的活动不干扰测试画面，但事件不丢弃——缓冲待 resume 回放
+      if (pausedQueue.length >= PAUSED_QUEUE_MAX) pausedQueue.shift();
+      pausedQueue.push(event);
+      return;
+    }
     rolloverDay();
     if (!event.__test && (event.type === "status" || event.type === "token")) {
       const prev = lastQuietAt.get(event.source) || 0;
@@ -197,7 +205,7 @@ export function createStore({ root, fs: fsp }) {
   }
 
   /** /state 与 SSE hello 的完整快照（deps：agent 注册表与 UI 配置，由调用方注入） */
-  function state({ agents, ui }) {
+  function state({ agents, ui, presence }) {
     const now = Date.now();
     const window = events.filter((e) => now - e.ts < RATE_WINDOW_MS);
     const rate = (window.length / RATE_WINDOW_MS) * 1000; // 事件/秒
@@ -229,7 +237,7 @@ export function createStore({ root, fs: fsp }) {
       tokens: Object.fromEntries(tokenBySource),
       tools: [...toolCounts.values()].sort((a, b) => b.count - a.count).slice(0, 8).map((t) => ({ name: t.name, count: t.count })),
       totalEvents,
-      agents: agents.agents(sourceStats, now),
+      agents: agents.agents(sourceStats, now, presence),
       view: agents.view,
       ui,
     };
@@ -242,6 +250,13 @@ export function createStore({ root, fs: fsp }) {
     loadStats,
     saveStats,
     rolloverDay,
+    /** 恢复真实事件流：回放暂停期间缓冲的事件（须先清 testPausedAt 再调用） */
+    flushPaused() {
+      const q = pausedQueue.splice(0);
+      for (const e of q) pushEvent(e);
+      return q.length;
+    },
+    get pausedCount() { return pausedQueue.length; },
     /** 组合根注入：事件外发通道（接 stream-hub.broadcast） */
     setOnEvent(fn) { onEvent = fn; },
     flushOnExit() {   // SIGTERM：未落盘的统计立刻写一次

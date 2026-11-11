@@ -16,6 +16,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { makeApi } from "./lib/http.mjs";
 
 const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -24,8 +25,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let TOKEN = process.env.TD_TOKEN || "";
 if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
-const api = (path, opts = {}) =>
-  fetch(`${BASE}${path}`, { ...opts, headers: { ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...(opts.headers || {}) } });
+const api = makeApi({ base: BASE, token: TOKEN });   // 自带 ECONNRESET 重试
 
 /** 演示文本：明显带「演示」标记，不与真实思考混淆 */
 const SCRIPT = {
@@ -62,7 +62,8 @@ process.on("SIGINT", () => { stopped = true; });
 process.on("SIGTERM", () => { stopped = true; });
 
 async function post(source, type, payload) {
-  const res = await api("/ingest", { method: "POST", body: JSON.stringify({ source, type, payload }) });
+  // ?test：演示事件带 __test 标记——暂停真实连接器期间只有演示事件能进入画面
+  const res = await api("/ingest?test", { method: "POST", body: JSON.stringify({ source, type, payload }) });
   if (!res.ok) throw new Error(`ingest ${source} ${type} → ${res.status}`);
 }
 
@@ -91,7 +92,8 @@ console.log(`演示模式 → ${BASE}`);
 console.log(`持续 ${MINUTES} 分钟（Ctrl+C 提前结束）；真实统计与文本墙已备份，结束后自动还原并重启壁纸。`);
 
 const before = await snapshotState();
-console.log(`备份完成：今日 ${before ?? "?"} 个真实事件 / 文本墙 ${backup.texts?.length ?? 0} 条。`);
+await api("/test/pause", { method: "POST" });   // 真实事件改为缓冲，演示期间不混入真实数据
+console.log(`备份完成：今日 ${before ?? "?"} 个真实事件 / 文本墙 ${backup.texts?.length ?? 0} 条；真实连接器已暂停（事件缓冲不丢失）。`);
 
 let i = 0;
 try {
@@ -118,8 +120,9 @@ try {
 } finally {
   console.log("\n演示结束，正在还原真实数据…");
   await restoreState();
+  const resumed = await (await api("/test/resume", { method: "POST" })).json();   // 回放暂停期间的真实事件
   const restarted = await restartWallpaper();
   const after = await (await api("/stats")).json().catch(() => null);
-  console.log(`已还原：今日事件 ${after?.totalEvents ?? "?"} 个（演示前 ${before ?? "?"}）· 文本墙 ${(await (await api("/texts?limit=40")).json()).length} 条`);
+  console.log(`已还原：今日事件 ${after?.totalEvents ?? "?"} 个（演示前 ${before ?? "?"}，暂停期间真实回放 ${resumed?.replayed ?? 0} 条）· 文本墙 ${(await (await api("/texts?limit=40")).json()).length} 条`);
   console.log(restarted ? "壁纸宿主已重启，环带从真实数据重新填充。" : "⚠ 壁纸宿主重启失败，请手动重启以清掉内存中的演示文本。");
 }

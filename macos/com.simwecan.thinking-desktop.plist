@@ -8,6 +8,8 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/node</string>
+    <!-- 堆上限 256MB：实测常态堆 ~30MB，约束 V8 高水位（RSS 曾到 170MB+），超限时及早 GC 而非膨胀 -->
+    <string>--max-old-space-size=256</string>
     <string>__ROOT__/server/index.mjs</string>
   </array>
 

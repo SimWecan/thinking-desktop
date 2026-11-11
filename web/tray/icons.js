@@ -80,11 +80,16 @@ function build() {
       icons.set(key, el);
     }
     el.style.setProperty("--c", primary.color);
+    // 状态分层：思考中 > 未接入（无检测通道）> 未运行（进程探测器确认软件没开）> 静态
+    const offline = list.every((a) => a.connected === false);
+    const notrun = !offline && !thinking && list.every((a) => a.running === false);
     el.classList.toggle("think", thinking);
+    el.classList.toggle("offline", offline);
+    el.classList.toggle("notrun", notrun);
     el.classList.toggle("hidden", !expanded);
     el.classList.toggle("sel", list.some((a) => a.source === view));
     const names = list.map((a) => a.name || a.source).join(" / ");
-    el.title = names + (thinking ? " · 思考中" : "") + (list.some((a) => a.source === view) ? " · 当前形态" : "");
+    el.title = names + (thinking ? " · 思考中" : offline ? " · 未接入检测通道" : notrun ? " · 未运行" : "") + (list.some((a) => a.source === view) ? " · 当前形态" : "");
   }
 
   const solo = view !== "all" ? agents.find((x) => x.source === view) : null;

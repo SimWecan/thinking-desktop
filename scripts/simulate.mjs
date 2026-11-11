@@ -13,6 +13,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fetchRetry } from "./lib/http.mjs";
 
 const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -21,7 +22,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 let TOKEN = process.env.TD_TOKEN || "";
 if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
 const authHeaders = (extra = {}) => ({ ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...extra });
-const api = (path, opts = {}) => fetch(`${BASE}${path}`, { ...opts, headers: authHeaders(opts.headers) });
+const api = (path, opts = {}) => fetchRetry(`${BASE}${path}`, { ...opts, headers: authHeaders(opts.headers) });
 const OUT = process.env.SIM_OUT || "/tmp/td-sim";
 const SECONDS = Number(process.env.SIM_SECONDS || 5);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -59,18 +59,28 @@ export function detectInstalled() {
   return out;
 }
 
+/** 从连接器数组收集「进程是否在运行」状态（仅进程类连接器暴露 running；其余来源为 null=未知） */
+export function collectPresence(connectors) {
+  const out = {};
+  for (const c of connectors || []) {
+    if (c.running !== undefined && c.running !== null) out[c.source] = c.running;
+  }
+  return out;
+}
+
 export class AgentRegistry {
   constructor(root) {
     this.file = join(root, "config", "agents.json");
     this.view = "all";
     this.bindings = {};
+    this.connectedSources = null;   // 组合根注入后非空
     try {
       this.bindings = JSON.parse(readFileSync(this.file, "utf8"));
     } catch { /* 首次运行 */ }
   }
 
   /** 绑定/解绑/改色/改名 */
-  update(source, { enabled, color, name, path } = {}) {
+  update(source, { enabled, color, name, path } = {}, presence = null) {
     const cur = this.bindings[source] ?? {};
     if (enabled !== undefined) cur.enabled = !!enabled;
     if (color) cur.color = color;
@@ -82,8 +92,11 @@ export class AgentRegistry {
     }
     this.bindings[source] = cur;
     this._save();
-    return this.agents();
+    return this.agents(undefined, Date.now(), presence);
   }
+
+  /** 组合根注入：有连接器接入的来源集合（没有的来源在 UI 标注「未接入」） */
+  setConnectedSources(list) { this.connectedSources = new Set(list); }
 
   setView(agent) { this.view = agent || "all"; return this.view; }
 
@@ -98,8 +111,9 @@ export class AgentRegistry {
    * 全量列表：预设 + 安装 + 绑定 + 实时状态
    * @param {Map} sourceStats 服务端来源统计
    * @param {number} now
+   * @param {Object<string,boolean>} [presence] 进程运行状态（collectPresence 的产物）
    */
-  agents(sourceStats, now = Date.now()) {
+  agents(sourceStats, now = Date.now(), presence = null) {
     const installed = detectInstalled();
     return Object.entries(VENDOR_PRESETS).map(([source, p]) => {
       const b = this.bindings[source] ?? {};
@@ -113,6 +127,9 @@ export class AgentRegistry {
         color: b.color ?? p.color,
         anim: p.anim,
         installed: !!installed[source],
+        // 未接线时（单元测试等）视为已接入，避免误标
+        connected: this.connectedSources ? this.connectedSources.has(source) : true,
+        running: presence?.[source] ?? null,   // null=无进程探测器或尚未探测
         enabled: b.enabled === undefined ? !!installed[source] : !!b.enabled, // 默认绑定已安装的
         thinking: now - lastReal < 20000,
         events: st?.events ?? 0,

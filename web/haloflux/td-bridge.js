@@ -233,7 +233,7 @@
   }
   window.__tdHoverRing = false;
   window.__tdTextPaints = 0;   // 自检：环带文本实际重绘次数
-  window.__tdHaloBuild = "halo-6";
+  window.__tdHaloBuild = "halo-7";
   // 自检用几何：确认环心/半径与命中判定一致（父页面会把它带进 /debug 遥测）
   window.__tdGeomGet = () => ({
     cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),

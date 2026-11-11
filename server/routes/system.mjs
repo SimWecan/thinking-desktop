@@ -4,6 +4,7 @@ import os from "node:os";
 import { readFileSync, existsSync, openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { psStats } from "../../connectors/ps-sample.mjs";
+import { collectPresence } from "../agents.mjs";
 
 export function register(router, ctx) {
   const { store, connectors, zstdAvailable, root } = ctx;
@@ -61,7 +62,7 @@ export function register(router, ctx) {
 
   // 自检：每个 AI 桌面端的连接方式 + 最后一次真实事件（区分「注册了」和「真的接到数据」）
   router.add("GET", "/health", ({ res }) => {
-    const sources = store.state({ agents: ctx.agents, ui: ctx.ui.get() }).sources;
+    const sources = store.state({ agents: ctx.agents, ui: ctx.ui.get(), presence: collectPresence(ctx.connectors) }).sources;
     const byName = new Map();
     for (const c of connectors) {
       const e = byName.get(c.source) ?? { source: c.source, kinds: [], targets: [], events: 0, lastType: null, agoMs: null };

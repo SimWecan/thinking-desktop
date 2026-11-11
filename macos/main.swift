@@ -69,6 +69,7 @@ func axWindowText(bundleId: String) -> String {
 
 var axLast: [String: String] = [:]
 var axTrustLogged: Bool?
+var axPrompted = false
 let axTargets: [(source: String, bundle: String)] = [
     ("gemini-desktop", "com.google.GeminiMacOS"),
     ("chatgpt-desktop", "com.openai.codex"),
@@ -76,6 +77,14 @@ let axTargets: [(source: String, bundle: String)] = [
 
 func axPoll() {
     let trusted = AXIsProcessTrusted()
+    if !trusted && !axPrompted {
+        // 未授权时弹一次系统授权对话框：它会把「Thinking Desktop Wallpaper」直接加进辅助功能列表，
+        // 比让用户自己去列表里找 .app 更可靠
+        axPrompted = true
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(opts)
+        hoverLogLine("ax prompt shown")
+    }
     if axTrustLogged != trusted {
         axTrustLogged = trusted
         hoverLogLine("ax trusted=\(trusted)")

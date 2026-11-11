@@ -157,7 +157,11 @@ export class KimiWireConnector extends Connector {
   }
 
   _clean(raw) {
-    const s = String(raw ?? "").replace(/\s+/g, " ").trim();
+    // 系统提示块（<system-reminder> 等）是运行时注入给模型的指令，不是思考内容——整段剔除后再上墙
+    const s = String(raw ?? "")
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, " ")
+      .replace(/<system-reminder>[\s\S]*$/g, " ")   // 未闭合的残段（截流中途）同样剔除
+      .replace(/\s+/g, " ").trim();
     return s.length > 4000 ? `${s.slice(0, 4000)} …` : s;
   }
 

@@ -7,8 +7,11 @@ export function register(router, ctx) {
     res.writeHead(200).end("paused");
   });
   router.add("POST", "/test/resume", ({ res }) => {
+    const replayed = ctx.store.pausedCount;
     flags.testPausedAt = 0;
-    res.writeHead(200).end("resumed");
+    const n = ctx.store.flushPaused();   // 回放暂停期间缓冲的真实事件
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ resumed: true, replayed: n ?? replayed }));
   });
   router.add("GET", "/selftest", ({ res, query }) => {
     if (query.has("popup")) { flags.testPopupAt = Date.now(); res.writeHead(200, { "Content-Type": "text/plain" }).end("popup"); return; }

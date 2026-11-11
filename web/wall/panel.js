@@ -1,7 +1,7 @@
 /**
  * wall/panel.js — 右侧看板：速率曲线 / agent 行 / 工具分布 / 上下文计量 / 迷你仪表
  * 依赖（运行时共享）：TDPanel、TDLogic、rate/series/view/agentsList/tools/tokens/
- * agentSeries/totalEvents/sources（main.js）、colorOf（text.js）、
+ * agentSeries/totalEvents/sources（main.js）、colorOf（main.js）、
  * PANEL_ONLY/HOST_POPUP/TD_CLIENT/halo（main.js）、store.flags（经 /state）
  */
 "use strict";
@@ -82,7 +82,7 @@ function renderPanel() {
   const enabled = (agentsList || []).filter((a) => a.enabled !== false).length;
   document.getElementById("pn-stats").innerHTML =
     `<span>EVENTS <b>${totalEvents}</b></span>` +
-    `<span>TOOLS <b>${tools.length}</b></span>` +
+    `<span>TOOLS·今日 <b>${tools.length}</b></span>` +   // 口径：今日累计（byType 才是 60s 窗口）
     `<span>AGENTS <b>${enabled}</b></span>`;
 
   // tools

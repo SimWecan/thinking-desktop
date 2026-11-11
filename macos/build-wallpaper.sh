@@ -16,7 +16,7 @@ if [ -x "$BIN" ] && [ "$BIN" -nt "$SRC" ]; then
 else
   echo "编译 wallpaper 宿主…"
   swiftc -O "$SRC" -o "$BIN"
-  echo "完成: $APP（二进制已变化，AX 授权需要移除后重新添加）"
+  echo "完成: ${APP}（二进制已变化，AX 授权需要移除后重新添加）"
 fi
 # 资源/plist 每次都同步（不改变二进制指纹）
 cp "$ROOT/macos/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"

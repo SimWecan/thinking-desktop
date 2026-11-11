@@ -18,6 +18,7 @@ import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { fetchRetry } from "./lib/http.mjs";
 
 const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -29,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let TOKEN = process.env.TD_TOKEN || "";
 if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
 const api = (path, opts = {}) =>
-  fetch(`${BASE}${path}`, { ...opts, headers: { ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...(opts.headers || {}) } });
+  fetchRetry(`${BASE}${path}`, { ...opts, headers: { ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...(opts.headers || {}) } });
 
 /** 注入文本：明显带「测试」标记，不与真实思考混淆 */
 const SCRIPT = {

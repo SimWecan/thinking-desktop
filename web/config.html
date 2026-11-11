@@ -69,6 +69,7 @@
   .agent .nm small { color: var(--faint); margin-left: 10px; font-size: 10px; letter-spacing: 1px; }
   .agent .st { color: var(--dim); font-size: 11px; margin-top: 3px; }
   .agent .st .live { color: var(--paper); }
+  .agent .st .off { color: var(--dim); opacity: .75; font-style: italic; }
   .chans { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
   .chip {
     border: 1px solid var(--line); color: var(--dim); font-size: 10px;
@@ -251,6 +252,8 @@ async function load() {
         <div class="nm"><b>${a.name}</b><small>${a.source}</small></div>
         <div class="st">${
           a.thinking ? `<span class="live">● 思考中</span>` :
+          !a.connected ? `已安装 · <span class="off">未接入检测通道</span>` :
+          a.running === false ? `已安装 · <span class="off">未运行</span>` :
           a.installed ? `已安装${hsrc?.events ? ` · ${hsrc.events} 事件 · 最后活动 ${fmtAgo(hsrc.agoMs)}` : ""}` :
           "未安装"
         }</div>

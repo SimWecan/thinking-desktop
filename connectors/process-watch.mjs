@@ -20,6 +20,9 @@ export class ProcessWatchConnector extends Connector {
     this._running = null; // null=未知
   }
 
+  /** 进程是否在运行（null=尚未探测到）；UI 据此区分「没在思考」和「软件没开」 */
+  get running() { return this._running; }
+
   start() {
     setInterval(() => this._check(), this.intervalMs);
     this._check();
