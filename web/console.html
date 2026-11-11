@@ -141,6 +141,14 @@
       <button class="btn ghost" id="openConfig">打开完整配置</button>
     </div>
     <div class="note" id="restartMsg">重启服务让服务端改动生效；重启壁纸会清空渲染内存</div>
+
+    <h2 class="sec">系统集成</h2>
+    <div class="ops">
+      <span class="note" id="axState" style="margin:0">AX 读屏：检测中…</span>
+      <button class="btn ghost" id="axGrant">去授权</button>
+      <button class="btn ghost" id="axCheck">重新检测</button>
+    </div>
+    <div class="note">授权后 Gemini / ChatGPT 等不落盘日志的桌面端也能读到真实文本；未授权时只显示工作强度。</div>
   </div>
 
   <div class="right">
@@ -177,6 +185,23 @@ function fmtAgo(ms) {
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m 前`;
   return `${Math.round(ms / 3_600_000)}h 前`;
 }
+
+async function pollAx() {
+  try {
+    const r = await fetch("/ax", { cache: "no-store" });
+    const d = await r.json();
+    const el = $("axState");
+    if (d.available === false) el.textContent = "AX 读屏：未编译 bin/axread（运行 macos/build-axread.sh）";
+    else if (d.error) el.textContent = "AX 读屏：检测失败（" + d.error + "）";
+    else if (d.trusted) el.textContent = "AX 读屏：已授权 · 可读取闭源端文本";
+    else el.textContent = "AX 读屏：未授权 · 闭源端只有工作强度";
+  } catch { $("axState").textContent = "AX 读屏：服务不可达"; }
+}
+
+$("axCheck").onclick = pollAx;
+$("axGrant").onclick = () => { location.href = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"; };
+pollAx();
+setInterval(pollAx, 15000);
 
 async function poll() {
   try {

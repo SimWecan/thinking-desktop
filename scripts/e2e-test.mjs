@@ -58,9 +58,21 @@ function check(phase, name, ok, detail = "") {
 }
 
 async function post(source, type, payload) {
-  const res = await api("/ingest", { method: "POST", body: JSON.stringify({ source, type, payload }) });
+  const res = await api("/ingest?test=1", { method: "POST", body: JSON.stringify({ source, type, payload }) });
   if (!res.ok) throw new Error(`ingest ${source} ${type} → ${res.status}`);
 }
+/** 等壁纸页真正连上（SSE 重连后才有遥测），避免刚重启就开始取样 */
+async function waitWallReady(timeoutMs = 20000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    const d = await api("/debug").then((r) => r.json()).catch(() => ({}));
+    const w = d.clients?.wall;
+    if (w && w.build && w.at && Date.now() - w.at < 4000) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
 async function setView(agent) {
   const res = await api("/view", { method: "POST", body: JSON.stringify({ agent }) });
   if (!res.ok) throw new Error(`/view → ${res.status}`);
@@ -148,6 +160,10 @@ console.log(`已备份：今日 ${backup.stats?.totalEvents ?? "?"} 事件 / 文
 console.log("重启服务（停用真实连接器）…");
 await restartServer(true);
 await sleep(1500);   // 等壁纸页 SSE 重连 + hello 状态
+
+// 双保险：即使「停用连接器」没生效，也把真实事件挡在门外（测试结束在 finally 里恢复）
+await api("/test/pause", { method: "POST" }).catch(() => {});
+await waitWallReady();
 
 try {
   // ---------- P0 基础设施端点（回归：/version 曾引用未定义变量，一请求就崩服务） ----------
@@ -249,9 +265,12 @@ try {
     // calm 到 1 后再等一拍：standby 冻结光环（rAF 退出）有至多 1 个遥测周期的延迟
     await sleep(2500);
     w = await wall();
-    const rising = rows.every((r, i) => i === 0 || r.calm >= rows[i - 1].calm - 0.05);
+    // 只在「空闲时长确实在增长」的采样之间要求单调；若有事件插进来（idle 变小），
+    // 那是被真实活动重置了，不属于减速曲线本身的问题
+    const rising = rows.every((r, i) =>
+      i === 0 || r.idle <= rows[i - 1].idle || r.calm >= rows[i - 1].calm - 0.05);
     check("P4", "calm 单调爬升（渐进减速，非硬停）", rows.length >= 3 && rising && rows[rows.length - 1].calm >= 1,
-      `从 ${rows[0]?.calm} → ${rows[rows.length - 1]?.calm}`);
+      rows.map((r) => r.calm).join("→"));
     check("P4", "到点完全静默（idle + rAF 退出）", w.calm >= 1 && w.idle === true && w.haloRaf === false,
       `calm=${w.calm} idle=${w.idle} rAF=${w.haloRaf}`);
     check("P4", "无来源点亮", (w.lights || []).length === 0);
@@ -273,6 +292,7 @@ try {
   }
 } finally {
   console.log("\n还原真实数据与服务…");
+  await api("/test/resume", { method: "POST" }).catch(() => {});
   await restoreState();
   await restartServer(false);
   await restartWallpaper();

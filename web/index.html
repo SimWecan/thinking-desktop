@@ -13,7 +13,8 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #08090b; }
   /* 弹出窗口模式：透明底、只留看板 */
-  body.panel-only { background: transparent; }
+  html.panel-only, body.panel-only { background: transparent !important; }
+  body.panel-only #panel { backdrop-filter: none; }
   body.panel-only #halo, body.panel-only #mini, body.panel-only #hud { display: none; }
   body.panel-only #panel {
     position: fixed; inset: 0; width: auto; max-height: none; transform: none; opacity: 1;
@@ -152,8 +153,10 @@
 <div id="hud"></div>
 
 <script src="/lib/td-logic.js"></script>
+<script src="/lib/panel.js"></script>
 <script>
 "use strict";
+const { sizeCanvas, drawSpark, hexA, fmtAgo } = window.TDPanel;
 // 预览实例（?preview=1）用独立遥测 key，避免覆盖壁纸宿主的 debug 记录
 const PARAMS = new URLSearchParams(location.search);
 const TD_CLIENT = PARAMS.has("preview") ? "wall-preview" : PARAMS.has("panel") ? "wall-panel" : "wall";
@@ -164,7 +167,11 @@ const PAGE_BUILD = "panel-7";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
 const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
-if (PANEL_ONLY) document.body.classList.add("panel-only");
+if (PANEL_ONLY) {
+  document.documentElement.classList.add("panel-only");
+  document.body.classList.add("panel-only");
+  document.documentElement.style.background = "transparent";
+}
 const hud = document.getElementById("hud");
 const panel = document.getElementById("panel");
 const mini = document.getElementById("mini");
@@ -287,71 +294,7 @@ function colorOf(source) {
 }
 
 // ---------------- 右侧看板 ----------------
-function sizeCanvas(cv, h) {
-  const dpr = Math.min(devicePixelRatio || 1, 2);
-  const w = cv.clientWidth || cv.parentElement.clientWidth || 200;
-  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
-    cv.width = Math.round(w * dpr);
-    cv.height = Math.round(h * dpr);
-    cv.style.height = h + "px";
-  }
-  return dpr;
-}
-
 /** 速率曲线：面积 + 折线 + 末点高亮 */
-function drawSpark(cv, data, color, opts = {}) {
-  if (!cv || !cv.isConnected) return;
-  const dense = !!opts.dense;
-  const h = opts.height || 54;
-  const dpr = sizeCanvas(cv, h);
-  const w = cv.width / dpr;
-  const x = cv.getContext("2d");
-  x.setTransform(dpr, 0, 0, dpr, 0, 0);
-  x.clearRect(0, 0, w, h);
-  if (!data.length) return;
-  const max = Math.max(1, ...data);
-  const step = w / Math.max(1, data.length - 1);
-  const y = (v) => h - 4 - (v / max) * (h - 8);
-
-  // 基线
-  x.strokeStyle = dense ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.08)";
-  x.lineWidth = 1;
-  x.beginPath(); x.moveTo(0, h - 3.5); x.lineTo(w, h - 3.5); x.stroke();
-
-  // 面积
-  const grad = x.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, hexA(color, 0.34));
-  grad.addColorStop(1, hexA(color, 0.02));
-  x.beginPath();
-  x.moveTo(0, h - 3.5);
-  data.forEach((v, i) => x.lineTo(i * step, y(v)));
-  x.lineTo(w, h - 3.5);
-  x.closePath();
-  x.fillStyle = grad;
-  x.fill();
-
-  // 折线
-  x.beginPath();
-  data.forEach((v, i) => (i ? x.lineTo(i * step, y(v)) : x.moveTo(0, y(v))));
-  x.strokeStyle = hexA(color, dense ? 0.85 : 0.92);
-  x.lineWidth = dense ? 1 : 1.2;
-  x.stroke();
-
-  if (!dense) {
-    // 末点
-    const lastV = data[data.length - 1];
-    x.beginPath(); x.arc(w - 1, y(lastV), 2.2, 0, Math.PI * 2);
-    x.fillStyle = hexA(color, 1); x.fill();
-  }
-}
-
-function hexA(color, a) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(color || ""));
-  if (!m) return `rgba(255,255,255,${a})`;
-  const n = parseInt(m[1], 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-}
-
 /* 未使用（agent 活跃度已改由 TDLogic.agentBars 计算，保留备查）
 function agentActivity(src) {
   return bySource[src] || 0;
@@ -466,14 +409,6 @@ function syncPanel() {
   mini.classList.toggle("hide", show);
 }
 
-function fmtAgo(ms) {
-  if (!Number.isFinite(ms)) return "—";
-  if (ms < 1000) return "刚刚";
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
-  return `${Math.round(ms / 3_600_000)}h`;
-}
-
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
 
 // 悬停：原生宿主转发全局鼠标位置 → 光环只判断「是否停在环带上」
@@ -564,6 +499,9 @@ function sendSourceLights() {
 
 /** 把右侧看板（DOM）渲染成图片：外框 + canvas 图表一起，用于没有录屏权限的自检 */
 async function panelShot() {
+  // hostpopup 模式下页内看板是隐藏的：截图时临时显示，截完还原
+  const forced = !panel.classList.contains("show");
+  if (forced) panel.classList.add("show");
   try {
     const rect = panel.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
@@ -610,6 +548,8 @@ async function panelShot() {
     return cv.toDataURL("image/png");
   } catch (e) {
     return null;
+  } finally {
+    if (forced) panel.classList.remove("show");
   }
 }
 
@@ -618,6 +558,12 @@ let lastShotAt = 0, lastTestClick = 0, lastTestPopup = 0;
 async function captureShot() {
   if (Date.now() - lastShotAt < 1500) return;
   lastShotAt = Date.now();
+  // 弹窗页没有光环，只负责把看板截给 /snapshot
+  if (PANEL_ONLY) {
+    const only = await panelShot();
+    if (only) fetch("/snapshot", { method: "POST", body: JSON.stringify({ client: TD_CLIENT, panel: only }) }).catch(() => {});
+    return;
+  }
   try {
     const w = halo.contentWindow;
     const png = w.__tdSnapshot && w.__tdSnapshot();
@@ -625,8 +571,8 @@ async function captureShot() {
     const lights = w.__tdLightsShot && w.__tdLightsShot();
     const ripple = w.__tdRippleShot && w.__tdRippleShot();
     const chart = spark && spark.toDataURL ? spark.toDataURL("image/png") : null;
-    const panelPng = await panelShot();
-    if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ png, slot, lights, chart, panel: panelPng, ripple }) }).catch(() => {});
+    const panelPng = HOST_POPUP ? null : await panelShot();   // 壁纸页不画看板，别用空图覆盖弹窗页的截图
+    if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ client: TD_CLIENT, png, slot, lights, chart, panel: panelPng, ripple }) }).catch(() => {});
   } catch (err) {
     haloError = String((err && err.message) || err);
   }

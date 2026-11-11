@@ -13,6 +13,16 @@ let CONSOLE_URL = "http://127.0.0.1:7799/console"
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
+// 单实例：重复双击只把已有窗口提到前台，不再开第二个控制台
+if let bid = Bundle.main.bundleIdentifier {
+    let others = NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+        .filter { $0.processIdentifier != getpid() }
+    if let first = others.first {
+        first.activate(options: [.activateAllWindows])
+        exit(0)
+    }
+}
+
 final class ConsoleWindowDelegate: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         NSApp.terminate(nil)

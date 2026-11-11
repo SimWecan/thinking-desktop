@@ -31,6 +31,16 @@ do {
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // 无 Dock 图标，不占焦点
 
+// 单实例：同 bundle id 已在运行就激活它并退出，避免双壁纸互相抢层级
+if let bid = Bundle.main.bundleIdentifier {
+    let others = NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+        .filter { $0.processIdentifier != getpid() }
+    if let first = others.first {
+        first.activate(options: [])
+        exit(0)
+    }
+}
+
 final class WallpaperWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -40,9 +50,58 @@ final class WallpaperWindow: NSWindow {
 var hoverPanel: NSPanel?
 let hoverLog = URL(fileURLWithPath: "/Users/sim/Documents/MCPServer/repo/Thinking Desktop/logs/hover.log")
 func hoverLogLine(_ s: String) {
+    // 超过 256KB 轮转一份，避免长期悬停把日志撑大
+    if let sz = try? FileManager.default.attributesOfItem(atPath: hoverLog.path)[.size] as? Int, sz > 256 * 1024 {
+        let old = hoverLog.deletingPathExtension().appendingPathExtension("log.1")
+        try? FileManager.default.removeItem(at: old)
+        try? FileManager.default.moveItem(at: hoverLog, to: old)
+    }
     let line = "\(Date()) \(s)\n"
     if let h = try? FileHandle(forWritingTo: hoverLog) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close() }
     else { try? line.data(using: .utf8)?.write(to: hoverLog) }
+}
+
+// 悬停意图：离开环带后延迟收起；光标若已移到弹窗上就保持，移开再收
+var hoverHideWork: DispatchWorkItem?
+
+func ringBoundsScreen() -> NSRect? {
+    let mouse = NSEvent.mouseLocation
+    for win in windows {
+        guard win.frame.contains(mouse), let v = win.contentView as? WallpaperView, let g = v.geom else { continue }
+        let cx = win.frame.origin.x + g.cx
+        let cy = win.frame.origin.y + win.frame.height - g.cy
+        let rad = g.ro * g.z
+        return NSRect(x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2)
+    }
+    return nil
+}
+
+var hoverLeftAt: Date?
+
+func scheduleHideHoverPanel(_ delay: TimeInterval = 0.5) {
+    hoverHideWork?.cancel()
+    let work = DispatchWorkItem {
+        hoverHideWork = nil
+        guard let p = hoverPanel, p.isVisible else { return }
+        let inside = p.frame.contains(NSEvent.mouseLocation)
+        let since = Date().timeIntervalSince(hoverLeftAt ?? Date())
+        // 光标移到弹窗上：最多再留 3 秒，到点必收（之前会一直挂着）
+        if inside && since < 3.0 {
+            scheduleHideHoverPanel(3.0 - since)
+            return
+        }
+        hideHoverPanel()
+    }
+    hoverHideWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+}
+
+func hoverTick() {
+    guard let p = hoverPanel, p.isVisible else { return }
+    if p.frame.contains(NSEvent.mouseLocation) { return }   // 交给 3s 上限处理
+    var onRing = false
+    for win in windows where (win.contentView as? WallpaperView)?.hoverRing == true { onRing = true }
+    if !onRing { scheduleHideHoverPanel(0.25) }
 }
 
 func hoverPanelScreen() -> NSScreen {
@@ -53,8 +112,13 @@ func hoverPanelScreen() -> NSScreen {
 func positionHoverPanel(_ panel: NSPanel) {
     let vf = hoverPanelScreen().visibleFrame
     let s = panel.frame.size
-    // 贴在环带那侧的右下：右侧留 24，垂直居中偏下
-    panel.setFrame(NSRect(x: vf.maxX - s.width - 24, y: vf.midY - s.height * 0.45, width: s.width, height: s.height), display: false)
+    let ring = ringBoundsScreen()
+    // 默认贴右；若会和环带重叠就换到左侧，避免挡住正在看的环
+    var x = vf.maxX - s.width - 24
+    if let rb = ring, rb.maxX + 16 > x { x = vf.minX + 24 }
+    let centerY = ring?.midY ?? vf.midY
+    let y = min(max(vf.minY + 20, centerY - s.height / 2), vf.maxY - s.height - 20)
+    panel.setFrame(NSRect(x: x, y: y, width: s.width, height: s.height), display: false)
 }
 
 func makeHoverPanel() -> NSPanel {
@@ -75,6 +139,7 @@ func makeHoverPanel() -> NSPanel {
     let wv = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: cfg)
     wv.autoresizingMask = [.width, .height]
     wv.setValue(false, forKey: "drawsBackground")
+    if #available(macOS 12.0, *) { wv.underPageBackgroundColor = .clear }
     wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/wall?panel=1")!,
                        cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30))
     panel.contentView = wv
@@ -161,7 +226,8 @@ final class WallpaperView: NSView {
         hoverRing = over
         // 光标反馈：壁纸点击穿透，系统光标由桌面控制，悬停环带时换成手型
         if over { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
-        if over { showHoverPanel() } else { hideHoverPanel() }
+        if over { hoverHideWork?.cancel(); hoverHideWork = nil; hoverLeftAt = nil; showHoverPanel() }
+        else { hoverLeftAt = Date(); scheduleHideHoverPanel(0.5) }
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 
@@ -234,6 +300,7 @@ let mouseMonitor = NSEvent.addGlobalMonitorForEvents(
             (win.contentView as? WallpaperView)?.updateHover(x: x, y: y)
         }
     }
+    hoverTick()
 }
 _ = mouseMonitor
 
@@ -337,7 +404,8 @@ private func makeTray() -> NSPanel {
     wv.autoresizingMask = [.width, .height]
     wv.navigationDelegate = TrayNav.shared
     wv.isInspectable = true
-    wv.setValue(false, forKey: "drawsBackground")  // 透明底：让桌面透出来，白色图标才可见
+    wv.setValue(false, forKey: "drawsBackground")
+    if #available(macOS 12.0, *) { wv.underPageBackgroundColor = .clear }  // 透明底：让桌面透出来，白色图标才可见
     let req = URLRequest(
         url: URL(string: "http://127.0.0.1:7799/tray.html")!,
         cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,

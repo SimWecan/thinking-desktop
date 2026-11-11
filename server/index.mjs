@@ -74,10 +74,12 @@ const zstdAvailable = (() => {
 // ---------------------------------------------------------------------------
 
 const events = [];
+const lastQuietAt = new Map();   // 来源 → 最近一条 status/token 的时间（限流用）
 const MAX_EVENTS = 500;
 const clientDebug = new Map();
 let shotAt = 0;
 let testClickAt = 0;
+let testPausedAt = 0;      // >0 表示测试期间暂停真实事件（只放行 ?test=1 注入的）
 let testPopupAt = 0;            // 最近一次「截屏请求」时间
 let shotPng = null;
 let shotSlot = null;
@@ -195,7 +197,13 @@ function seriesFrom(buckets, now, seconds = 60) {
 function rateSeries(now, seconds = 60) { return seriesFrom(secBuckets, now, seconds); }
 
 function pushEvent(event) {
+  if (testPausedAt && !event.__test) return;   // 测试隔离：真实 agent 的活动不干扰 e2e
   rolloverDay();
+  if (!event.__test && (event.type === "status" || event.type === "token")) {
+    const prev = lastQuietAt.get(event.source) || 0;
+    if (event.ts - prev < 1000) return;          // 状态类事件 1s 内合并，避免刷屏
+    lastQuietAt.set(event.source, event.ts);
+  }
   console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
   events.push(event);
   if (events.length > MAX_EVENTS) events.shift();
@@ -268,6 +276,7 @@ function state() {
     shot: Date.now() - shotAt < 3000,   // 3s 内请求过截屏 → 页面回传一帧
     testClick: Date.now() - testClickAt < 3000,   // 自检：让壁纸在环心触发一次冲击波
     testPopup: Date.now() - testPopupAt < 6000,   // 自检：让宿主弹出/收起悬停看板窗口
+    testPaused: !!testPausedAt,                    // 测试隔离：真实事件已暂停
     // 每个来源最后一次真实事件：用于确认某个 connector 是真的接到数据，而不是只注册成功
     sources: [...sourceStats.entries()].map(([source, s]) => ({
       source,
@@ -577,6 +586,7 @@ const server = createServer((req, res) => {
             type,
             ts: Date.now(),
             payload: d.payload && typeof d.payload === "object" ? d.payload : {},
+            __test: url.searchParams.has("test"),
           });
           ok = true;
         }
@@ -694,6 +704,18 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 测试隔离：e2e 期间暂停真实连接器的注入（避免真实 agent 打断静默/活动判定）
+  if (url.pathname === "/test/pause" && req.method === "POST") {
+    testPausedAt = Date.now();
+    res.writeHead(200).end("paused");
+    return;
+  }
+  if (url.pathname === "/test/resume" && req.method === "POST") {
+    testPausedAt = 0;
+    res.writeHead(200).end("resumed");
+    return;
+  }
+
   // 自检：让宿主弹出悬停看板窗口（验证原生弹窗链路）
   if (url.pathname === "/selftest" && url.searchParams.has("popup")) {
     testPopupAt = Date.now();
@@ -732,7 +754,8 @@ const server = createServer((req, res) => {
           if (slot) shotSlot = slot;
           if (lights) shotLights = lights;
           if (chart) shotChart = chart;
-          if (panelPng) shotPanel = panelPng;
+          // 看板截图只认弹窗页（壁纸页/浏览器预览的看板是隐藏的，会覆盖成空图）
+          if (panelPng && String(data.client || "") === "wall-panel") shotPanel = panelPng;
           if (trayPng) shotTray = trayPng;
           if (ripplePng) shotRipple = ripplePng;
         } catch { /* 忽略坏包 */ }
