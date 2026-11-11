@@ -12,12 +12,12 @@ const APP_SUPPORT = join(HOME, "Library", "Application Support");
 
 /** 厂商预设：默认色 + 托盘图标动画类型 */
 export const VENDOR_PRESETS = {
-  "deepseek-harness": { name: "DeepSeek Harness", short: "DS", color: "#4D6BFE", anim: "whale" },
-  "kimi-desktop":     { name: "Kimi",           short: "K",  color: "#2E9BFF", anim: "moon" },
-  "gemini-desktop":   { name: "Gemini",         short: "G",  color: "#8AB4F8", anim: "spark4" },
-  "chatgpt-desktop":  { name: "ChatGPT",        short: "C",  color: "#10A37F", anim: "knot" },
+  "deepseek-harness": { name: "DeepSeek Harness", short: "DS", color: "#1E3A8A", anim: "whale" },   // 深蓝
+  "kimi-desktop":     { name: "Kimi",           short: "K",  color: "#FFFFFF", anim: "moon" },    // 白
+  "gemini-desktop":   { name: "Gemini",         short: "G",  color: "#7C6BF2", anim: "spark4" }, // 蓝紫
+  "chatgpt-desktop":  { name: "ChatGPT",        short: "C",  color: "#8B5CF6", anim: "knot" },   // 紫
   "claude-desktop":   { name: "Claude",         short: "Cl", color: "#D97757", anim: "asterisk" },
-  "codex":            { name: "Codex",          short: "Cx", color: "#8B5CF6", anim: "term" },
+  "codex":            { name: "Codex",          short: "Cx", color: "#8B5CF6", anim: "term" },   // 紫
   "anthropic":        { name: "Claude Code",    short: "Cc", color: "#D97757", anim: "asterisk" },
 };
 

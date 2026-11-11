@@ -9,57 +9,66 @@
     -webkit-user-select: none; user-select: none; }
   #tray { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 10px; }
 
-  /* 透明悬浮：只有 App 自己的商标图 */
+  /* 透明悬浮：商标图原样展示，所有动效都画在它「周围」，不改动图画本身 */
   .icon {
     width: 40px; height: 40px; border-radius: 11px; cursor: pointer; position: relative;
     display: flex; align-items: center; justify-content: center;
-    transition: transform .22s cubic-bezier(.2,.8,.2,1), box-shadow .3s ease, opacity .3s ease;
-    opacity: .6;
+    opacity: .5; transition: opacity .3s ease;
   }
   .icon img.logo {
-    width: 30px; height: 30px; display: block; border-radius: 7px;
-    filter: grayscale(.55) brightness(.88);
-    transition: filter .35s ease, transform .22s ease;
+    width: 30px; height: 30px; display: block; border-radius: 7px; position: relative; z-index: 1;
+    transition: filter .4s ease;
     -webkit-user-drag: none;
   }
   .icon .mono {
     width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center;
-    font: 600 11px/1 ui-monospace, monospace; letter-spacing: .5px;
+    font: 600 11px/1 ui-monospace, monospace; letter-spacing: .5px; position: relative; z-index: 1;
     color: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.18);
   }
-  .icon:hover { opacity: 1; transform: translateY(-1px) scale(1.06); }
-  .icon:hover img.logo { filter: none; }
+  .icon:hover { opacity: .85; }
   .icon.think { opacity: 1; }
-  .icon.think img.logo { filter: none; }
-  .icon.think::after {
-    content: ""; position: absolute; inset: 1px; border-radius: 12px; pointer-events: none;
-    box-shadow: 0 0 18px -2px var(--c, #fff), 0 0 6px -1px var(--c, #fff) inset;
-    opacity: .6; animation: halo 2.8s ease-in-out infinite;
-  }
-  @keyframes halo { 0%, 100% { opacity: .3; } 50% { opacity: .75; } }
+  /* 只在商标边缘加一层外发光，不改变商标本身的颜色/形状 */
+  .icon.think img.logo { filter: drop-shadow(0 0 6px var(--c, #fff)); }
   .icon.sel { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
   .icon.hidden { display: none; }
 
+  /* 光效层：aura 呼吸光晕 / ring 虚线环 / orbit 轨道点 / ping 扩散圈 */
+  .icon .fx { position: absolute; inset: -4px; opacity: 0; transition: opacity .45s ease; pointer-events: none; }
+  .icon.think .fx { opacity: 1; }
+  .icon .fx .aura {
+    position: absolute; inset: 3px; border-radius: 50%;
+    box-shadow: 0 0 18px -1px var(--c, #fff), 0 0 6px 0 var(--c, #fff) inset;
+    animation: auraPulse 2.8s ease-in-out infinite;
+  }
+  .icon .fx .ring {
+    position: absolute; inset: 1px; border-radius: 50%;
+    border: 1.5px dashed var(--c, #fff); opacity: .5; animation: spin 8s linear infinite;
+  }
+  .icon .fx .orbit { position: absolute; inset: 0; display: none; animation: spin 4s linear infinite; }
+  .icon .fx .orbit i {
+    position: absolute; top: 0; left: 50%; margin-left: -2px; width: 4px; height: 4px; border-radius: 50%;
+    background: var(--c, #fff); box-shadow: 0 0 6px var(--c, #fff);
+  }
+  .icon .fx .orbit i.b { top: auto; bottom: 0; }
+  .icon .fx .ping {
+    position: absolute; inset: 3px; border-radius: 50%; display: none;
+    border: 1px solid var(--c, #fff); opacity: 0; animation: ping 2.6s ease-out infinite;
+  }
 
-  /* —— 各家商标图的思考动效：只用位移/缩放/旋转，保持 logo 原样 —— */
-  .icon.think.m-float img { animation: floaty 3.4s ease-in-out infinite; }
-  @keyframes floaty { 0%, 100% { transform: translateY(1px) rotate(-2deg); } 50% { transform: translateY(-2px) rotate(2deg); } }
+  /* 各家只是「周围光效」的节奏不同，商标图本身完全一致 */
+  .icon.m-whale .fx .ring { animation-duration: 11s; }
+  .icon.m-whale .fx .aura { animation-duration: 3.4s; }
+  .icon.m-bob .fx .ring { display: none; }
+  .icon.m-bob .fx .ping { display: block; }
+  .icon.m-twinkle .fx .orbit { display: block; animation-duration: 5.2s; }
+  .icon.m-twinkle .fx .ring { opacity: .22; animation-duration: 16s; }
+  .icon.m-spin .fx .ring { animation-duration: 6s; }
+  .icon.m-breathe .fx .aura { animation-duration: 3.8s; }
+  .icon.m-pulse .fx .orbit { display: block; animation-duration: 2.6s; }
 
-  .icon.think.m-bob img { animation: bob 3.2s ease-in-out infinite; }
-  @keyframes bob { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2px) scale(1.03); } }
-
-  .icon.think.m-twinkle img { animation: twinkle 2.8s ease-in-out infinite; }
-  @keyframes twinkle { 0%, 100% { transform: scale(.94) rotate(0deg); opacity: .85; }
-                       50% { transform: scale(1.06) rotate(6deg); opacity: 1; } }
-
-  .icon.think.m-spin img { animation: spin 9s linear infinite; }
+  @keyframes auraPulse { 0%, 100% { opacity: .3; } 50% { opacity: .85; } }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .icon.think.m-breathe img { animation: breathe 3.6s ease-in-out infinite; }
-  @keyframes breathe { 0%, 100% { transform: scale(.96); } 50% { transform: scale(1.05); } }
-
-  .icon.think.m-pulse img { animation: pulse 2.4s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+  @keyframes ping { 0% { transform: scale(.86); opacity: .6; } 100% { transform: scale(1.45); opacity: 0; } }
 
   /* 综合形态：多枚商标叠成的四环标记（不是厂商 logo，是「全部」入口） */
   #composite .ringset { position: relative; width: 30px; height: 30px; }
@@ -89,6 +98,7 @@
     </div>
     <img class="solo" alt="" draggable="false">
     <span class="solo-mono"></span>
+    <div class="fx"><i class="aura"></i></div>
   </div>
 </div>
 <script>
@@ -126,7 +136,10 @@ function build() {
       el = document.createElement("div");
       el.className = "icon " + (MOTION[a.anim] || "m-pulse");
       el.dataset.src = a.source;
-      el.innerHTML = `<img class="logo" alt="" src="/icon/${a.source}.png" srcset="/icon/${a.source}@2x.png 2x" draggable="false">`;
+      el.innerHTML =
+        `<div class="fx"><i class="aura"></i><i class="ring"></i>` +
+        `<div class="orbit"><i></i><i class="b"></i></div><i class="ping"></i></div>` +
+        `<img class="logo" alt="" src="/icon/${a.source}.png" srcset="/icon/${a.source}@2x.png 2x" draggable="false">`;
       el.title = a.name || a.source;
       // 没有本地商标图（比如只有 CLI 的 Codex）→ 中性字母牌，不伪造 logo
       const img = el.querySelector("img");
