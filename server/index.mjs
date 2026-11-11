@@ -536,13 +536,13 @@ const server = createServer((req, res) => {
       req.on("end", () => {
         try {
           const m = JSON.parse(body);
-          res.writeHead(200, { "Content-Type": "application/json" });
+          res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
           res.end(JSON.stringify({ agents: agents.update(m.source, m), shot: Date.now() - shotAt < 3000 }));
         } catch { res.writeHead(400).end("bad request"); }
       });
       return;
     }
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({ agents: agents.agents(sourceStats), view: agents.view, shot: Date.now() - shotAt < 3000 }));
     return;
   }

@@ -172,7 +172,9 @@
   @keyframes ping { 0% { transform: scale(.86); opacity: .6; } 100% { transform: scale(1.45); opacity: 0; } }
 
   /* 综合形态：多枚商标叠成的四环标记（不是厂商 logo，是「全部」入口） */
-  #composite .ringset { position: relative; width: 30px; height: 30px; }
+  #composite .brandlogo { width: 30px; height: 30px; display: block; border-radius: 7px; }
+  #composite.solo-mode .brandlogo { display: none; }
+  #composite .ringset { position: relative; width: 30px; height: 30px; display: none; }
   #composite .logoWrap { display: none; }
   #composite.solo-mode .logoWrap { display: block; }
   #composite .solo { display: none; width: 30px; height: 30px; border-radius: 7px; }
@@ -196,6 +198,7 @@
 <body>
 <div id="tray">
   <div class="icon" id="composite" title="综合形态">
+    <img class="brandlogo" src="/icon/thinking-desktop-64.png?v=0.5.1" alt="" draggable="false">
     <div class="ringset">
       <div class="r"></div><div class="r b"></div><div class="r c"></div>
     </div>
@@ -212,7 +215,8 @@
 const tray = document.getElementById("tray");
 const composite = document.getElementById("composite");
 const icons = new Map();
-let expanded = false, view = "all", agents = [];
+let expanded = new URLSearchParams(location.search).has("expanded");   // ?expanded=1 供浏览器预览/自检
+let view = "all", agents = [];
 
 // 动效风格：商标底层图零改动——内容层（鲸鱼/星芒 SVG 或 tilefx 特效层）承担全部动态。
 // DeepSeek 鲸鱼腾跃、Kimi 黑底流星、Gemini 四芒星闪烁、ChatGPT 线条流光、Claude 光晕呼吸、Codex 光标闪烁
@@ -413,7 +417,7 @@ addEventListener("error", (e) => {
 
 async function poll() {
   try {
-    const s = await (await fetch("/agents")).json();
+    const s = await (await fetch("/agents", { cache: "no-store" })).json();
     agents = s.agents;
     if (view !== s.view) view = s.view;
     build();
@@ -445,7 +449,11 @@ async function poll() {
       method: "POST",
       body: JSON.stringify({ client: "tray", agents: agents.length, expanded, shot: !!s.shot, lastShotOk, anims, sheen, logoAnims, glyphAnims, motion }),
     }).catch(() => {});
-  } catch (e) { lastShotOk = "poll-error"; }
+  } catch (e) {
+    lastShotOk = "poll-error";
+    // 轮询异常必须可见：否则页面会静默停更（曾因 build() 抛错导致托盘遥测直接停摆）
+    fetch("/debug", { method: "POST", body: JSON.stringify({ client: "tray", pageError: String((e && e.stack) || e) }) }).catch(() => {});
+  }
 }
 poll();
 setInterval(poll, 1500);

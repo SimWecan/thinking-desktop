@@ -31,6 +31,14 @@ do {
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // 无 Dock 图标，不占焦点
 
+// 关掉 App Nap / 定时器节流：壁纸与托盘窗口常年被其它窗口遮挡，
+// 一旦被判定为「不活跃」，WebView 的 setInterval 会被拉长到十几秒甚至分钟级，
+// 表现为托盘快照/状态迟迟不更新。
+let activity = ProcessInfo.processInfo.beginActivity(
+    options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+    reason: "Thinking Desktop wallpaper + tray live telemetry")
+_ = activity
+
 // 单实例：同 bundle id 已在运行就激活它并退出，避免双壁纸互相抢层级
 if let bid = Bundle.main.bundleIdentifier {
     let others = NSRunningApplication.runningApplications(withBundleIdentifier: bid)
