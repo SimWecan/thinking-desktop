@@ -240,8 +240,13 @@ function resizeStage() {
   R = Math.max(H * 0.78, W * 0.30) * ringScale;
   RO = R + Math.max(90, Math.min(240, H * 0.3, W * 0.13)) * C.ringWidth;
   RMAX = Math.hypot(W - cx, H / 2) + 60;
-  thV = Math.asin(Math.min(1, (H / 2 + 60) / R));
-  thS = Math.asin(Math.min(1, (H / 2 + 40) / RO));
+  // 粒子/流光的角度范围：老版本环很大、只露出一段弧，所以用 asin 取可见扇区；
+  // 圆环缩小成完整圆之后（R/RO 在画面内），必须放开到整圈，否则只有一半有粒子。
+  const fitsInView = (rad) => rad <= Math.min(cx, W - cx, cy, H - cy) + 24;
+  // 内环完整可见时，外圈粒子也铺满整圈（外圈部分超出画面会被自然裁掉）；
+  // 否则保持老逻辑：只画可见扇区，避免超大环时白算
+  thV = fitsInView(R) ? Math.PI : Math.asin(Math.min(1, (H / 2 + 60) / R));
+  thS = fitsInView(R) ? Math.PI : Math.asin(Math.min(1, (H / 2 + 40) / RO));
   buildWeb(); buildLanes(); buildCards(); buildOuter();
   trailC = mkd(2 * R + 4, 2 * R + 4, Math.min(DPR, 1.5));
   farC = document.createElement('canvas'); farC.width = Math.ceil(W * FS); farC.height = Math.ceil(H * FS); farC.x = farC.getContext('2d');
