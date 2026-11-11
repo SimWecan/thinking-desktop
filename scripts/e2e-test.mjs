@@ -68,6 +68,14 @@ async function setView(agent) {
 }
 const wall = async () => (await (await api("/debug")).json()).clients?.wall ?? {};
 const agentList = async () => (await (await api("/agents")).json());
+/** 轮询 /debug 直到壁纸遥测满足条件：光环淡入淡出 + 父页 2s 轮询有固定延迟，
+ *  固定 sleep 后单次采样在机器负载高时必然 flaky（P1/P2/P3 的 srcs 断言全部改走这里） */
+async function waitWall(pred, timeoutMs = 15000, step = 600) {
+  const until = Date.now() + timeoutMs;
+  let w = await wall();
+  while (!pred(w) && Date.now() < until) { await sleep(step); w = await wall(); }
+  return w;
+}
 
 /** 持续注入若干来源的事件，持续 seconds 秒 */
 async function inject(sources, seconds) {
@@ -158,10 +166,12 @@ try {
 
   // ---------- P1 单 agent 运行（单独形态） ----------
   console.log("\n■ P1 单 agent 运行（单独形态 gemini-desktop，8s）");
+  let w, ag;
   await setView(SOLO);
   const p1 = inject([SOLO], 8);
-  await sleep(4000);
-  let [w, ag] = [await wall(), await agentList()];
+  // 等光环只剩该来源（父页轮询 + 淡入 + 旧来源淡出共约 5s，负载高时更久）
+  w = await waitWall((x) => { const s = x.haloGeom?.lights?.srcs || []; return s.length === 1 && s[0] === SOLO; });
+  ag = await agentList();
   check("P1", "形态已切到 gemini-desktop", ag.view === SOLO, `view=${ag.view}`);
   check("P1", "该 agent 判定为思考中", (ag.agents || []).find((a) => a.source === SOLO)?.thinking === true);
   check("P1", "壁纸点亮 gemini", (w.lights || []).includes(SOLO), `lights=${(w.lights || []).join("+") || "无"}`);
@@ -177,8 +187,8 @@ try {
   console.log("\n■ P2 多 agent 并行（综合形态，3 家 × 8s）");
   await setView("all");
   const p2 = inject(MULTI, 8);
-  await sleep(4500);
-  [w, ag] = [await wall(), await agentList()];
+  w = await waitWall((x) => { const s = x.haloGeom?.lights?.srcs || []; return MULTI.every((src) => s.includes(src)); });
+  ag = await agentList();
   check("P2", "形态为综合", ag.view === "all", `view=${ag.view}`);
   const lit = MULTI.filter((s) => (w.lights || []).includes(s));
   check("P2", "三家同时点亮", lit.length === MULTI.length, `lights=${(w.lights || []).join("+") || "无"}`);
@@ -201,11 +211,11 @@ try {
   ];
   for (const [view, minSrcs, label, trayShot] of CYCLE) {
     await setView(view);
-    // 光环里旧来源的光强是缓动衰减的（约 10s 级），不是硬切：轮询等它落位
+    // 光环里旧来源的光强是缓动衰减的（约数秒级），不是硬切：轮询等它落位
     let ok = false, srcs = [];
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
-      await sleep(1500);
+      await sleep(1000);
       [w, ag] = [await wall(), await agentList()];
       srcs = w.haloGeom?.lights?.srcs || [];
       ok = ag.view === view && (view === "all" ? srcs.length >= 2 : srcs.length === 1 && srcs[0] === view);
@@ -222,6 +232,10 @@ try {
     console.log(`\n■ P4 全部停止 → 动态静默（winddown ${winddownSec}s，逐 2s 采样 calm）`);
     await setView("all");
     await sleep(2000);
+    // P3 的注入结束时刻不固定（机器慢时快照耗时拉长），P4 第一拍的空闲时长不可控——
+    // 补一条事件把空闲清零，让 calm 从 0 起步单调爬升，观测起点确定
+    await post(SOLO, "text", { text: "测试 · P4 静默观测起点，随后停止注入。", kind: "think", stream: true });
+    await sleep(800);
     const rows = [];
     const deadline = Date.now() + (winddownSec + 15) * 1000;
     let peaked = false;
