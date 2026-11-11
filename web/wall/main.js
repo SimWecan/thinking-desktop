@@ -15,6 +15,7 @@ let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSe
 const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
 // 宿主在鼠标离开环带后驱动 3 秒倒计时；这里把它画在弹窗底部
+const HOVER_HIDE_SEC = 2.0;   // 与宿主 hoverCountdownEnd 保持一致
 window.__tdHoverCountdown = function (sec) {
   const el = document.getElementById("pnCountdown");
   if (!el) return;
@@ -22,7 +23,7 @@ window.__tdHoverCountdown = function (sec) {
   if (left <= 0) { el.classList.remove("on"); return; }
   el.classList.add("on");
   const bar = el.querySelector("i"), txt = el.querySelector("span");
-  if (bar) bar.style.width = Math.max(0, Math.min(100, (left / 3) * 100)).toFixed(0) + "%";
+  if (bar) bar.style.width = Math.max(0, Math.min(100, (left / HOVER_HIDE_SEC) * 100)).toFixed(0) + "%";
   if (txt) txt.textContent = left.toFixed(1) + "s 后收起";
 };
 
@@ -197,6 +198,16 @@ window.__tdGeomGet = () => {
   try { return halo.contentWindow?.__tdGeomGet ? halo.contentWindow.__tdGeomGet() : null; } catch { return null; }
 };
 
+// 宿主读到闭源端 AX 文本后通过这个钩子交给页面，由页面带着 Cookie/令牌注入 /ingest
+window.__tdAxText = (source, text) => {
+  const t = String(text || "").trim();
+  if (!t || t.length < 8) return;
+  fetch("/ingest", {
+    method: "POST",
+    body: JSON.stringify({ source, type: "text", payload: { text: t.slice(0, 1200), kind: "ax" } }),
+  }).catch(() => {});
+};
+
 window.__tdMouse = (x, y) => haloMsg({ td: "mouse", x, y });
 addEventListener("mousemove", (e) => window.__tdMouse(e.clientX, e.clientY));
 // 点击穿透：原生宿主转发全局点击坐标 → 光环冲击波
@@ -337,7 +348,7 @@ setInterval(async () => {
     if (s.ui) UI = s.ui;
     if (s.view) view = s.view;
     agentsList = s.agents || [];
-    if (s.shot) captureShot();
+    if (s.shot) captureShot(!!s.shotFull);
     if (s.testPopup && !PANEL_ONLY) {
       const now2 = Date.now();
       if (now2 - lastTestPopup > 6000) {
@@ -396,6 +407,7 @@ setInterval(async () => {
         sparkRect: needPanel ? [spark.offsetWidth, spark.offsetHeight] : null,
         panelShotInfo: window.__panelShotInfo || null,
         panelMs: Math.round(panelMs * 100) / 100,
+        axTrusted: !!window.__tdAxTrusted,
         build: PAGE_BUILD,
         ...haloState,
       }),

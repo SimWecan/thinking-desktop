@@ -192,7 +192,7 @@ async function panelShot() {
 /** 自检截图 */
 let lastShotAt = 0, lastTestClick = 0, lastTestPopup = 0;
 let panelMs = 0;   // 看板渲染耗时（EMA，毫秒）
-async function captureShot() {
+async function captureShot(full) {
   if (Date.now() - lastShotAt < 1500) return;
   lastShotAt = Date.now();
   // 弹窗页没有光环，只负责把看板截给 /snapshot
@@ -203,6 +203,8 @@ async function captureShot() {
   }
   try {
     const w = halo.contentWindow;
+    // ?full=1 的自检/宣传图：临时把光环截图切到 1:1，截完恢复半分辨率
+    try { w.__tdSetShotScale && w.__tdSetShotScale(full ? 1 : 0.5); } catch (e) {}
     const png = w.__tdSnapshot && w.__tdSnapshot();
     const slot = w.__tdSlotShot && w.__tdSlotShot();
     const lights = w.__tdLightsShot && w.__tdLightsShot();

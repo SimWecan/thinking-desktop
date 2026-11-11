@@ -6,7 +6,7 @@
  */
 
 import { join } from "node:path";
-import { existsSync, statSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 
@@ -16,7 +16,6 @@ import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
 import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { FileTailConnector } from "../connectors/file-tail.mjs";
-import { AxTextConnector } from "../connectors/ax-text.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 import { mapCodexLogRow } from "../connectors/codex-filter.mjs";
@@ -30,9 +29,24 @@ export function detectZstd() {
   try { return spawnSync("zstd", ["--version"], { encoding: "utf8" }).status === 0; } catch { return false; }
 }
 
+function newestCodexLog() {
+  // Codex 的日志表会轮换（logs_1/2/3…）：取 ~/.codex 下最新的 logs_*.sqlite
+  try {
+    const dir = join(HOME, ".codex");
+    let best = null, bestTime = 0;
+    for (const name of readdirSync(dir)) {
+      if (!/^logs_\d+\.sqlite$/.test(name)) continue;
+      const f = join(dir, name);
+      const t = statSync(f).mtimeMs;
+      if (t > bestTime) { best = f; bestTime = t; }
+    }
+    return best;
+  } catch { return null; }
+}
+
 function assembleCodex(out, { bindings } = {}) {
   const custom = String(bindings?.codex?.path || "").trim();
-  const p = custom || join(HOME, ".codex", "logs_2.sqlite");
+  const p = custom || newestCodexLog() || join(HOME, ".codex", "logs_2.sqlite");
   if (!has(p)) return;
   out.push(new SqlitePollConnector({
     source: "codex",
@@ -124,18 +138,16 @@ function assembleDeepSeek(out, { zstdAvailable, bindings } = {}) {
   out.push(new ProcessWatchConnector({ source: "deepseek-harness", processName: "DeepSeek Harness" }));
 }
 
-// 闭源端：进程守护 → 启动/退出；活动度（CPU）→ 真实「正在思考/输出」信号；AX 读屏（需授权）补真实文本
+// 闭源端：进程守护 → 启动/退出；活动度（CPU）→ 真实「正在思考/输出」信号；
+// AX 文本由壁纸宿主（App 内）读取后经页面注入 /ingest —— TCC 授权按 App 生效，比 CLI 助手稳定
 function assembleGemini(out, { root }) {
   out.push(new ProcessWatchConnector({ source: "gemini-desktop", processName: "Gemini" }));
   out.push(new ProcessActivityConnector({ source: "gemini-desktop", match: "/Gemini.app/", cpuThreshold: 8 }));
-  out.push(new AxTextConnector({ source: "gemini-desktop", bundleId: "com.google.GeminiMacOS", bin: join(root, "bin", "axread") }));
 }
 
 function assembleChatGPT(out, { root }) {
   out.push(new ProcessWatchConnector({ source: "chatgpt-desktop", processName: "ChatGPT" }));
   out.push(new ProcessActivityConnector({ source: "chatgpt-desktop", match: "/ChatGPT.app/", cpuThreshold: 8 }));
-  // ChatGPT.app 的 bundle id 在本机是 com.openai.codex（应用改名/分发方式不同），按实际 bundle id 读
-  out.push(new AxTextConnector({ source: "chatgpt-desktop", bundleId: "com.openai.codex", bin: join(root, "bin", "axread") }));
 }
 
 // 开发用：THINKING_DESKTOP_TAIL=<日志文件> 尾随任意日志

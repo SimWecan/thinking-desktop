@@ -213,6 +213,7 @@ export function createStore({ root, fs: fsp }) {
       byType,
       bySource,
       shot: Date.now() - flags.shotAt < 3000,
+      shotFull: Date.now() - (flags.shotFullAt || 0) < 3000,   // 本次快照要全分辨率
       testClick: Date.now() - flags.testClickAt < 3000,
       testPopup: Date.now() - flags.testPopupAt < 6000,
       testPaused: !!flags.testPausedAt,

@@ -347,14 +347,14 @@ try {
     console.log("\n■ P4/P5 按 E2E_SKIP_SILENCE 跳过");
   }
 
-  // ---------- P6 悬停视图：3 秒倒计时后再收起 ----------
+  // ---------- P6 悬停视图：2 秒倒计时后再收起 ----------
   if (process.platform === "darwin") {
     console.log("\n■ P6 悬停视图 3s 倒计时（自检链路）");
     const logFile = join(ROOT, "logs", "hover.log");
     const readLog = () => { try { return readFileSync(logFile, "utf8").split("\n"); } catch { return []; } };
     const before = readLog().length;
     await api("/selftest?popup=1");
-    await sleep(6500);
+    await sleep(5500);
     const fresh = readLog().slice(before);
     const started = fresh.some((l) => l.includes("countdown start"));
     const ended = fresh.some((l) => l.includes("countdown end"));

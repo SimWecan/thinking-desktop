@@ -33,6 +33,7 @@ export function register(router, ctx) {
   router.add("GET", "/snapshot", ({ res, query }) => {
     if (query.has("request")) {
       flags.shotAt = Date.now();
+      flags.shotFullAt = query.has("full") ? Date.now() : 0;   // ?full=1 → 全分辨率
       res.writeHead(200, { "Content-Type": "text/plain" }).end("requested");
       return;
     }

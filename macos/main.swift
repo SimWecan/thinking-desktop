@@ -28,6 +28,83 @@ do {
         .write(to: lockURL, atomically: true, encoding: .utf8)
 } catch { /* 锁文件读写失败不阻断启动 */ }
 
+import ApplicationServices
+
+// ---------- AX 读屏（宿主内实现：辅助功能授权按 App 生效，比 CLI 助手稳定）----------
+func axAttr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
+    var v: CFTypeRef?
+    return AXUIElementCopyAttributeValue(el, name as CFString, &v) == .success ? v : nil
+}
+
+func axCollect(_ el: AXUIElement, depth: Int, nodes: inout Int, budget: inout Int, out: inout [String]) {
+    if depth > 16 || nodes > 4000 || budget <= 0 { return }
+    nodes += 1
+    if let role = axAttr(el, kAXRoleAttribute) as? String {
+        let textual = [kAXStaticTextRole as String, kAXTextAreaRole as String, "AXTextField", "AXHeading"]
+        if textual.contains(role) {
+            for key in [kAXValueAttribute as String, kAXTitleAttribute as String, "AXDescription"] {
+                if let v = axAttr(el, key) as? String {
+                    let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if t.count >= 2 { out.append(t); budget -= t.count; break }
+                }
+            }
+        }
+    }
+    if let kids = axAttr(el, kAXChildrenAttribute) as? [AXUIElement] {
+        for k in kids { axCollect(k, depth: depth + 1, nodes: &nodes, budget: &budget, out: &out); if budget <= 0 { return } }
+    }
+}
+
+func axWindowText(bundleId: String) -> String {
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else { return "" }
+    let axApp = AXUIElementCreateApplication(app.processIdentifier)
+    var win: AXUIElement?
+    if let w = axAttr(axApp, kAXFocusedWindowAttribute) { win = (w as! AXUIElement) }
+    else if let w = axAttr(axApp, kAXMainWindowAttribute) { win = (w as! AXUIElement) }
+    guard let root = win else { return "" }
+    var out: [String] = [], nodes = 0, budget = 6000
+    axCollect(root, depth: 0, nodes: &nodes, budget: &budget, out: &out)
+    return String(out.joined(separator: "\n").suffix(6000))
+}
+
+var axLast: [String: String] = [:]
+var axTrustLogged: Bool?
+let axTargets: [(source: String, bundle: String)] = [
+    ("gemini-desktop", "com.google.GeminiMacOS"),
+    ("chatgpt-desktop", "com.openai.codex"),
+]
+
+func axPoll() {
+    let trusted = AXIsProcessTrusted()
+    if axTrustLogged != trusted {
+        axTrustLogged = trusted
+        hoverLogLine("ax trusted=\(trusted)")
+    }
+    guard trusted else {
+        (windows.first?.contentView as? WallpaperView)?.runJS("window.__tdAxTrusted = false")
+        return
+    }
+    let jsTarget = windows.first?.contentView as? WallpaperView
+    jsTarget?.runJS("window.__tdAxTrusted = true")
+    for t in axTargets {
+        let text = axWindowText(bundleId: t.bundle)
+        guard !text.isEmpty else { continue }
+        let prev = axLast[t.source] ?? ""
+        var delta = ""
+        if !prev.isEmpty && text.hasPrefix(prev) { delta = String(text.dropFirst(prev.count)) }
+        else if text != prev { delta = String(text.suffix(300)) }
+        axLast[t.source] = text
+        let clean = delta.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 8 else { continue }
+        let payload = String(clean.prefix(1200))
+        let json = (try? JSONSerialization.data(withJSONObject: [payload], options: []))
+            .flatMap { String(data: $0, encoding: .utf8) }?
+            .dropFirst().dropLast() ?? "\"\""
+        jsTarget?.runJS("window.__tdAxText && window.__tdAxText('\(t.source)', \(json))")
+    }
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // 无 Dock 图标，不占焦点
 
@@ -89,7 +166,7 @@ func cancelHoverCountdown() {
 
 func startHoverCountdown() {
     hoverLogLine("countdown start")
-    hoverCountdownEnd = Date().addingTimeInterval(3.0)
+    hoverCountdownEnd = Date().addingTimeInterval(2.0)
     hoverCountdownTimer?.invalidate()
     hoverCountdownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { t in
         guard let end = hoverCountdownEnd else { t.invalidate(); return }
@@ -245,6 +322,11 @@ final class WallpaperView: NSView {
     }
 
     /// 从页面取一次环心/半径（3 秒定时刷新）；取不到时命中判定退化为「总是转发」
+    /// 给壁纸页执行一段 JS（AX 文本由宿主读取后交给页面注入 /ingest，复用页面的令牌/Cookie）
+    func runJS(_ code: String) {
+        webView?.evaluateJavaScript(code) { _, _ in }
+    }
+
     func refreshGeom() {
         webView?.evaluateJavaScript(
             "window.__tdGeomGet ? JSON.stringify(window.__tdGeomGet()) : null") { res, err in
@@ -381,6 +463,10 @@ let clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown])
 _ = clickMonitor
 
 // 环带几何 3 秒定时刷新（页面加载初期取不到就下轮再取）
+// AX 读屏：每 2.5s 读取闭源端前台窗口的新增文本，交给壁纸页注入 /ingest
+let axTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { _ in axPoll() }
+RunLoop.main.add(axTimer, forMode: .common)
+
 let geomTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
     for win in windows { (win.contentView as? WallpaperView)?.refreshGeom() }
 }

@@ -119,7 +119,13 @@ export function register(router, ctx) {
     }
     try {
       const out = execFileSync(bin, ["com.google.GeminiMacOS", "com.openai.codex"], { encoding: "utf8", timeout: 4000 });
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(out.trim() || "{}");
+      const data = JSON.parse(out.trim() || "{}");
+      // 未授权时给控制台一个明确的操作指引（授权按二进制指纹记，重编译会失效）
+      data.hostTrusted = !!store.clientsDebug.get("wall")?.axTrusted;   // 壁纸 App 内的 AX 读屏是否已授权
+      if (!data.trusted && !data.hostTrusted) {
+        data.hint = "在 系统设置 → 隐私与安全性 → 辅助功能 中添加「Thinking Desktop Wallpaper」；授权按二进制指纹记，App 更新后需移除再添加";
+      }
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(data));
     } catch (err) {
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ available: true, error: String(err.message) }));
     }

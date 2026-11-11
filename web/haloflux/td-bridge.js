@@ -266,7 +266,9 @@
 
   // 自检截图统一缩到一半：1920×1080 的 PNG 单张 ~3.5MB，存服务端内存 + toDataURL 编码都贵；
   // 半分辨率（960×540）对肉眼校验足够，体积和编码耗时都降到 1/4 左右。
-  const SHOT_SCALE = 0.5;
+  let SHOT_SCALE = 0.5;
+  // 自检/宣传图需要全分辨率时，页面可临时切换到 1.0
+  window.__tdSetShotScale = (v) => { SHOT_SCALE = Math.max(0.25, Math.min(1, Number(v) || 0.5)); };
   function shotCanvas(w, h, paint) {
     const out = document.createElement('canvas');
     out.width = Math.max(1, Math.round(w * SHOT_SCALE));

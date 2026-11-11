@@ -74,7 +74,7 @@ web/
   `postMessage({td:'ring'})` → halo `__tdSetRing()` → `resizeStage()` 重建几何。
   `__tdSetRing` 是幂等入口，宿主/页面任意时刻都可调用。
 - 悬停视图：原生宿主做环带命中（`hitRing`），进入 → `showHoverPanel()`；
-  离开 → 3s 倒计时（每 100ms 经 `evaluateJavaScript` 推剩余秒数给弹窗页的
+  离开 → 2s 倒计时（每 100ms 经 `evaluateJavaScript` 推剩余秒数给弹窗页的
   `__tdHoverCountdown()`），到点 `hideHoverPanel()`；回到环带取消倒计时。
 - 粒子角度范围：内环完整可见（`R ≤ min(cx, W-cx, cy, H-cy)+24`）时 `thV/thS` 放开到 2π，
   否则沿用原「可见扇区」近似；整圆时按比例收 strand/haze 数量保持帧率。

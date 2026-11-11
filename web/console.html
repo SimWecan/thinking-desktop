@@ -67,7 +67,12 @@
     position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px;
     background: #cfe0ff; border: 1px solid #0b0d12; border-radius: 2px; cursor: nwse-resize;
   }
-  .prev-meta { display: flex; align-items: center; gap: 12px; margin-top: 8px; color: var(--faint); font-size: 10px; letter-spacing: 1px; }
+  .prev-meta { display: flex; align-items: center; gap: 12px; margin-top: 8px; color: var(--faint); font-size: 10px; letter-spacing: 1px; flex-wrap: wrap; }
+  .prev-badge { position: absolute; right: 8px; top: 8px; font-size: 9px; letter-spacing: 1px;
+    color: rgba(255,255,255,.55); background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.15);
+    padding: 1px 6px; border-radius: 3px; pointer-events: none; }
+  .prev-meta select { background: #0c0d11; color: var(--dim); border: 1px solid var(--line);
+    font: inherit; font-size: 10px; padding: 1px 4px; }
   .prev-meta b { color: var(--dim); font-weight: 400; font-variant-numeric: tabular-nums; }
 
   /* ---------- 绑定 / 颜色 ---------- */
@@ -125,12 +130,16 @@
     <div class="prev-stage" id="prevStage">
       <iframe id="prevHalo" src="/haloflux/?preview=1" title="壁纸预览"></iframe>
       <div class="ring-handle" id="ringHandle"></div>
+      <span class="prev-badge">实时预览 · 25fps</span>
     </div>
     <div class="prev-meta">
       <span>圆环 <b id="ringMeta">—</b></span>
       <button class="btn ghost" id="ringReset" style="padding:2px 10px;font-size:10px">重置位置</button>
       <span id="ringSaved" style="color:var(--faint)"></span>
       <span id="ringWarn" style="color:#e8c07a"></span>
+      <label style="margin-left:auto; display:flex; align-items:center; gap:6px">环带文本
+        <select id="ringTextMode"><option value="headline">首句</option><option value="full">全文</option></select>
+      </label>
     </div>
 
     <h2 class="sec">运行状态</h2>
@@ -169,7 +178,8 @@
       <button class="btn ghost" id="axGrant">去授权</button>
       <button class="btn ghost" id="axCheck">重新检测</button>
     </div>
-    <div class="note">授权后 Gemini / ChatGPT 等不落盘日志的桌面端也能读到真实文本；未授权时只显示工作强度。</div>
+    <div class="note">授权后 Gemini / ChatGPT 等不落盘日志的桌面端也能读到真实文本；未授权时只显示工作强度。<br>
+      托盘只在 Finder 为前台时显示（避免遮挡其它应用窗口），切到别的应用会自动收起。</div>
   </div>
 
   <div class="right">
@@ -215,8 +225,8 @@ async function pollAx() {
     const el = $("axState");
     if (d.available === false) el.textContent = "AX 读屏：未编译 bin/axread（运行 macos/build-axread.sh）";
     else if (d.error) el.textContent = "AX 读屏：检测失败（" + d.error + "）";
-    else if (d.trusted) el.textContent = "AX 读屏：已授权 · 可读取闭源端文本";
-    else el.textContent = "AX 读屏：未授权 · 闭源端只有工作强度";
+    else if (d.trusted || d.hostTrusted) el.textContent = "AX 读屏：已授权 · 可读取闭源端文本";
+    else el.textContent = "AX 读屏：未授权（辅助功能里添加「Thinking Desktop Wallpaper」）";
   } catch { $("axState").textContent = "AX 读屏：服务不可达"; }
 }
 
@@ -356,6 +366,13 @@ STAGE.addEventListener("wheel", (e) => {
   applyRing(true);
 }, { passive: false });
 $("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.30 }; applyRing(true); };
+$("ringTextMode").onchange = async (e) => {
+  try {
+    await fetch("/ui", { method: "POST", body: JSON.stringify({ ringText: e.target.value }) });
+    $("ringSaved").textContent = "环带文本已切换";
+    setTimeout(() => { $("ringSaved").textContent = ""; }, 1500);
+  } catch (err) { $("ringSaved").textContent = "保存失败"; }
+};
 
 // 预览 iframe 就绪后同步一次几何
 PREV.addEventListener("load", () => applyRing());
