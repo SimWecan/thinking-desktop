@@ -294,7 +294,7 @@ async function restart(target, btn) {
 
 // ---------- 桌面预览：拖拽移动圆环 / 右下角缩放，实时写回 /ui ----------
 const STAGE = $("prevStage"), HANDLE = $("ringHandle"), KNOB = $("ringKnob"), PREV = $("prevHalo");
-let ring = { x: 0.5, y: 0.5, scale: 0.55 };
+let ring = { x: 0.5, y: 0.5, scale: 0.30 };
 let ringDirty = 0, ringSaveTimer = 0;
 
 function ringBase(w, h) { return Math.max(h * 0.78, w * 0.30); }
@@ -345,7 +345,7 @@ HANDLE.addEventListener("pointermove", (e) => {
   dragMode === "size" ? pinchRing(e) : dragRing(e);
 });
 HANDLE.addEventListener("pointerup", () => { dragMode = null; });
-$("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.55 }; applyRing(); };
+$("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.30 }; applyRing(); };
 
 // 预览 iframe 就绪后同步一次几何
 PREV.addEventListener("load", () => applyRing());

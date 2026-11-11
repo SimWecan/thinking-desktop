@@ -49,7 +49,7 @@ window.__tdSetRing = function (r) {
   if (!r) return;
   if (Number.isFinite(Number(r.x))) ringX = Math.max(-0.5, Math.min(1.5, Number(r.x)));
   if (Number.isFinite(Number(r.y))) ringY = Math.max(-0.5, Math.min(1.5, Number(r.y)));
-  if (Number.isFinite(Number(r.scale))) ringScale = Math.max(0.4, Math.min(2.5, Number(r.scale)));
+  if (Number.isFinite(Number(r.scale))) ringScale = Math.max(0.15, Math.min(2.5, Number(r.scale)));
   resizeStage();
   if (window.__tdStandby) setTimeout(() => { try { window.__tdRenderStandby && window.__tdRenderStandby(); } catch (e) {} }, 0);
 };
@@ -417,6 +417,15 @@ function buildOuter() {
   GR.h2 = mkG([[0, 'rgba(200,230,228,.9)'], [0.25, 'rgba(170,205,210,.6)'], [0.7, 'rgba(140,170,185,.2)'], [1, 'rgba(120,150,170,0)']], RMAX);
   for (let i = 0; i < 14; i++) spawnHaze(true);
   initFlyers();
+  // 整圆时粒子要铺满 2π（原来是可见扇区），同样的数量会多画近一倍：
+  // 这里按比例收一点数量，保持视觉密度、把帧率拉回 60
+  if (thS >= Math.PI - 0.01) {
+    for (const l of strandLayers) {
+      l.wedges = l.wedges.slice(0, Math.max(6, Math.round(l.wedges.length * 0.72)));
+    }
+    hazes.splice(10);
+    wedges = strandLayers[2].wedges.concat(strandLayers[4].wedges);
+  }
 }
 function spawnHaze(init) {
   const k = rnd();

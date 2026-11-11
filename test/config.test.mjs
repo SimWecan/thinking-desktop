@@ -10,7 +10,7 @@ test("圆环几何：越界值被夹取", () => {
   const c = normalizeUiConfig({ ring: { x: 99, y: -9, scale: 0 } });
   assert.equal(c.ring.x, 1.5);
   assert.equal(c.ring.y, -0.5);
-  assert.equal(c.ring.scale, 0.4);
+  assert.equal(c.ring.scale, 0.15);
 });
 
 test("缺省时返回默认值", () => {

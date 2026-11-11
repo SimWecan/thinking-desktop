@@ -40,7 +40,7 @@ export function normalizeUiConfig(raw) {
     ring: {
       x: clamp(r.ring?.x, -0.5, 1.5, UI_DEFAULTS.ring.x),
       y: clamp(r.ring?.y, -0.5, 1.5, UI_DEFAULTS.ring.y),
-      scale: clamp(r.ring?.scale, 0.4, 2.5, UI_DEFAULTS.ring.scale),
+      scale: clamp(r.ring?.scale, 0.15, 2.5, UI_DEFAULTS.ring.scale),
     },
   };
 }
