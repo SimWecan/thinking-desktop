@@ -1,0 +1,263 @@
+#!/usr/bin/env node
+/**
+ * 端到端场景测试：单 agent / 多 agent / 综合↔单独形态切换 / agent 结束后动态静默 / 活动回归。
+ *
+ *   npm run test:e2e              # 全量跑（含静默阶段，约 2 分钟）
+ *   E2E_SKIP_SILENCE=1 npm run test:e2e   # 跳过静默长阶段
+ *
+ * 与本机真实数据完全隔离（三层）：
+ *   1. 重启服务时经 launchctl setenv THINKING_DESKTOP_CONNECTORS=off 停用全部真实
+ *      连接器——本机 AI 桌面端的真实事件一条都进不来，测试只消费 /ingest 注入的事件
+ *   2. 注入文本全部带「测试」标记；/stats 与 /texts 测试前备份、测试后原样还原
+ *   3. 结束后恢复连接器（unsetenv + 重启服务）并重启壁纸宿主，清掉内存里的测试文本
+ *
+ * 每个阶段：注入事件 → 断言 /debug 遥测与 /agents 状态 → 保存壁纸/托盘快照到 .verify/e2e/
+ */
+
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+const BASE = process.env.THINKING_DESKTOP_URL || "http://127.0.0.1:7799";
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const OUT = join(ROOT, ".verify", "e2e");
+const UID = process.getuid();
+const SKIP_SILENCE = !!process.env.E2E_SKIP_SILENCE;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let TOKEN = process.env.TD_TOKEN || "";
+if (!TOKEN) { try { TOKEN = readFileSync(join(ROOT, "data", ".token"), "utf8").trim(); } catch {} }
+const api = (path, opts = {}) =>
+  fetch(`${BASE}${path}`, { ...opts, headers: { ...(TOKEN ? { "x-td-token": TOKEN } : {}), ...(opts.headers || {}) } });
+
+/** 注入文本：明显带「测试」标记，不与真实思考混淆 */
+const SCRIPT = {
+  "gemini-desktop": [
+    "测试 · 总结两份方案差异，列出三个事实性分歧点。",
+    "测试 · 把环带粒子按来源分轨，混色时按强度加权。",
+    "测试 · 检测到形态切换请求，准备单一展示。",
+  ],
+  "deepseek-harness": [
+    "测试 · zstd 会话解码完成，提取到两段完整推理。",
+    "测试 · reasoning 整段上墙，不截成一句话。",
+    "测试 · 工具调用返回成功，继续下一阶段。",
+  ],
+  codex: [
+    "test · rebuild the sqlite index and re-run the tool trace.",
+    "test · the patch applies cleanly; run tests once more.",
+  ],
+};
+const SOLO = "gemini-desktop";                 // 本机无真实事件的来源，单独形态不受真实数据干扰
+const MULTI = ["gemini-desktop", "deepseek-harness", "codex"];
+
+const results = [];   // { phase, name, ok, detail }
+function check(phase, name, ok, detail = "") {
+  results.push({ phase, name, ok, detail });
+  console.log(`  ${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`);
+}
+
+async function post(source, type, payload) {
+  const res = await api("/ingest", { method: "POST", body: JSON.stringify({ source, type, payload }) });
+  if (!res.ok) throw new Error(`ingest ${source} ${type} → ${res.status}`);
+}
+async function setView(agent) {
+  const res = await api("/view", { method: "POST", body: JSON.stringify({ agent }) });
+  if (!res.ok) throw new Error(`/view → ${res.status}`);
+  return (await res.json()).view;
+}
+const wall = async () => (await (await api("/debug")).json()).clients?.wall ?? {};
+const agentList = async () => (await (await api("/agents")).json());
+
+/** 持续注入若干来源的事件，持续 seconds 秒 */
+async function inject(sources, seconds) {
+  const until = Date.now() + seconds * 1000;
+  let i = 0;
+  while (Date.now() < until) {
+    for (const src of sources) {
+      await post(src, "text", { text: SCRIPT[src][i % SCRIPT[src].length], kind: "think", stream: true });
+      if (i % 2 === 0) await post(src, "tool_call", { name: "bash" });
+      if (src === "deepseek-harness") await post(src, "token", { model: "deepseek-flash", used: 200000 + i * 8000, window: 1048576 });
+      else await post(src, "token", { model: src.replace("-desktop", ""), maxUsage: 0.2 + (i % 5) * 0.05 });
+    }
+    i += 1;
+    await sleep(850);
+  }
+}
+
+/** 请求一帧壁纸快照（必要时含托盘），落盘 .verify/e2e/<name>.png */
+async function snap(name, { tray = false } = {}) {
+  await api("/snapshot?request=1").catch(() => {});
+  await sleep(3000);
+  const files = [];
+  for (const [suffix, url] of [["wall", "/snapshot"], ...(tray ? [["tray", "/snapshot?tray=1"]] : [])]) {
+    const res = await api(url).catch(() => null);
+    if (res && res.ok) {
+      const f = join(OUT, `${name}-${suffix}.png`);
+      writeFileSync(f, Buffer.from(await res.arrayBuffer()));
+      files.push(f);
+    }
+  }
+  return files;
+}
+
+async function restartServer(connectorsOff) {
+  if (connectorsOff) spawnSync("launchctl", ["setenv", "THINKING_DESKTOP_CONNECTORS", "off"]);
+  else spawnSync("launchctl", ["unsetenv", "THINKING_DESKTOP_CONNECTORS"]);
+  const r = spawnSync("launchctl", ["kickstart", "-k", `gui/${UID}/com.simwecan.thinking-desktop`], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`服务重启失败: ${r.stderr || r.stdout}`);
+  for (let i = 0; i < 40; i++) {
+    await sleep(500);
+    try { const res = await fetch(`${BASE}/health`); if (res.ok) return; } catch {}
+  }
+  throw new Error("服务重启后 /health 未就绪");
+}
+async function restartWallpaper() {
+  spawnSync("launchctl", ["kickstart", "-k", `gui/${UID}/com.simwecan.thinking-desktop-wallpaper`]);
+}
+
+// ---------------- 备份（测试后原样还原） ----------------
+const backup = { stats: null, texts: null, ui: null, view: "all" };
+async function snapshotState() {
+  try { backup.stats = await (await api("/stats")).json(); } catch {}
+  try { backup.texts = await (await api("/texts?limit=40")).json(); } catch {}
+  try { backup.ui = (await (await api("/state")).json()).ui || null; } catch {}
+  try { backup.view = (await agentList()).view || "all"; } catch {}
+}
+async function restoreState() {
+  try { if (backup.stats) await api("/stats", { method: "POST", body: JSON.stringify(backup.stats) }); } catch {}
+  try { if (backup.texts) await api("/texts", { method: "POST", body: JSON.stringify(backup.texts) }); } catch {}
+  try { if (backup.ui) await api("/ui", { method: "POST", body: JSON.stringify(backup.ui) }); } catch {}
+  try { await setView(backup.view); } catch {}
+}
+
+// ---------------- 主流程 ----------------
+mkdirSync(OUT, { recursive: true });
+console.log(`端到端场景测试 → ${BASE}`);
+await snapshotState();
+const winddownSec = Number(backup.ui?.winddownSec ?? backup.ui?.holdSec ?? 30);
+console.log(`已备份：今日 ${backup.stats?.totalEvents ?? "?"} 事件 / 文本墙 ${backup.texts?.length ?? 0} 条 / 形态 ${backup.view} / winddown ${winddownSec}s`);
+console.log("重启服务（停用真实连接器）…");
+await restartServer(true);
+await sleep(1500);   // 等壁纸页 SSE 重连 + hello 状态
+
+try {
+  // ---------- P1 单 agent 运行（单独形态） ----------
+  console.log("\n■ P1 单 agent 运行（单独形态 gemini-desktop，8s）");
+  await setView(SOLO);
+  const p1 = inject([SOLO], 8);
+  await sleep(4000);
+  let [w, ag] = [await wall(), await agentList()];
+  check("P1", "形态已切到 gemini-desktop", ag.view === SOLO, `view=${ag.view}`);
+  check("P1", "该 agent 判定为思考中", (ag.agents || []).find((a) => a.source === SOLO)?.thinking === true);
+  check("P1", "壁纸点亮 gemini", (w.lights || []).includes(SOLO), `lights=${(w.lights || []).join("+") || "无"}`);
+  const p1srcs = w.haloGeom?.lights?.srcs || [];
+  check("P1", "单一形态光环只渲染该来源", p1srcs.length === 1 && p1srcs[0] === SOLO, `halo srcs=${p1srcs.join(",") || "无"}`);
+  check("P1", "环带收到思考文本", (w.haloText ?? 0) > 0, `${w.haloText ?? 0} 条`);
+  check("P1", "光环动画运行中", w.haloRaf === true && (w.calm ?? 0) < 0.5, `calm=${w.calm}`);
+  const p1files = await snap("p1-solo", { tray: true });
+  console.log(`  快照: ${p1files.map((f) => f.split("/").pop()).join(", ")}`);
+  await p1;
+
+  // ---------- P2 多 agent 并行（综合形态） ----------
+  console.log("\n■ P2 多 agent 并行（综合形态，3 家 × 8s）");
+  await setView("all");
+  const p2 = inject(MULTI, 8);
+  await sleep(4500);
+  [w, ag] = [await wall(), await agentList()];
+  check("P2", "形态为综合", ag.view === "all", `view=${ag.view}`);
+  const lit = MULTI.filter((s) => (w.lights || []).includes(s));
+  check("P2", "三家同时点亮", lit.length === MULTI.length, `lights=${(w.lights || []).join("+") || "无"}`);
+  const p2srcs = w.haloGeom?.lights?.srcs || [];
+  check("P2", "光环多来源分轨渲染", MULTI.every((s) => p2srcs.includes(s)), `halo srcs=${p2srcs.join(",") || "无"}`);
+  check("P2", "环带文本持续流入", (w.haloText ?? 0) > 0, `${w.haloText ?? 0} 条`);
+  const p2files = await snap("p2-multi", { tray: true });
+  console.log(`  快照: ${p2files.map((f) => f.split("/").pop()).join(", ")}`);
+  await p2;
+
+  // ---------- P3 综合 ↔ 单独形态切换，特效跟着切 ----------
+  console.log("\n■ P3 形态切换（注入不停：gemini + dsh，各形态 4s）");
+  const p3 = inject(["gemini-desktop", "deepseek-harness"], 16);
+  await sleep(1000);
+  const CYCLE = [
+    ["all", MULTI.length, "综合形态（三家都可见）", false],
+    ["deepseek-harness", 1, "单独形态：只显示 DSH 粒子", true],
+    ["gemini-desktop", 1, "单独形态：只显示 Gemini 粒子", true],
+    ["all", MULTI.length, "切回综合形态", false],
+  ];
+  for (const [view, minSrcs, label, trayShot] of CYCLE) {
+    await setView(view);
+    // 光环里旧来源的光强是缓动衰减的（约 10s 级），不是硬切：轮询等它落位
+    let ok = false, srcs = [];
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      await sleep(1500);
+      [w, ag] = [await wall(), await agentList()];
+      srcs = w.haloGeom?.lights?.srcs || [];
+      ok = ag.view === view && (view === "all" ? srcs.length >= 2 : srcs.length === 1 && srcs[0] === view);
+      if (ok) break;
+    }
+    check("P3", label, ok, `view=${ag.view} halo srcs=${srcs.join(",") || "无"}`);
+    const files = await snap(`p3-view-${view.replace(/[^a-z]/g, "")}`, { tray: trayShot });
+    console.log(`  快照: ${files.map((f) => f.split("/").pop()).join(", ")}`);
+  }
+  await p3;
+
+  // ---------- P4 agent 结束 → 动态静默 ----------
+  if (!SKIP_SILENCE) {
+    console.log(`\n■ P4 全部停止 → 动态静默（winddown ${winddownSec}s，逐 2s 采样 calm）`);
+    await setView("all");
+    await sleep(2000);
+    const rows = [];
+    const deadline = Date.now() + (winddownSec + 15) * 1000;
+    let peaked = false;
+    while (Date.now() < deadline) {
+      w = await wall();
+      rows.push({ t: Math.round(w.idleFor ?? 0), calm: w.calm, idle: w.idle, raf: w.haloRaf, lights: (w.lights || []).length });
+      console.log(`  空闲 ${String(w.idleFor ?? "?").padStart(3)}s · calm ${(w.calm ?? "?").toString().padEnd(5)} · idle=${w.idle} · rAF=${w.haloRaf} · 点亮 ${(w.lights || []).length}`);
+      if (w.calm >= 1) { peaked = true; break; }
+      await sleep(2000);
+    }
+    // calm 到 1 后再等一拍：standby 冻结光环（rAF 退出）有至多 1 个遥测周期的延迟
+    await sleep(2500);
+    w = await wall();
+    const rising = rows.every((r, i) => i === 0 || r.calm >= rows[i - 1].calm - 0.05);
+    check("P4", "calm 单调爬升（渐进减速，非硬停）", rows.length >= 3 && rising && rows[rows.length - 1].calm >= 1,
+      `从 ${rows[0]?.calm} → ${rows[rows.length - 1]?.calm}`);
+    check("P4", "到点完全静默（idle + rAF 退出）", w.calm >= 1 && w.idle === true && w.haloRaf === false,
+      `calm=${w.calm} idle=${w.idle} rAF=${w.haloRaf}`);
+    check("P4", "无来源点亮", (w.lights || []).length === 0);
+    const silenceFiles = await snap("p4-silent");
+    console.log(`  快照: ${silenceFiles.map((f) => f.split("/").pop()).join(", ")}`);
+
+    // ---------- P5 活动回归 ----------
+    console.log("\n■ P5 活动回归（注入 1 条事件，5s 内应退出静默）");
+    await post(SOLO, "text", { text: "测试 · 新的思考开始了，环带应该恢复转动。", kind: "think", stream: true });
+    let resumed = false;
+    for (let i = 0; i < 6; i++) {
+      await sleep(1000);
+      w = await wall();
+      if ((w.calm ?? 1) < 0.3 && w.haloRaf === true) { resumed = true; break; }
+    }
+    check("P5", "calm 回落、光环恢复运行", resumed, `calm=${w.calm} rAF=${w.haloRaf}`);
+  } else {
+    console.log("\n■ P4/P5 按 E2E_SKIP_SILENCE 跳过");
+  }
+} finally {
+  console.log("\n还原真实数据与服务…");
+  await restoreState();
+  await restartServer(false);
+  await restartWallpaper();
+  await sleep(4000);
+  const w = await wall().catch(() => ({}));
+  const texts = await (await api("/texts?limit=40")).json().catch(() => []);
+  console.log(`服务已恢复真实连接器；壁纸已重启。文本墙 ${texts.length} 条（演示前 ${backup.texts?.length ?? 0}）`);
+  const clean = !(w.pageError || w.haloError);
+  check("END", "壁纸运行无页面错误", clean, w.pageError || w.haloError || "");
+}
+
+console.log("\n=== 结论 ===");
+const failed = results.filter((r) => !r.ok);
+for (const r of results.filter((x) => !x.ok)) console.log(`  ✗ [${r.phase}] ${r.name} ${r.detail}`);
+console.log(`通过 ${results.length - failed.length}/${results.length} · 快照目录 ${OUT}`);
+process.exit(failed.length ? 1 : 0);

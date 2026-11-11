@@ -112,7 +112,11 @@ curl -s 'http://127.0.0.1:7799/snapshot?panel=1' -o /tmp/panel.png
 npm run links                           # 每个 AI 桌面端：数据通道 / 事件数 / 最后事件 / 实时 CPU
 curl -s http://127.0.0.1:7799/health    # 同上，原始 JSON（含 zstd 状态）
 npm test                                # connector + 事件映射 + 活动度解析的单元测试
+npm run test:e2e                        # 端到端场景测试：单 agent / 多 agent / 形态切换 / 动态静默 / 活动回归
+                                        # （重启服务时停用真实连接器 + 备份还原统计与文本墙，与真实数据完全隔离）
 ```
+
+演示/测试隔离：服务认 `THINKING_DESKTOP_CONNECTORS=off` 环境变量——置位后真实连接器全部停用、今日统计不载入，只消费 `/ingest` 注入的事件（`test:e2e` 与 `demo` 都依赖它）。
 
 ### macOS 一键安装（自启 + 桌面壁纸）
 

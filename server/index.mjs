@@ -419,9 +419,16 @@ if (process.env.THINKING_DESKTOP_TAIL) {
 
 // ---------------------------------------------------------------------------
 
-for (const c of connectors) {
-  c.onEvent = pushEvent;
-  try { c.start(); } catch (err) { console.error(`[${c.source}]`, err.message); }
+// 演示/端到端测试隔离：THINKING_DESKTOP_CONNECTORS=off 时停用全部真实连接器，
+// 只保留 /ingest 手动注入口——本机真实 AI 桌面端的活动不会混入测试数据
+const CONNECTORS_OFF = process.env.THINKING_DESKTOP_CONNECTORS === "off";
+if (CONNECTORS_OFF) {
+  console.log("[server] THINKING_DESKTOP_CONNECTORS=off：真实连接器全部停用（演示/测试模式）");
+} else {
+  for (const c of connectors) {
+    c.onEvent = pushEvent;
+    try { c.start(); } catch (err) { console.error(`[${c.source}]`, err.message); }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -863,7 +870,13 @@ try {
   }
 } catch { /* 日志文件不存在等情况忽略 */ }
 
-loadStats();
+// 演示/测试模式：不载入今日统计——否则刚重启后 restored 来源的 lastEventAt
+// 还热乎（<12s），会被误当成「正在点亮」，污染测试断言
+if (CONNECTORS_OFF) {
+  console.log("[server] 演示/测试模式：跳过 loadStats，来源状态从零开始");
+} else {
+  loadStats();
+}
 // 退出时尽量落一次盘（launchd 发 SIGTERM）
 process.on("SIGTERM", () => { if (statsSaveTimer) clearTimeout(statsSaveTimer); try { writeFileSync(statsFile(), JSON.stringify({ date: dayKey(), totalEvents, tools: Object.fromEntries(toolCounts), sources: Object.fromEntries([...sourceStats].map(([k, v]) => [k, { events: v.events, lastEventAt: v.lastEventAt, lastWorkAt: v.lastWorkAt }])), tokens: Object.fromEntries(tokenBySource) })); } catch {} process.exit(0); });
 
