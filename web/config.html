@@ -66,8 +66,8 @@
 <div class="uirow"><label>右侧看板</label>
   <select id="uiPanel"><option value="hover">悬停环带时展开</option><option value="always">常驻显示</option></select>
   <span style="color:var(--dim)">常驻会一直占用右侧一块区域</span></div>
-<div class="uirow"><label>停环等待（秒）</label><input type="number" id="uiHold" min="5" max="600" step="1">
-  <span style="color:var(--dim)">多久没有工作事件就停转</span></div>
+<div class="uirow"><label>静默过渡（秒）</label><input type="number" id="uiWinddown" min="5" max="600" step="1">
+  <span style="color:var(--dim)">无事件后环带在窗口内逐渐减速、粒子渐暗，到点完全停止</span></div>
 <div class="uirow"><label>首句最多字数</label><input type="number" id="uiChars" min="30" max="400" step="10">
   <span style="color:var(--dim)">只影响环带，不影响看板原文</span></div>
 <div class="uirow"><label>光源淡出（秒）</label><input type="number" id="uiLights" min="3" max="600" step="1">
@@ -145,7 +145,7 @@ async function loadUi() {
     const ui = await (await fetch("/ui")).json();
     document.getElementById("uiRingText").value = ui.ringText;
     document.getElementById("uiPanel").value = ui.panel;
-    document.getElementById("uiHold").value = ui.holdSec;
+    document.getElementById("uiWinddown").value = ui.winddownSec;
     document.getElementById("uiChars").value = ui.ringChars;
     document.getElementById("uiLights").value = ui.lightsWindowSec;
   } catch {}
@@ -155,7 +155,7 @@ document.getElementById("saveUi").onclick = async () => {
   const body = {
     ringText: document.getElementById("uiRingText").value,
     panel: document.getElementById("uiPanel").value,
-    holdSec: Number(document.getElementById("uiHold").value),
+    winddownSec: Number(document.getElementById("uiWinddown").value),
     ringChars: Number(document.getElementById("uiChars").value),
     lightsWindowSec: Number(document.getElementById("uiLights").value),
   };

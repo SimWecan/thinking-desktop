@@ -1453,7 +1453,18 @@ function resizeAll() {
 }
 const origFrame = frame;
 window.__tdRafOn = true;
+window.__tdCalm = 0;   // 动态静默 0→1：时间减速 + 渐暗；1 = 完全静默（转入 standby）
 frame = function frame(now) {
+  if (window.__tdCalm >= 1) {
+    // 静默到位：与 tdSetStandby(true) 等效的最小内联（该函数定义在桥接闭包里，此处不可见）
+    window.__tdCalm = 1;
+    window.__tdStandby = true;
+    window.__wpPaused = true;
+    window.__tdStandbyDirty = true;
+    try { if (window.__tdLightsReset) window.__tdLightsReset(); } catch (e) {}
+    try { trailC.x.setTransform(1, 0, 0, 1, 0, 0); trailC.x.clearRect(0, 0, trailC.width, trailC.height); } catch (e) {}
+    try { comets.length = 0; } catch (e) {}
+  }
   if (window.__tdStandby) {
     // Thinking Desktop 待机：退出 rAF 循环，改按需渲染。
     // （WKWebView 被窗口遮挡时 rAF 会被系统完全节流，不能依赖 rAF 补帧。）
@@ -1465,7 +1476,24 @@ frame = function frame(now) {
     return;   // 关键：不再 requestAnimationFrame，等待外部事件唤醒
   }
   window.__tdStandbyDrawn = false;
-  if (ready) origFrame(now);          // origFrame 末尾自行续 rAF
+  if (ready) {
+    const calm = Math.min(0.999, Math.max(0, window.__tdCalm || 0));
+    if (calm > 0) {
+      // 动态静默：用虚拟时钟喂原 frame（dt 按系数缩小 → 环带转速/粒子运动逐渐减缓），
+      // 画完盖一层渐暗（粒子/光束/网纹强度随之减弱），再回到真实时钟避免 dt 跳变。
+      const virtualNow = last + (now - last) * Math.max(0.02, 1 - calm * 0.97);
+      origFrame(virtualNow);
+      last = now;
+      try {
+        S.setTransform(1, 0, 0, 1, 0, 0);
+        S.globalCompositeOperation = 'source-over'; S.globalAlpha = 1;
+        S.fillStyle = `rgba(8,9,11,${(calm * 0.72).toFixed(3)})`;
+        S.fillRect(0, 0, S.canvas.width, S.canvas.height);
+      } catch (e) {}
+    } else {
+      origFrame(now);          // origFrame 末尾自行续 rAF
+    }
+  }
   else { last = now; requestAnimationFrame(frame); }
 };
 new ResizeObserver(() => { clearTimeout(rzT); rzT = setTimeout(resizeAll, 120); }).observe(document.getElementById('stageWrap'));
@@ -1683,6 +1711,7 @@ function syncPanel() {
     window.__wpPaused = on;
     window.__tdStandbyDirty = true;
     if (on) {
+      window.__tdCalm = 1;
       if (window.__tdLightsReset) window.__tdLightsReset();
       // 清残留粒子缓冲：待机首帧就是干净的「停住的环带」
       try { trailC.x.setTransform(1, 0, 0, 1, 0, 0); trailC.x.clearRect(0, 0, trailC.width, trailC.height); } catch (e) {}
@@ -1696,6 +1725,16 @@ function syncPanel() {
     }
   }
 
+  // 动态静默：0 = 全速；0→1 之间环带逐渐减速、粒子渐暗；≥1 完全静默（standby 冻结）。
+  // 页面在静默过渡窗口内每秒推送当前 calm 值；活动回归时先收到 0 再恢复全速。
+  function tdSetCalm(v) {
+    v = Math.max(0, Math.min(1, Number(v) || 0));
+    if (v >= 1) { window.__tdCalm = 1; tdSetStandby(true); return; }
+    window.__tdCalm = v;
+    if (window.__tdStandby) tdSetStandby(false);
+  }
+  window.__tdSetCalm = tdSetCalm;
+
   // 待机帧周期性自检刷新（捕获窗口尺寸变化 / 新截流文本；rAF 挂起时也要能自刷）
   setInterval(() => { if (window.__tdStandby) { window.__tdStandbyDirty = true; tdRenderStandby(); } }, 3000);
 
@@ -1705,6 +1744,7 @@ function syncPanel() {
     if (!m || m.td === undefined) return;
     if (m.td === 'pause') { tdSetStandby(!!m.value); return; }   // Wallpaper Engine 兼容：语义同 standby
     if (m.td === 'standby') { tdSetStandby(!!m.value); return; }
+    if (m.td === 'calm') { tdSetCalm(m.value); return; }   // 动态静默 0→1（页面在静默过渡窗口推送）
     if (m.td === 'set') { try { setParam(m.key, m.value, true); } catch (e) {} return; }
     if (m.td === 'preset') { try { loadPreset(m.name, null); } catch (e) {} return; }
     if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }

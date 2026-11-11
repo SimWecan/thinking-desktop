@@ -52,6 +52,24 @@
     return cut.replace(/\s+$/, "").slice(0, n);
   }
 
+  /**
+   * 动态静默系数 0→1：空闲时长占静默过渡窗口的比例。
+   * 0 = 全速；0<x<1 = 环带逐渐减速、粒子强度渐弱；1 = 完全静默（standby 冻结）。
+   * @param {{now:number, workAt:number, busyUntil:number, winddown?:number, view?:string, agents?:Array}} s
+   */
+  function winddownCalm(s) {
+    const now = Number(s?.now) || 0;
+    if (now <= (Number(s?.busyUntil) || 0)) return 0;
+    if (s?.view && s.view !== "all") {
+      const a = (s.agents || []).find((x) => x && x.source === s.view);
+      if (a) return a.thinking ? 0 : 1;          // 单一形态：只看该 agent
+    }
+    const winddown = Math.max(1000, Number(s?.winddown) || 30000);
+    const idle = now - (Number(s?.workAt) || 0);
+    if (idle <= 0) return 0;
+    return Math.min(1, idle / winddown);
+  }
+
   /** 每个 agent 的柱高百分比（按累计事件占比） */
   function agentBars(agents, view) {
     const list = (agents || []).filter((a) => a && a.enabled !== false && (!view || view === "all" || a.source === view));
@@ -59,5 +77,5 @@
     return list.map((a) => ({ source: a.source, pct: Math.round(((a.events || 0) / max) * 100) }));
   }
 
-  root.TDLogic = { shouldStandby, activeSources, normalizeSeries, agentBars, headline };
+  root.TDLogic = { shouldStandby, winddownCalm, activeSources, normalizeSeries, agentBars, headline };
 })(typeof window !== "undefined" ? window : globalThis);

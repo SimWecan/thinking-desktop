@@ -11,7 +11,29 @@ import vm from "node:vm";
 const code = readFileSync(new URL("../web/lib/td-logic.js", import.meta.url), "utf8");
 const sandbox = { window: {} };
 vm.runInNewContext(code, sandbox);
-const { shouldStandby, activeSources, normalizeSeries, agentBars } = sandbox.window.TDLogic;
+const { shouldStandby, winddownCalm, activeSources, normalizeSeries, agentBars } = sandbox.window.TDLogic;
+
+test("动态静默：空闲占过渡窗口的比例匀速爬升，窗口末到达 1", () => {
+  const now = 1_000_000;
+  assert.equal(winddownCalm({ now, workAt: now, busyUntil: 0, winddown: 30000 }), 0);
+  assert.equal(+winddownCalm({ now, workAt: now - 7500, busyUntil: 0, winddown: 30000 }).toFixed(2), 0.25);
+  assert.equal(+winddownCalm({ now, workAt: now - 15000, busyUntil: 0, winddown: 30000 }).toFixed(2), 0.5);
+  assert.equal(winddownCalm({ now, workAt: now - 30000, busyUntil: 0, winddown: 30000 }), 1);
+  assert.equal(winddownCalm({ now, workAt: now - 99999, busyUntil: 0, winddown: 30000 }), 1);   // 封顶
+});
+
+test("动态静默：busyUntil 未到期保持全速；窗口内按比例爬升", () => {
+  const now = 1_000_000;
+  assert.equal(winddownCalm({ now, workAt: now - 99999, busyUntil: now + 5000, winddown: 30000 }), 0);
+  assert.equal(winddownCalm({ now, workAt: now, busyUntil: 0, winddown: 30000 }), 0);
+});
+
+test("动态静默：单一形态只看选中 agent，思考即全速、不思考即静默", () => {
+  const now = 1_000_000;
+  const agents = [{ source: "kimi-desktop", thinking: true }, { source: "codex", thinking: false }];
+  assert.equal(winddownCalm({ now, workAt: now - 99999, busyUntil: 0, winddown: 30000, view: "kimi-desktop", agents }), 0);
+  assert.equal(winddownCalm({ now, workAt: now, busyUntil: 0, winddown: 30000, view: "codex", agents }), 1);
+});
 
 test("停环：超过 hold 没工作信号才进待机", () => {
   const now = 1_000_000;

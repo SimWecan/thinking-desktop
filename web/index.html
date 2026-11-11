@@ -149,8 +149,8 @@
 "use strict";
 const DEBUG = __DEBUG__;
 const PAGE_BUILD = "panel-7";   // 自检用：确认壁纸加载的是新页面
-let UI = { ringText: "headline", panel: "hover", holdSec: 20, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
-const BUSY_HOLD = () => UI.holdSec * 1000;
+let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
+const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
 const hud = document.getElementById("hud");
 const panel = document.getElementById("panel");
@@ -259,6 +259,7 @@ let agentsList = [];
 let workAt = 0;
 let busyUntil = 0;
 let standby = null;
+let lastCalm = 0;
 let overRing = false;
 let haloError = "";
 let lastParamPush = 0, stateTimer = 0;
@@ -505,7 +506,7 @@ function resendText() {
 
 halo.addEventListener("load", () => {
   standby = null;
-  setStandby(currentStandby());
+  setStandby(currentCalm() >= 1);
   pushParams();
 });
 window.addEventListener("message", (ev) => {
@@ -513,15 +514,16 @@ window.addEventListener("message", (ev) => {
   if (ev.data && ev.data.td === "error") { haloError = `${ev.data.message} @ ${new Date(ev.data.at).toLocaleTimeString()}`; return; }
   if (ev.data && ev.data.td === "ready") {
     standby = null;
-    setStandby(currentStandby());
+    setStandby(currentCalm() >= 1);
     pushParams();
     resendText();
   }
 });
 
-function currentStandby() {
-  return TDLogic.shouldStandby({
-    now: Date.now(), workAt, busyUntil, hold: BUSY_HOLD(), view, agents: agentsList,
+/** 动态静默系数 0→1：0 全速；0<x<1 环带逐渐减速/粒子渐弱；1 完全静默 */
+function currentCalm() {
+  return TDLogic.winddownCalm({
+    now: Date.now(), workAt, busyUntil, winddown: WINDDOWN(), view, agents: agentsList,
   });
 }
 
@@ -636,8 +638,14 @@ es.onmessage = (ev) => {
 es.onerror = () => { /* EventSource 自动重连 */ };
 
 setInterval(async () => {
-  const idle = currentStandby();
+  // 动态静默：空闲时间进入过渡窗口后，每秒把 calm 系数推给光环——
+  // 环带转速随之逐渐减缓、粒子/光束强度渐弱；到 1 时转入完全静默（standby 冻结）
+  const calm = currentCalm();
+  const idle = calm >= 1;
   setStandby(idle);
+  if (calm > 0 && calm < 1) haloMsg({ td: "calm", value: +calm.toFixed(3) });
+  else if (calm <= 0 && lastCalm > 0) haloMsg({ td: "calm", value: 0 });   // 活动回归：撤掉减速
+  if (calm !== lastCalm) lastCalm = calm;
   syncPanel();
   if (!idle) pushParams();
   energy *= 0.995;
@@ -681,7 +689,9 @@ setInterval(async () => {
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
         idleFor: Math.round((Date.now() - workAt) / 1000),
         busyIn: busyUntil ? Math.round((busyUntil - Date.now()) / 1000) : 0,
-        hold: BUSY_HOLD(),
+        hold: WINDDOWN(),
+        winddownSec: UI.winddownSec,
+        calm: +calm.toFixed(3),
         textPushes,
         lights: (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status").map((x) => x.source),
         seriesPeak: Math.max(0, ...series),

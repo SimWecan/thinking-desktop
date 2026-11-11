@@ -98,14 +98,22 @@
     background: rgba(255,255,255,.9); border-radius: 1px; display: none;
   }
 
-  /* ———— 厂商专属「内容动效」：商标图一律不重绘 ———— */
-  /* DeepSeek：鲸鱼从静止变为大幅上下腾跃（商标本体位移） */
-  .icon.think.v-leap .logoWrap img.logo { animation: whaleLeap 2.1s cubic-bezier(.45,0,.55,1) infinite; }
-  @keyframes whaleLeap {
-    0%, 100% { transform: translateY(4px) rotate(-11deg) scale(1.03); }
-    50%      { transform: translateY(-6px) rotate(11deg) scale(1.07); }
+  /* ———— 厂商专属「内容动效」：商标底层图零改动，效果只发生在内容层 ———— */
+  /* 内容层 SVG：商标里的「内容」（鲸鱼/星芒）独立一层。底层 logo 图永远静止，
+     特效只画在这一层或 tilefx 内容层上，不触碰商标像素 */
+  .icon .glyph {
+    position: absolute; inset: 0; margin: auto; width: 30px; height: 30px;
+    display: none; pointer-events: none; z-index: 2; overflow: visible; color: #fff;
   }
-  /* Kimi：黑色商标背景里闪过白色流星 */
+  .icon .glyph.whale { width: 27px; height: 19px; top: 7px; }   /* 对准 DeepSeek 商标里鲸鱼的位置 */
+  .icon .glyph.star { color: var(--c, #fff); }
+  /* DeepSeek：内容层的鲸鱼从静止变为大幅上下腾跃（底层商标不动） */
+  .icon.think.v-leap .glyph.whale { display: block; animation: whaleLeap 2.1s cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes whaleLeap {
+    0%, 100% { transform: translateY(4px) rotate(-11deg) scale(1.04); }
+    50%      { transform: translateY(-6px) rotate(11deg) scale(1.09); }
+  }
+  /* Kimi：黑色商标背景里闪过白色流星（内容层 tilefx） */
   .icon.think.v-meteor .tilefx .meteor { display: block; animation: meteorFly 1.5s linear infinite; }
   .icon.think.v-meteor .tilefx .meteor:nth-of-type(2) { animation-delay: .55s; }
   @keyframes meteorFly {
@@ -113,13 +121,13 @@
     15%  { opacity: 1; }
     100% { left: 32px;  top: 26px; opacity: 0; }
   }
-  /* Gemini：四芒星整体闪烁（亮度 + 辉光脉动） */
-  .icon.think.v-glimmer .logoWrap img.logo { animation: starGlimmer 1.15s ease-in-out infinite; }
+  /* Gemini：内容层的四芒星整体闪烁（亮度 + 辉光脉动；底层商标不动） */
+  .icon.think.v-glimmer .glyph.star { display: block; animation: starGlimmer 1.15s ease-in-out infinite; }
   @keyframes starGlimmer {
     0%, 100% { filter: brightness(1) drop-shadow(0 0 2px rgba(255,255,255,.15)); transform: scale(1); }
-    50%      { filter: brightness(1.5) drop-shadow(0 0 9px var(--c, #fff)); transform: scale(1.06); }
+    50%      { filter: brightness(1.5) drop-shadow(0 0 9px var(--c, #fff)); transform: scale(1.12); }
   }
-  /* ChatGPT：线条间有光持续流动（无停顿的快速掠光） */
+  /* ChatGPT：内容层上有光在线条间持续流动（无停顿的快速掠光） */
   .icon.think.v-flow .tilefx .sheen {
     width: 62%;
     background: linear-gradient(100deg, transparent, rgba(255,255,255,.8), transparent);
@@ -132,16 +140,17 @@
   /* Claude：商标周围光晕呼吸 */
   .icon.think.v-glow .tilefx .glow { animation-duration: 2.4s; }
   .icon.think.v-glow .fx .aura { animation-duration: 2.2s; }
-  /* Codex：终端光标闪烁 */
+  /* Codex：内容层终端光标闪烁 */
   .icon.think.v-cursor .tilefx .cursor { display: block; animation: cursorBlink 1s steps(2, jump-none) infinite; }
   @keyframes cursorBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  .icon.think.v-leap .logoWrap img.logo, .icon.think.v-glimmer .logoWrap img.logo { animation: none; }
 
   @keyframes innerGlow { 0%, 100% { opacity: .18; transform: scale(.9); } 50% { opacity: .5; transform: scale(1.05); } }
   @keyframes scanDown { 0% { top: -20%; opacity: 0; } 12% { opacity: .9; } 88% { opacity: .9; } 100% { top: 105%; opacity: 0; } }
   @keyframes sheen { 0% { transform: translateX(-160%) skewX(-12deg); } 55%, 100% { transform: translateX(260%) skewX(-12deg); } }
 
   @media (prefers-reduced-motion: reduce) {
-    .icon.think .logoWrap img.logo, .icon .tilefx i,
+    .icon.think .logoWrap img.logo, .icon .tilefx i, .icon .glyph,
     .icon .fx .aura, .icon .fx .ring, .icon .fx .orbit, .icon .fx .ping { animation: none !important; }
   }
 
@@ -192,8 +201,8 @@ const composite = document.getElementById("composite");
 const icons = new Map();
 let expanded = false, view = "all", agents = [];
 
-// 动效风格：商标图一律不重绘——DeepSeek 本体腾跃、Kimi 黑底流星、Gemini 星体闪烁、
-// ChatGPT 线条流光、Claude 光晕呼吸、Codex 光标闪烁
+// 动效风格：商标底层图零改动——内容层（鲸鱼/星芒 SVG 或 tilefx 特效层）承担全部动态。
+// DeepSeek 鲸鱼腾跃、Kimi 黑底流星、Gemini 四芒星闪烁、ChatGPT 线条流光、Claude 光晕呼吸、Codex 光标闪烁
 const MOTION = {
   whale: "v-leap",
   moon: "v-meteor",
@@ -202,6 +211,14 @@ const MOTION = {
   asterisk: "v-glow",
   term: "v-cursor",
 };
+
+/* 内容层 SVG：商标里「内容」图形的剪影层（不替换商标，叠在底层图之上做动态）。
+   鲸鱼剪影对准 DeepSeek 商标中鲸鱼的位置；四芒星对准 Gemini 商标的星形。 */
+const GLYPHS = {
+  whale: `<svg class="glyph whale" viewBox="0 0 32 22" aria-hidden="true"><path fill="currentColor" d="M2 13c0-6 6-10 14-10 5 0 9 2 11 5l3-3c0 4-1 6-3 8l3 3-3 1c-2 2-5 3-8 3-8 0-14-3-14-7z"/><circle cx="9.5" cy="8.5" r="1.3" fill="rgba(10,12,16,.55)"/></svg>`,
+  spark4: `<svg class="glyph star" viewBox="0 0 100 100" aria-hidden="true"><path fill="currentColor" d="M50 2 C56 36 64 44 98 50 C64 56 56 64 50 98 C44 64 36 56 2 50 C36 44 44 36 50 2 Z"/></svg>`,
+};
+const glyphFor = (anim) => GLYPHS[anim] || "";
 
 /* 未使用：图标地址现在直接内联在 <img src>/srcset 里，保留备查
 function SRC_NAME(source) {
@@ -242,6 +259,7 @@ function build() {
         `<div class="orbit"><i></i><i class="b"></i></div><i class="ping"></i></div>` +
         `<span class="logoWrap">` +
         `<img class="logo" alt="" src="/icon/${key}.png" srcset="/icon/${key}@2x.png 2x" draggable="false">` +
+        glyphFor(primary.anim) +
         `<span class="tilefx"><i class="glow"></i><i class="scan"></i><i class="sheen"></i><i class="meteor"></i><i class="meteor"></i><i class="cursor"></i></span>` +
         `</span>`;
       // 没有本地商标图时才用中性字母牌（不伪造 logo）
@@ -396,14 +414,17 @@ async function poll() {
       .filter((n) => n && n !== "none");
     const sheen = Array.from(document.querySelectorAll(".icon.think .tilefx .sheen"))
       .map((el) => getComputedStyle(el).animationName);
-    // 自检：商标本体动画仅限厂商专属设计（v-leap 腾跃 / v-glimmer 闪烁），其余必须静止
+    // 自检：底层商标图必须静止；动态只发生在内容层（glyph SVG / tilefx 特效层）
     const logoAnims = Array.from(document.querySelectorAll(".icon.think img.logo, .icon.think img.solo"))
+      .map((el) => getComputedStyle(el).animationName)
+      .filter((n) => n && n !== "none");
+    const glyphAnims = Array.from(document.querySelectorAll(".icon.think .glyph"))
       .map((el) => getComputedStyle(el).animationName)
       .filter((n) => n && n !== "none");
     const motion = Array.from(icons.values()).map((el) => (el.className.match(/v-[a-z]+/) || [""])[0]);
     fetch("/debug", {
       method: "POST",
-      body: JSON.stringify({ client: "tray", agents: agents.length, expanded, shot: !!s.shot, lastShotOk, anims, sheen, logoAnims, motion }),
+      body: JSON.stringify({ client: "tray", agents: agents.length, expanded, shot: !!s.shot, lastShotOk, anims, sheen, logoAnims, glyphAnims, motion }),
     }).catch(() => {});
   } catch (e) { lastShotOk = "poll-error"; }
 }
