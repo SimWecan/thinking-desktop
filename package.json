@@ -13,7 +13,9 @@
     "backfill": "node scripts/backfill-today.mjs",
     "demo": "node scripts/demo.mjs",
     "test:e2e": "node scripts/e2e-test.mjs",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "build:pkg": "bash scripts/build-pkg.sh",
+    "build:win": "bash scripts/build-win.sh"
   },
   "engines": {
     "node": ">=20"

@@ -119,6 +119,15 @@ npm run test:e2e                        # 端到端场景测试：单 agent / �
 
 演示/测试隔离：服务认 `THINKING_DESKTOP_CONNECTORS=off` 环境变量——置位后真实连接器全部停用、今日统计不载入，只消费 `/ingest` 注入的事件（`test:e2e` 与 `demo` 都依赖它）。
 
+### 安装包（dist/）
+
+```bash
+npm run build:pkg     # macOS → dist/Thinking-Desktop-<版本>-macos.pkg（未签名，本机/开发分发）
+npm run build:win     # Windows → dist/Thinking-Desktop-<版本>-win.zip（源码包 + Inno Setup 脚本）
+```
+
+产物不进 git，发版时传 GitHub Release。详见 [docs/PACKAGING.md](docs/PACKAGING.md)。
+
 ### macOS 一键安装（自启 + 桌面壁纸）
 
 ```bash

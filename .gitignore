@@ -9,3 +9,4 @@ config/agents.json
 data/
 config/icons.json
 config/ui.json
+dist/
