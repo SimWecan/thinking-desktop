@@ -243,6 +243,15 @@ try {
   }
   await p3;
 
+  // ---------- P3b 渲染预算（性能回归护栏） ----------
+  {
+    const h = await api("/health").then((r) => r.json()).catch(() => ({}));
+    const perf = h.perf || {};
+    const ok = (perf.frameMs ?? 99) < 8 && (perf.fps ?? 0) >= 30;
+    check("P3b", "渲染开销在预算内（frameMs < 8ms，fps ≥ 30）", ok,
+      `fps=${perf.fps ?? "?"} frameMs=${perf.frameMs ?? "?"} panelMs=${perf.panelMs ?? "?"}`);
+  }
+
   // ---------- P4 agent 结束 → 动态静默 ----------
   if (!SKIP_SILENCE) {
     console.log(`\n■ P4 全部停止 → 动态静默（winddown ${winddownSec}s，逐 2s 采样 calm）`);
