@@ -585,9 +585,18 @@ const server = createServer((req, res) => {
   // 厂商图标：从本机安装的 .app 里提取的官方商标图（data/icons/*.png）
   if (url.pathname.startsWith("/icon/")) {
     const name = decodeURIComponent(url.pathname.slice("/icon/".length)).replace(/[^a-z0-9@._-]/gi, "");
+    // 项目自有静态图标（如软件商标 thinking-desktop.svg）直接读 web/icon/
+    if (name.endsWith(".svg")) {
+      const f = join(ROOT, "web", "icon", name);
+      if (!existsSync(f)) { res.writeHead(404).end("no icon"); return; }
+      res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "no-store" }).end(readFileSync(f));
+      return;
+    }
     if (!name.endsWith(".png")) { res.writeHead(404).end("not found"); return; }
     const source = name.replace(/(@2x)?\.png$/, "");
     let file = cachedIconPath(ROOT, source);
+    // 项目自有静态图标（软件商标等）不在厂商图标缓存里，回退读 web/icon/
+    if (!existsSync(file)) file = join(ROOT, "web", "icon", name);
     if (name.includes("@2x")) {
       // 2x 版本按需生成
       ensureIcon2x(ROOT, source, (err, out) => {
@@ -741,13 +750,22 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // 版本号：配置窗口顶栏展示
+  if (url.pathname === "/version") {
+    res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+    res.end(APP_VERSION);
+    return;
+  }
+
   // 自检：每个 AI 桌面端的连接方式 + 最后一次真实事件（区分「注册了」和「真的接到数据」）
   if (url.pathname === "/health") {
     const sources = state().sources;
     const byName = new Map();
     for (const c of connectors) {
-      const e = byName.get(c.source) ?? { source: c.source, kinds: [], events: 0, lastType: null, agoMs: null };
+      const e = byName.get(c.source) ?? { source: c.source, kinds: [], targets: [], events: 0, lastType: null, agoMs: null };
       if (!e.kinds.includes(c.kind)) e.kinds.push(c.kind);
+      const target = c.path || c.dir || c.match || c.bundleId || c.processName || null;   // 数据通道落点，配置页展示用
+      if (target && !e.targets.includes(target)) e.targets.push(target);
       byName.set(c.source, e);
     }
     for (const s of sources) {

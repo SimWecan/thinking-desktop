@@ -171,7 +171,26 @@ const TAU = Math.PI * 2, rnd = Math.random;
 const rr = (a, b) => a + rnd() * (b - a);
 const pick = a => a[(rnd() * a.length) | 0];
 const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
-let DPR = Math.min(window.devicePixelRatio || 1, 2);
+// 预览模式（?preview=1，配置窗口的小窗实时预览用）：DPR 封顶 1 + 25fps 节流，
+// 与桌面壁纸的全速实例共存时不抢 GPU/合成器（整屏卡顿的根因修复）
+const PREVIEW = new URLSearchParams(location.search).has('preview');
+const PV_FPS_MS = 40;
+// 自适应分辨率：壁纸常年被窗口遮挡/与浏览器抢 GPU 时，持续掉帧 → 降低渲染分辨率保帧率，
+// 充裕时再逐级升回。只影响壁纸实例，预览实例恒为 1。
+let ADAPT_CAP = 2, adaptUpStreak = 0;
+function dprCap() { return Math.min(window.devicePixelRatio || 1, PREVIEW ? 1 : ADAPT_CAP); }
+function adaptDown() {
+  if (ADAPT_CAP <= 1) return;
+  ADAPT_CAP = ADAPT_CAP > 1.5 ? 1.5 : ADAPT_CAP > 1.25 ? 1.25 : 1;
+  adaptUpStreak = 0;
+  try { resizeAll(); } catch (e) {}
+}
+function adaptUp() {
+  if (ADAPT_CAP >= 2) return;
+  ADAPT_CAP = ADAPT_CAP < 1.25 ? 1.25 : ADAPT_CAP < 1.5 ? 1.5 : 2;
+  try { resizeAll(); } catch (e) {}
+}
+let DPR = dprCap();
 const FONT = 'ui-monospace,"Cascadia Mono","SF Mono",Consolas,"Liberation Mono",monospace';
 
 function mk(w, h) {
@@ -1440,11 +1459,12 @@ function frame(now) {
   drawAdv(dt); drawDiff(); drawVal(); drawIdx(); agentsTick(dt);
   requestAnimationFrame(frame);
 }
-let rzT, ready = false, started = false;
+let rzT, ready = false, started = false, pvLast = 0;
+let fpsWin0 = -1, fpsN = 0;   // 自适应分辨率采样窗（-1 = 尚未开始，避开启动热身）
 function resizeAll() {
   const r = stage.getBoundingClientRect();
   if (r.width < 20 || r.height < 20) { ready = false; return; }
-  DPR = Math.min(window.devicePixelRatio || 1, 2); resizeStage(); resizePanels(); ready = true;
+  DPR = dprCap(); resizeStage(); resizePanels(); ready = true;
   if (!started) { started = true; last = performance.now(); requestAnimationFrame(frame); }
   // 待机按需渲染：重建会清空画布（canvas.width 赋值即清屏），必须立即补一帧
   // （WKWebView 遮挡时 rAF 挂起，不能只置脏等下一帧）
@@ -1476,6 +1496,22 @@ frame = function frame(now) {
     return;   // 关键：不再 requestAnimationFrame，等待外部事件唤醒
   }
   window.__tdStandbyDrawn = false;
+  if (PREVIEW && now - pvLast < PV_FPS_MS) { requestAnimationFrame(frame); return; }   // 预览模式 25fps 节流
+  pvLast = now;
+  // 自适应分辨率：4 秒一个采样窗；持续 <40fps 降一档保帧率，连续 3 窗 >57fps 升一档
+  if (fpsWin0 < 0) { fpsWin0 = now; }
+  else {
+    fpsN++;
+    if (now - fpsWin0 >= 4000) {
+      const fps = (fpsN * 1000) / (now - fpsWin0);
+      if (!PREVIEW && (window.__tdCalm || 0) < 1) {
+        if (fps < 40) adaptDown();
+        else if (fps > 57) { if (++adaptUpStreak >= 3) adaptUp(); }
+        else adaptUpStreak = 0;
+      }
+      fpsWin0 = now; fpsN = 0;
+    }
+  }
   if (ready) {
     const calm = Math.min(0.999, Math.max(0, window.__tdCalm || 0));
     if (calm > 0) {
@@ -1914,6 +1950,8 @@ function syncPanel() {
     cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),
     camZ: +cam.z.toFixed(2), W: Math.round(W), H: Math.round(H), hover: !!window.__tdHoverRing,
     paints: window.__tdTextPaints,
+    adaptCap: ADAPT_CAP,   // 自适应分辨率当前档位（掉帧时 2→1.5→1.25→1）
+    dpr: DPR,
     textLens: (window.__tdText || []).slice(-4).map((t) => t.length),
     lights: (() => { try { return window.__tdLightState ? window.__tdLightState() : null; } catch (e) { return null; } })(),
   });
@@ -1971,7 +2009,7 @@ function syncPanel() {
     const g = cv.getContext('2d');
     let dpr = 1;
     const fit = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = dprCap();
       cv.width = Math.round(innerWidth * dpr);
       cv.height = Math.round(innerHeight * dpr);
     };
@@ -2173,9 +2211,9 @@ function syncPanel() {
     cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:8';
     document.body.appendChild(cv);
     const g = cv.getContext('2d');
-    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let dpr = dprCap();
     const fit = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = dprCap();
       cv.width = Math.round(innerWidth * dpr);
       cv.height = Math.round(innerHeight * dpr);
     };

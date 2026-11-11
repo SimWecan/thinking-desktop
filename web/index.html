@@ -147,6 +147,8 @@
 <script src="/lib/td-logic.js"></script>
 <script>
 "use strict";
+// 预览实例（?preview=1）用独立遥测 key，避免覆盖壁纸宿主的 debug 记录
+const TD_CLIENT = new URLSearchParams(location.search).has("preview") ? "wall-preview" : "wall";
 const DEBUG = __DEBUG__;
 const PAGE_BUILD = "panel-7";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
@@ -167,15 +169,16 @@ const spark = document.getElementById("pn-spark");
 const miniSpark = document.getElementById("mini-spark");
 
 addEventListener("error", (e) => {
-  fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: String(e.message || e.error), src: String((e.filename || "").split("/").pop()) + ":" + e.lineno }) }).catch(() => {});
+  fetch("/debug", { method: "POST", body: JSON.stringify({ client: TD_CLIENT, pageError: String(e.message || e.error), src: String((e.filename || "").split("/").pop()) + ":" + e.lineno }) }).catch(() => {});
 });
 addEventListener("unhandledrejection", (e) => {
-  fetch("/debug", { method: "POST", body: JSON.stringify({ client: "wall", pageError: "rejection: " + String((e.reason && e.reason.message) || e.reason) }) }).catch(() => {});
+  fetch("/debug", { method: "POST", body: JSON.stringify({ client: TD_CLIENT, pageError: "rejection: " + String((e.reason && e.reason.message) || e.reason) }) }).catch(() => {});
 });
 
 const halo = document.getElementById("halo");
 // 每次加载都带时间戳，避免 WKWebView 用旧缓存的 halo 页面（改了前端却不生效的元凶）
-halo.src = "/haloflux/?t=" + Date.now();
+// preview=1 原样透传：配置窗口的小窗预览以低负载模式运行（DPR 封顶 + 25fps）
+halo.src = "/haloflux/?t=" + Date.now() + (new URLSearchParams(location.search).has("preview") ? "&preview=1" : "");
 
 // ---------------- 状态 ----------------
 let energy = 0, rate = 0, byType = {}, bySource = {}, sources = [];
@@ -685,7 +688,7 @@ setInterval(async () => {
     fetch("/debug", {
       method: "POST",
       body: JSON.stringify({
-        client: "wall",
+        client: TD_CLIENT,
         idle, standby, workAt, busyUntil, energy: +energy.toFixed(3), overRing, haloError,
         idleFor: Math.round((Date.now() - workAt) / 1000),
         busyIn: busyUntil ? Math.round((busyUntil - Date.now()) / 1000) : 0,

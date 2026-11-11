@@ -2,111 +2,291 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Thinking Desktop — 配置</title>
+<link rel="icon" type="image/png" href="/icon/thinking-desktop-64.png">
+<link rel="icon" type="image/svg+xml" href="/icon/thinking-desktop.svg">
 <style>
-  :root { --line: rgba(255,255,255,.14); --text: #cfd2d8; --dim: #6b6f78; }
+  /* ============================================================
+     TerraFin 黑白系列（Black & White）
+     只用纯黑、纯白与两者之间的灰阶；色彩只作为「数据」出现
+     （各 agent 的代表色），从不进入窗口配色本身。
+     ============================================================ */
+  :root {
+    --ink:    #000000;   /* 纯黑 · 页面底 */
+    --paper:  #FFFFFF;   /* 纯白 · 主文字与焦点 */
+    --panel:  #0B0B0D;   /* 面板底 */
+    --raise:  #151518;   /* 抬升面 */
+    --line:   rgba(255,255,255,.12);   /* 发丝线 */
+    --line-2: rgba(255,255,255,.30);   /* 强调线 */
+    --dim:    #9C9CA3;   /* 次级文字 */
+    --faint:  #595960;   /* 弱化文字 */
+  }
   * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    margin: 0; min-height: 100vh; background: #08090b; color: var(--text);
-    font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; padding: 40px;
+    min-height: 100vh; background: var(--ink); color: var(--paper);
+    font: 13px/1.65 ui-monospace, "SF Mono", Menlo, monospace;
+    background-image:
+      linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+    background-size: 56px 56px;
   }
-  h1 { font-size: 18px; letter-spacing: 2px; margin: 0 0 4px; color: #fff; }
-  .sub { color: var(--dim); font-size: 11px; margin-bottom: 28px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 44px 40px 64px; }
+
+  /* ---------- 顶栏 ---------- */
+  header { display: flex; align-items: center; gap: 18px; margin-bottom: 6px; }
+  header .logo { width: 40px; height: 40px; border-radius: 9px; flex: none; }
+  h1 { font-size: 20px; letter-spacing: 6px; margin: 0; font-weight: 600; }
+  h1 .thin { color: var(--dim); font-weight: 400; }
+  .ver { color: var(--faint); font-size: 11px; letter-spacing: 2px; }
+  .svc { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+  .svc .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--paper); box-shadow: 0 0 8px rgba(255,255,255,.8); }
+  .svc.down .dot { background: var(--faint); box-shadow: none; }
+  .lede { color: var(--dim); font-size: 12px; margin-bottom: 36px; max-width: 640px; }
+
+  h2.sec {
+    font-size: 11px; letter-spacing: 4px; color: var(--dim); font-weight: 400;
+    margin: 42px 0 14px; display: flex; align-items: center; gap: 14px;
+  }
+  h2.sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  h2.sec .num { color: var(--faint); }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: start; }
+  @media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
+
+  /* ---------- 壁纸效果预览 ---------- */
+  .preview { border: 1px solid var(--line); background: var(--panel); padding: 14px; }
+  .pv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .pv-head .tag {
+    font-size: 10px; letter-spacing: 3px; color: var(--ink); background: var(--paper);
+    padding: 2px 8px; border-radius: 2px; cursor: pointer; user-select: none;
+  }
+  .pv-head .tag.off { background: transparent; color: var(--dim); border: 1px solid var(--line-2); }
+  .pv-head .meta { color: var(--faint); font-size: 11px; }
+  .pv-frame {
+    position: relative; aspect-ratio: 16/9; overflow: hidden; background: #000;
+    border: 1px solid var(--line-2);
+  }
+  .pv-frame iframe {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    border: 0; pointer-events: none;   /* 纯展示，不抢鼠标 */
+  }
+  .pv-cap { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+  .btn {
+    background: transparent; color: var(--paper); border: 1px solid var(--line-2);
+    padding: 6px 16px; font: inherit; font-size: 11px; letter-spacing: 2px; cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .btn:hover { background: var(--paper); color: var(--ink); }
+  .pv-cap .note { color: var(--faint); font-size: 11px; }
+  .pv-still {
+    margin-top: 12px; display: none; border: 1px solid var(--line);
+  }
+  .pv-still.show { display: block; }
+  .pv-still img { width: 100%; display: block; filter: grayscale(1) contrast(1.05); }
+  .pv-still .cap { color: var(--faint); font-size: 10px; letter-spacing: 2px; padding: 6px 10px; border-top: 1px solid var(--line); }
+
+  /* ---------- AI 客户端 ---------- */
   .agent {
-    display: grid; grid-template-columns: 14px 1fr auto auto; gap: 14px; align-items: center;
-    border: 1px solid var(--line); border-radius: 4px; padding: 12px 16px; margin-bottom: 10px;
-    max-width: 720px;
+    border: 1px solid var(--line); background: var(--panel);
+    padding: 14px 16px; margin-bottom: 12px;
+    display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center;
+    transition: border-color .2s;
   }
-  .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .name b { color: #fff; } .name small { color: var(--dim); margin-left: 8px; }
-  .status { font-size: 11px; color: var(--dim); }
-  .status.on { color: #7ee0a3; }
-  label.bind { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
-  input[type=checkbox] { accent-color: #4D6BFE; }
-  .palette {
-    position: fixed; inset: 0; background: rgba(0,0,0,.55);
-    display: none; align-items: center; justify-content: center; z-index: 9;
+  .agent:hover { border-color: var(--line-2); }
+  .agent .ic { width: 40px; height: 40px; border-radius: 8px; background: var(--raise);
+    display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  .agent .ic img { width: 30px; height: 30px; object-fit: contain; }
+  .agent.thinking .ic::after {
+    content: ""; position: absolute; inset: -1px; border-radius: 8px;
+    border: 1px solid var(--paper); animation: breathe 1.6s ease-in-out infinite;
   }
+  @keyframes breathe { 0%,100% { opacity: .15; } 50% { opacity: .9; } }
+  .agent .nm b { color: var(--paper); font-weight: 600; letter-spacing: 1px; }
+  .agent .nm small { color: var(--faint); margin-left: 10px; font-size: 10px; letter-spacing: 1px; }
+  .agent .st { color: var(--dim); font-size: 11px; margin-top: 3px; }
+  .agent .st .live { color: var(--paper); }
+  .chans { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--line); color: var(--dim); font-size: 10px;
+    padding: 2px 8px; border-radius: 2px; max-width: 100%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .chip b { color: var(--paper); font-weight: 400; }
+  .agent .ops { display: flex; align-items: center; gap: 14px; }
+  .swatch {
+    width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--line-2); background: var(--c, #fff);
+    transition: transform .15s;
+  }
+  .swatch:hover { transform: scale(1.15); }
+  .bind { display: flex; align-items: center; gap: 7px; color: var(--dim); font-size: 11px; cursor: pointer; }
+  input[type=checkbox] { accent-color: #fff; width: 14px; height: 14px; cursor: pointer; }
+
+  /* ---------- 界面行为 ---------- */
+  .uirow {
+    display: grid; grid-template-columns: 160px 220px 1fr; gap: 16px; align-items: center;
+    padding: 10px 18px; border: 1px solid var(--line); border-bottom: 0; background: var(--panel);
+  }
+  .uirow:first-of-type { border-top: 1px solid var(--line); }
+  .uirow:last-of-type { border-bottom: 1px solid var(--line); }
+  .uirow label { letter-spacing: 1px; }
+  .uirow select, .uirow input[type=number] {
+    background: var(--raise); color: var(--paper); border: 1px solid var(--line);
+    padding: 5px 10px; font: inherit; width: 100%;
+  }
+  .uirow select:focus, .uirow input:focus { outline: none; border-color: var(--paper); }
+  .uirow .why { color: var(--faint); font-size: 11px; }
+  #saveUi { margin-top: 16px; }
+  #uiMsg { margin-left: 12px; color: var(--paper); font-size: 11px; letter-spacing: 1px; }
+
+  /* ---------- 调色盘 ---------- */
+  .palette { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none;
+    align-items: center; justify-content: center; z-index: 9; }
   .palette.show { display: flex; }
   .pal-box {
-    background: #0e0f12; border: 1px solid rgba(255,255,255,.25); border-radius: 6px;
-    padding: 22px 24px; width: 300px;
+    background: var(--ink); border: 1px solid var(--line-2); padding: 28px 30px; width: 340px;
+    box-shadow: 0 0 60px rgba(255,255,255,.06);
   }
-  .pal-box h2 { margin: 0 0 14px; font-size: 13px; color: #fff; letter-spacing: 1px; }
-  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px; }
-  .sw { width: 100%; aspect-ratio: 1; border-radius: 4px; cursor: pointer; border: 1px solid rgba(255,255,255,.15); }
-  .sw:hover { transform: scale(1.12); }
-  .custom { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); }
-  input[type=color] { width: 44px; height: 28px; border: 1px solid var(--line); background: none; padding: 0; }
-  .hint { margin-top: 24px; color: var(--dim); font-size: 11px; max-width: 720px; }
-  h2.sec { font-size: 11px; letter-spacing: 2px; color: var(--dim); margin: 30px 0 10px; font-weight: 600; }
-  .uirow { display: grid; grid-template-columns: 150px 200px 1fr; gap: 12px; align-items: center;
-    max-width: 720px; padding: 7px 16px; border: 1px solid var(--line); border-bottom: 0; font-size: 12px; }
-  .uirow:first-of-type { border-radius: 4px 4px 0 0; }
-  .uirow:last-of-type { border-bottom: 1px solid var(--line); border-radius: 0 0 4px 4px; }
-  .uirow select, .uirow input[type=number] {
-    background: #111318; color: var(--text); border: 1px solid var(--line); border-radius: 4px;
-    padding: 4px 8px; font: inherit; width: 100%;
-  }
-  #saveUi { margin-top: 14px; background: #1b1f2a; color: #fff; border: 1px solid rgba(255,255,255,.25);
-    border-radius: 4px; padding: 7px 16px; font: inherit; cursor: pointer; }
-  #saveUi:hover { border-color: rgba(255,255,255,.5); }
-  #uiMsg { margin-left: 10px; color: #7ee0a3; font-size: 11px; }
+  .pal-box h2 { margin: 0 0 6px; font-size: 13px; letter-spacing: 3px; font-weight: 600; }
+  .pal-box .who { color: var(--faint); font-size: 11px; margin-bottom: 18px; letter-spacing: 1px; }
+  .pal-grp { color: var(--faint); font-size: 10px; letter-spacing: 3px; margin: 14px 0 8px; }
+  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; }
+  .sw { width: 100%; aspect-ratio: 1; cursor: pointer; border: 1px solid var(--line-2); border-radius: 50%; }
+  .sw:hover { transform: scale(1.14); }
+  .sw.sel { outline: 1px solid var(--paper); outline-offset: 3px; }
+  .custom { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim); margin-top: 16px; }
+  input[type=color] { width: 44px; height: 28px; border: 1px solid var(--line-2); background: none; padding: 0; cursor: pointer; }
+
+  .foot { margin-top: 48px; color: var(--faint); font-size: 11px; border-top: 1px solid var(--line); padding-top: 18px;
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
-<h1>THINKING DESKTOP · 配置</h1>
-<div class="sub">绑定本机 AI 桌面端 → 打通状态/日志通道 · 点色块打开调色盘，选择该 agent 运行时的粒子特效颜色</div>
-<div id="list">加载中…</div>
+<div class="wrap">
 
-<h2 class="sec">界面行为</h2>
-<div class="uirow"><label>环带文本</label>
-  <select id="uiRingText"><option value="headline">首句摘要</option><option value="full">整段原文</option></select>
-  <span style="color:var(--dim)">首句摘要更清爽；整段原文信息全但会铺满一圈</span></div>
-<div class="uirow"><label>右侧看板</label>
-  <select id="uiPanel"><option value="hover">悬停环带时展开</option><option value="always">常驻显示</option></select>
-  <span style="color:var(--dim)">常驻会一直占用右侧一块区域</span></div>
-<div class="uirow"><label>静默过渡（秒）</label><input type="number" id="uiWinddown" min="5" max="600" step="1">
-  <span style="color:var(--dim)">无事件后环带在窗口内逐渐减速、粒子渐暗，到点完全停止</span></div>
-<div class="uirow"><label>首句最多字数</label><input type="number" id="uiChars" min="30" max="400" step="10">
-  <span style="color:var(--dim)">只影响环带，不影响看板原文</span></div>
-<div class="uirow"><label>光源淡出（秒）</label><input type="number" id="uiLights" min="3" max="600" step="1">
-  <span style="color:var(--dim)">厂商色/粒子在多长时间没有事件后消失</span></div>
-<button id="saveUi">保存界面行为</button><span id="uiMsg"></span>
+<header>
+  <img class="logo" src="/icon/thinking-desktop.svg" alt="" draggable="false">
+  <h1>THINKING DESKTOP <span class="thin">/ 配置</span></h1>
+  <span class="ver" id="ver"></span>
+  <span class="svc" id="svc"><span class="dot"></span><span id="svcText">服务在线</span></span>
+</header>
+<div class="lede">绑定本机 AI 桌面端，打通状态与日志通道，把它们的思考具像化为桌面壁纸。点代表色打开调色盘，选择该 agent 运行时的粒子特效颜色。</div>
+
+<div class="cols">
+  <div>
+    <h2 class="sec"><span class="num">01</span>壁纸效果预览</h2>
+    <div class="preview">
+      <div class="pv-head">
+        <span class="tag" id="pvToggle" title="点击暂停/恢复实时预览">LIVE</span>
+        <span class="meta" id="pvMeta">/wall · 低负载预览 · 25fps</span>
+      </div>
+      <div class="pv-frame"><iframe id="pvIframe" src="/wall?preview=1" title="壁纸预览" scrolling="no"></iframe></div>
+      <div class="pv-cap">
+        <button class="btn" id="grabBtn">抓帧</button>
+        <span class="note">静态帧以黑白灰呈现，检查构图与对比</span>
+      </div>
+      <div class="pv-still" id="pvStill">
+        <img id="pvImg" alt="壁纸静态帧">
+        <div class="cap">STILL · 桌面当前渲染帧</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h2 class="sec"><span class="num">02</span>AI 客户端 · 通道与代表色</h2>
+    <div id="list">加载中…</div>
+
+    <h2 class="sec"><span class="num">03</span>界面行为</h2>
+    <div class="uirow"><label>环带文本</label>
+      <select id="uiRingText"><option value="headline">首句摘要</option><option value="full">整段原文</option></select>
+      <span class="why">首句摘要更清爽；整段原文信息全但会铺满一圈</span></div>
+    <div class="uirow"><label>右侧看板</label>
+      <select id="uiPanel"><option value="hover">悬停环带时展开</option><option value="always">常驻显示</option></select>
+      <span class="why">常驻会一直占用右侧一块区域</span></div>
+    <div class="uirow"><label>静默过渡（秒）</label><input type="number" id="uiWinddown" min="5" max="600" step="1">
+      <span class="why">无事件后环带在窗口内逐渐减速、粒子渐暗，到点完全停止</span></div>
+    <div class="uirow"><label>首句最多字数</label><input type="number" id="uiChars" min="30" max="400" step="10">
+      <span class="why">只影响环带，不影响看板原文</span></div>
+    <div class="uirow"><label>光源淡出（秒）</label><input type="number" id="uiLights" min="3" max="600" step="1">
+      <span class="why">厂商色/粒子在多长时间没有事件后消失</span></div>
+    <button class="btn" id="saveUi">保存界面行为</button><span id="uiMsg"></span>
+  </div>
+</div>
+
+<div class="foot">
+  <span>壁纸视图：综合形态 / 单一 agent 形态在桌面右上角托盘切换 · 配置即时生效并持久化到 config/agents.json</span>
+  <span>配色 · TerraFin Black &amp; White</span>
+</div>
+</div>
 
 <div class="palette" id="palette">
   <div class="pal-box">
-    <h2 id="palTitle">选择粒子颜色</h2>
-    <div class="swatches" id="swatches"></div>
+    <h2>粒子颜色</h2>
+    <div class="who" id="palTitle"></div>
+    <div class="pal-grp">MONO · 黑白灰阶</div>
+    <div class="swatches" id="swMono"></div>
+    <div class="pal-grp">CHROMA · 彩色通道</div>
+    <div class="swatches" id="swChroma"></div>
     <div class="custom">自定义：<input type="color" id="customColor"></div>
   </div>
 </div>
 
 <script>
 "use strict";
-const SWATCHES = ["#4D6BFE","#2E9BFF","#00C853","#FFAB00","#FF5252","#E040FB",
-                  "#00BCD4","#8B5CF6","#EC407A","#AEEA00","#FF6D00","#FFFFFF"];
+/* TerraFin 黑白：先给纯黑纯白与中间灰阶，再给一组低饱和彩色通道（数据色，不进窗口配色） */
+const MONO = ["#FFFFFF", "#D9D9DE", "#9C9CA3", "#595960", "#2A2A2F", "#000000"];
+const CHROMA = ["#4D6BFE","#2E9BFF","#00C853","#FFAB00","#FF5252","#E040FB",
+                "#00BCD4","#8B5CF6","#EC407A","#AEEA00","#FF6D00","#7B42BC"];
+const KIND_LABEL = { session: "会话截流", json: "状态存储", sqlite: "本地数据库",
+                     process: "进程守护", activity: "CPU 活动度", file: "文件尾随", unknown: "通道" };
 const list = document.getElementById("list");
 const palette = document.getElementById("palette");
-const swatches = document.getElementById("swatches");
 const customColor = document.getElementById("customColor");
-let agents = [], editing = null;
+let agents = [], editing = null, health = { connectors: [] };
+
+function fmtAgo(ms) {
+  if (ms == null) return "";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} 秒前`;
+  return `${Math.round(s / 60)} 分钟前`;
+}
 
 async function load() {
-  const s = await (await fetch("/agents")).json();
+  const [s, h] = await Promise.all([fetch("/agents").then((r) => r.json()), fetch("/health").then((r) => r.json()).catch(() => null)]);
   agents = s.agents;
+  health = h || { connectors: [] };
+  const svc = document.getElementById("svc");
+  if (h?.ok) { svc.classList.remove("down"); document.getElementById("svcText").textContent = "服务在线"; }
+  else { svc.classList.add("down"); document.getElementById("svcText").textContent = "服务离线"; }
+
   list.innerHTML = "";
   for (const a of agents) {
+    const hsrc = (health.connectors || []).find((c) => c.source === a.source);
+    const chans = (hsrc?.targets || []).map((t, i) => {
+      const kind = hsrc.kinds[Math.min(i, hsrc.kinds.length - 1)] || "unknown";
+      return `<span class="chip" title="${t}"><b>${KIND_LABEL[kind] || kind}</b> · ${t.replace(/^\/Users\/[^/]+/, "~")}</span>`;
+    }).join("");
     const row = document.createElement("div");
-    row.className = "agent";
+    row.className = "agent" + (a.thinking ? " thinking" : "");
     row.innerHTML = `
-      <div class="dot" style="background:${a.color}"></div>
-      <div class="name"><b>${a.name}</b><small>${a.source}</small></div>
-      <div class="status ${a.installed ? "on" : ""}">${a.installed ? (a.thinking ? "● 思考中" : "已安装") : "未安装"}</div>
-      <label class="bind"><input type="checkbox" ${a.enabled ? "checked" : ""} ${a.installed ? "" : "disabled"}> 绑定</label>`;
-    row.querySelector(".dot").style.cursor = "pointer";
-    row.querySelector(".dot").title = "调色盘";
-    row.querySelector(".dot").onclick = () => openPalette(a);
+      <div class="ic"><img src="/icon/${a.icon || a.source}.png" alt="" draggable="false"
+        onerror="this.style.display='none'"></div>
+      <div>
+        <div class="nm"><b>${a.name}</b><small>${a.source}</small></div>
+        <div class="st">${
+          a.thinking ? `<span class="live">● 思考中</span>` :
+          a.installed ? `已安装${hsrc?.events ? ` · ${hsrc.events} 事件 · 最后活动 ${fmtAgo(hsrc.agoMs)}` : ""}` :
+          "未安装"
+        }</div>
+        ${chans ? `<div class="chans">${chans}</div>` : ""}
+      </div>
+      <div class="ops">
+        <div class="swatch" style="--c:${a.color}" title="调色盘 · 粒子颜色"></div>
+        <label class="bind"><input type="checkbox" ${a.enabled ? "checked" : ""} ${a.installed ? "" : "disabled"}>绑定</label>
+      </div>`;
+    row.querySelector(".swatch").onclick = () => openPalette(a);
     row.querySelector("input[type=checkbox]").onchange = (e) => save(a.source, { enabled: e.target.checked });
     list.appendChild(row);
   }
@@ -117,28 +297,54 @@ async function save(source, patch) {
   await load();
 }
 
+function fillSwatches(el, colors) {
+  el.innerHTML = "";
+  for (const c of colors) {
+    const d = document.createElement("div");
+    d.className = "sw" + (editing && editing.color.toLowerCase() === c.toLowerCase() ? " sel" : "");
+    d.style.background = c;
+    d.onclick = () => { save(editing.source, { color: c }); closePalette(); };
+    el.appendChild(d);
+  }
+}
 function openPalette(a) {
   editing = a;
-  document.getElementById("palTitle").textContent = `${a.name} · 粒子颜色`;
-  swatches.innerHTML = "";
-  for (const c of SWATCHES) {
-    const d = document.createElement("div");
-    d.className = "sw"; d.style.background = c;
-    d.onclick = () => { save(editing.source, { color: c }); closePalette(); };
-    swatches.appendChild(d);
-  }
+  document.getElementById("palTitle").textContent = `${a.name} · ${a.source}`;
+  fillSwatches(document.getElementById("swMono"), MONO);
+  fillSwatches(document.getElementById("swChroma"), CHROMA);
   customColor.value = a.color;
-  // 实时预览：拖动取色器时列表里的色点立即跟着变（保存仍要点选/松手触发）
   customColor.oninput = () => {
     const idx = agents.findIndex((x) => x.source === a.source);
-    const dot = list.children[idx]?.querySelector(".dot");
-    if (dot) dot.style.background = customColor.value;
+    const sw = list.children[idx]?.querySelector(".swatch");
+    if (sw) sw.style.setProperty("--c", customColor.value);
   };
   customColor.onchange = () => { save(editing.source, { color: customColor.value }); closePalette(); };
   palette.classList.add("show");
 }
 function closePalette() { palette.classList.remove("show"); editing = null; }
 palette.onclick = (e) => { if (e.target === palette) closePalette(); };
+
+/* 抓帧：向壁纸宿主请求一帧，取回后黑白化呈现 */
+document.getElementById("grabBtn").onclick = async () => {
+  await fetch("/snapshot?request=1").catch(() => {});
+  await new Promise((r) => setTimeout(r, 2200));
+  const res = await fetch("/snapshot").catch(() => null);
+  if (!res || !res.ok) return;
+  const img = document.getElementById("pvImg");
+  img.src = URL.createObjectURL(await res.blob());
+  document.getElementById("pvStill").classList.add("show");
+};
+
+/* LIVE 开关：暂停预览直接卸载 iframe（停止全部渲染），恢复时重载 */
+const pvToggle = document.getElementById("pvToggle");
+pvToggle.onclick = () => {
+  const frame = document.querySelector(".pv-frame");
+  const off = frame.dataset.off !== "1";
+  frame.dataset.off = off ? "1" : "0";
+  document.getElementById("pvIframe").style.display = off ? "none" : "";
+  pvToggle.textContent = off ? "OFF" : "LIVE";
+  pvToggle.classList.toggle("off", off);
+};
 
 async function loadUi() {
   try {
@@ -150,7 +356,6 @@ async function loadUi() {
     document.getElementById("uiLights").value = ui.lightsWindowSec;
   } catch {}
 }
-
 document.getElementById("saveUi").onclick = async () => {
   const body = {
     ringText: document.getElementById("uiRingText").value,
@@ -162,19 +367,17 @@ document.getElementById("saveUi").onclick = async () => {
   const res = await fetch("/ui", { method: "POST", body: JSON.stringify(body) });
   const msg = document.getElementById("uiMsg");
   if (res.ok) {
-    const ui = await res.json();
-    msg.textContent = "已保存（壁纸下个轮询生效）";
+    msg.textContent = "已保存";
     setTimeout(() => { msg.textContent = ""; }, 2500);
     await loadUi();
-    return ui;
-  }
-  msg.textContent = "保存失败";
+  } else msg.textContent = "保存失败";
 };
+
+fetch("/version").then((r) => r.ok ? r.text() : "").then((v) => { document.getElementById("ver").textContent = v.trim(); }).catch(() => {});
 
 loadUi();
 load();
 setInterval(load, 5000);
 </script>
-<div class="hint">壁纸视图：综合形态 / 单一 agent 形态在桌面右上角托盘切换；配置即时生效并持久化到 config/agents.json。</div>
 </body>
 </html>

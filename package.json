@@ -12,7 +12,8 @@
     "simulate:transition": "node scripts/simulate-transition.mjs",
     "backfill": "node scripts/backfill-today.mjs",
     "demo": "node scripts/demo.mjs",
-    "test:e2e": "node scripts/e2e-test.mjs"
+    "test:e2e": "node scripts/e2e-test.mjs",
+    "release:check": "node scripts/release-check.mjs"
   },
   "engines": {
     "node": ">=20"

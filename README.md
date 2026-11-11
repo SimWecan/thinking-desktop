@@ -103,6 +103,7 @@ node server/index.mjs          # 启动数据服务，监听 127.0.0.1:7799
 # 浏览器打开 http://127.0.0.1:7799 预览效果（?debug=1 打开状态面板）
 
 # 自检 / 测试
+npm run release:check                   # 发版验收：单测 + 端到端场景 + 工作区检查（见 RELEASE.md）
 npm run simulate                        # 多 agent 并行模拟：注入多厂商事件 → 逐阶段截图 + 校验点亮来源
 npm run simulate:transition             # 切换平滑度：两个厂商并行 → 停一个 → 校验渐隐与通道滑动
 npm run backfill                        # 用「今天」的真实会话（DSH 会话 + Kimi wire）回填思考流，清掉演示/模拟数据
