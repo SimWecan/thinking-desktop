@@ -486,9 +486,7 @@ function currentCalm() {
 
 /** 正在工作的来源 → 光环按各自颜色点亮 */
 function sendSourceLights() {
-  let list = (sources || [])
-    .filter((x) => x.agoMs < 12000 && x.lastType !== "status")
-    .map((x) => ({
+  let list = TDLogic.activeSources(sources, UI.lightsWindowSec * 1000).map((x) => ({
       src: x.source,
       color: colorOf(x.source),
       intensity: Math.min(1, 0.35 + (bySource[x.source] || 0) / 6),
@@ -555,6 +553,7 @@ async function panelShot() {
 
 /** 自检截图 */
 let lastShotAt = 0, lastTestClick = 0, lastTestPopup = 0;
+let panelMs = 0;   // 看板渲染耗时（EMA，毫秒）
 async function captureShot() {
   if (Date.now() - lastShotAt < 1500) return;
   lastShotAt = Date.now();
@@ -648,7 +647,9 @@ setInterval(async () => {
       }
     }
     sendSourceLights();
+    const __p0 = performance.now();
     renderPanel();
+    panelMs = panelMs ? panelMs * 0.8 + (performance.now() - __p0) * 0.2 : (performance.now() - __p0);
     let haloState = {};
     try {
       const w = halo.contentWindow;
@@ -672,7 +673,7 @@ setInterval(async () => {
         winddownSec: UI.winddownSec,
         calm: +calm.toFixed(3),
         textPushes,
-        lights: (sources || []).filter((x) => x.agoMs < 12000 && x.lastType !== "status").map((x) => x.source),
+        lights: TDLogic.activeSources(sources, UI.lightsWindowSec * 1000).map((x) => x.source),
         seriesPeak: Math.max(0, ...series),
         tools: tools.slice(0, 3).map((t) => t.name),
         agentsShown: (agentsList || []).filter((a) => a.enabled !== false).length,
@@ -682,6 +683,7 @@ setInterval(async () => {
         rowW: (pnAgents.querySelector(".ag") || {}).offsetWidth || 0,
         sparkRect: [spark.offsetWidth, spark.offsetHeight],
         panelShotInfo: window.__panelShotInfo || null,
+        panelMs: Math.round(panelMs * 100) / 100,
         build: PAGE_BUILD,
         ...haloState,
       }),

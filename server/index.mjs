@@ -17,6 +17,7 @@ import { SqlitePollConnector } from "../connectors/sqlite-poll.mjs";
 import { JsonStorePollConnector } from "../connectors/json-store-poll.mjs";
 import { ProcessWatchConnector } from "../connectors/process-watch.mjs";
 import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
+import { psStats } from "../connectors/ps-sample.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 import { mapCodexLogRow } from "../connectors/codex-filter.mjs";
@@ -205,7 +206,11 @@ function pushEvent(event) {
     lastQuietAt.set(event.source, event.ts);
   }
   console.log(`[event] ${event.source} · ${event.type}`, JSON.stringify(event.payload).slice(0, 120));
-  events.push(event);
+  // 环形缓冲只用于速率/类型统计：丢掉大 payload（文本已单独存 textBacklog），
+  // 500 条事件的最坏内存从 ~2MB 降到几十 KB
+  events.push(event.type === "text"
+    ? { source: event.source, type: event.type, ts: event.ts, payload: { kind: event.payload?.kind } }
+    : { source: event.source, type: event.type, ts: event.ts, payload: event.type === "tool_call" ? { name: event.payload?.name } : undefined });
   if (events.length > MAX_EVENTS) events.shift();
   lastEventAt = event.ts;
   const st = sourceStats.get(event.source) ?? { events: 0, lastEventAt: 0, lastType: "", lastWorkAt: 0 };
@@ -285,7 +290,6 @@ function state() {
       agoMs: now - s.lastEventAt,
       workAgoMs: s.lastWorkAt ? now - s.lastWorkAt : null,
     })),
-    recent: events.slice(-20),
     // 右侧面板用的聚合：速率曲线 / 工具分布 / 上下文计量
     series: rateSeries(now, 60),
     agentSeries: Object.fromEntries([...srcBuckets].map(([src, b]) => [src, seriesFrom(b, now, 60)])),
@@ -461,7 +465,7 @@ function wallPage() {
 
 // 会改状态的接口：拒绝来自其它网站的跨站请求（本机服务只监听 127.0.0.1，
 // 但浏览器里的任意网页都能向它发请求）。同源页面通常不带 Origin，带了就必须是本机。
-const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/config", "/restart"]);
+const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/restart"]);
 const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const MAX_BODY = 12 * 1024 * 1024;   // POST 体上限（canvas 快照 base64 较大，12MB 足够）
@@ -566,7 +570,7 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === "/state") {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify(state()));
     return;
   }
@@ -603,7 +607,7 @@ const server = createServer((req, res) => {
     if (name.endsWith(".svg")) {
       const f = join(ROOT, "web", "icon", name);
       if (!existsSync(f)) { res.writeHead(404).end("no icon"); return; }
-      res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "no-store" }).end(readFileSync(f));
+      res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" }).end(readFileSync(f));
       return;
     }
     if (!name.endsWith(".png")) { res.writeHead(404).end("not found"); return; }
@@ -615,12 +619,12 @@ const server = createServer((req, res) => {
       // 2x 版本按需生成
       ensureIcon2x(ROOT, source, (err, out) => {
         if (err || !out) { res.writeHead(404).end("no icon"); return; }
-        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(readFileSync(out));
+        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" }).end(readFileSync(out));
       });
       return;
     }
     if (!existsSync(file)) { res.writeHead(404).end("no icon"); return; }
-    res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(readFileSync(file));
+    res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" }).end(readFileSync(file));
     return;
   }
 
@@ -853,8 +857,26 @@ const server = createServer((req, res) => {
       ok: true,
       uptimeMs: Math.round(process.uptime() * 1000),
       rssMb: Math.round(process.memoryUsage().rss / 1048576),
+      mem: (() => { const m = process.memoryUsage(); return {
+        rss: Math.round(m.rss / 1048576),
+        heap: Math.round(m.heapUsed / 1048576),
+        external: Math.round(m.external / 1048576),
+        arrayBuffers: Math.round(m.arrayBuffers / 1048576),
+      }; })(),
       cpuPct: cpuPercent(),
       zstd: zstdAvailable,
+      ps: psStats(),   // 进程采样合并效果：spawns 越少越好
+      // 渲染侧性能（来自壁纸页遥测）：帧率、每帧渲染耗时、看板渲染耗时
+      perf: (() => {
+        const w = clientDebug.get("wall") || {};
+        const g = w.haloGeom || {};
+        return {
+          fps: g.fps ?? null,
+          frameMs: g.frameMs ?? null,
+          panelMs: w.panelMs ?? null,
+          clients: clientDebug.size,
+        };
+      })(),
       connectors: [...byName.values()],
       // 闭源端：最近一次 CPU 采样（用来确认活动度检测真的在跑、阈值是否合适）
       activity: connectors.filter((c) => c.kind === "activity").map((c) => ({
@@ -940,10 +962,11 @@ const server = createServer((req, res) => {
         ".md": "text/plain; charset=utf-8",
       }[extname(fp).toLowerCase()] ?? "application/octet-stream";
       // 壁纸宿主是常驻 WKWebView：静态资源一律禁缓存，否则改了前端要重装才好
+      const isLib = url.pathname.startsWith("/lib/");
       res.writeHead(200, {
         "Content-Type": mime,
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        Pragma: "no-cache",
+        "Cache-Control": isLib ? "public, max-age=3600" : "no-store, no-cache, must-revalidate",
+        Pragma: isLib ? "" : "no-cache",
         ...(/text\/html/.test(mime) ? { "Set-Cookie": COOKIE } : {}),
       });
       res.end(readFileSync(fp));

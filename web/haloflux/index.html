@@ -1098,6 +1098,7 @@ function drawRing(dt) {
 }
 
 /* ---------- frame ---------- */
+let gradCache = { w: 0, h: 0, sg: null, ag: null, vg: null };
 function drawStage(dt) {
   const STBY = !!window.__tdStandby;   // Thinking Desktop 待机：环带停止、粒子层全部消失
   updateBeat(dt); updateCam(dt); updateOuter(dt);
@@ -1152,8 +1153,12 @@ function drawStage(dt) {
   camT(S, DPR);
   // ring occlusion: the web darkens toward the ring, separating the two planes
   if (C.ringShadow > 0) {
-    const sg = S.createRadialGradient(cx, cy, R - 110, cx, cy, R);
-    sg.addColorStop(0, 'rgba(4,5,6,0)'); sg.addColorStop(1, `rgba(4,5,6,${Math.min(1, 0.8 * C.ringShadow)})`);
+    if (!gradCache.sg) {
+      const sg = S.createRadialGradient(cx, cy, R - 110, cx, cy, R);
+      sg.addColorStop(0, 'rgba(4,5,6,0)'); sg.addColorStop(1, `rgba(4,5,6,${Math.min(1, 0.8 * C.ringShadow)})`);
+      gradCache.sg = sg;
+    }
+    const sg = gradCache.sg;
     S.globalCompositeOperation = 'source-over'; S.globalAlpha = 1; S.fillStyle = sg;
     S.beginPath(); S.arc(cx, cy, R, 0, TAU); S.arc(cx, cy, R - 110, 0, TAU, true); S.fill('evenodd');
   }
@@ -1199,8 +1204,12 @@ function drawStage(dt) {
   S.restore();
   // atmosphere: faint scattered light just beyond the ring
   if (C.atmos > 0) {
-    const ag = S.createRadialGradient(cx, cy, RO, cx, cy, RO + (RMAX - RO) * 0.7);
-    ag.addColorStop(0, `rgba(190,180,240,${Math.min(1, 0.07 * C.atmos)})`); ag.addColorStop(0.4, `rgba(150,145,210,${Math.min(1, 0.028 * C.atmos)})`); ag.addColorStop(1, 'rgba(0,0,0,0)');
+    if (!gradCache.ag) {
+      const ag = S.createRadialGradient(cx, cy, RO, cx, cy, RO + (RMAX - RO) * 0.7);
+      ag.addColorStop(0, `rgba(190,180,240,${Math.min(1, 0.07 * C.atmos)})`); ag.addColorStop(0.4, `rgba(150,145,210,${Math.min(1, 0.028 * C.atmos)})`); ag.addColorStop(1, 'rgba(0,0,0,0)');
+      gradCache.ag = ag;
+    }
+    const ag = gradCache.ag;
     S.globalAlpha = 1; S.fillStyle = ag; S.beginPath(); S.arc(cx, cy, RMAX, 0, TAU); S.arc(cx, cy, RO, 0, TAU, true); S.fill('evenodd');
   }
   if (!STBY) drawOuterNear();
@@ -1219,9 +1228,12 @@ function drawStage(dt) {
   if (!STBY) drawBokeh(dt);
   if (C.vignette > 0) {
     S.setTransform(DPR, 0, 0, DPR, 0, 0);
-    const vg = S.createRadialGradient(W * 0.45, H * 0.5, Math.min(W, H) * 0.35, W * 0.45, H * 0.5, Math.hypot(W, H) * 0.62);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.75 * C.vignette)})`);
-    S.fillStyle = vg; S.fillRect(0, 0, W, H);
+    if (!gradCache.vg) {
+      const vg = S.createRadialGradient(W * 0.45, H * 0.5, Math.min(W, H) * 0.35, W * 0.45, H * 0.5, Math.hypot(W, H) * 0.62);
+      vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(0,0,0,${Math.min(1, 0.75 * C.vignette)})`);
+      gradCache.vg = vg;
+    }
+    S.fillStyle = gradCache.vg; S.fillRect(0, 0, W, H);
   }
 
   drawCallout();
@@ -1465,7 +1477,10 @@ function frame(now) {
 }
 let rzT, ready = false, started = false, pvLast = 0;
 let fpsWin0 = -1, fpsN = 0;   // 自适应分辨率采样窗（-1 = 尚未开始，避开启动热身）
+function invalidateGradients() { gradCache = { w: 0, h: 0, sg: null, ag: null, vg: null }; }
+
 function resizeAll() {
+  invalidateGradients();
   const r = stage.getBoundingClientRect();
   if (r.width < 20 || r.height < 20) { ready = false; return; }
   DPR = dprCap(); resizeStage(); resizePanels(); ready = true;
@@ -1478,6 +1493,7 @@ function resizeAll() {
 const origFrame = frame;
 window.__tdRafOn = true;
 window.__tdCalm = 0;   // 动态静默 0→1：时间减速 + 渐暗；1 = 完全静默（转入 standby）
+let lastDrawAt = 0;
 frame = function frame(now) {
   if (window.__tdCalm >= 1) {
     // 静默到位：与 tdSetStandby(true) 等效的最小内联（该函数定义在桥接闭包里，此处不可见）
@@ -1502,6 +1518,12 @@ frame = function frame(now) {
   window.__tdStandbyDrawn = false;
   if (PREVIEW && now - pvLast < PV_FPS_MS) { requestAnimationFrame(frame); return; }   // 预览模式 25fps 节流
   pvLast = now;
+  // 上限 60fps：120Hz 屏上跑满 120fps，每帧 ~1ms，等于白烧一半 CPU；壁纸 60fps 已足够顺滑
+  if (!PREVIEW && lastDrawAt && now - lastDrawAt < 1000 / 60 - 1.5) {
+    requestAnimationFrame(frame);
+    return;
+  }
+  lastDrawAt = now;
   // 自适应分辨率：4 秒一个采样窗；持续 <40fps 降一档保帧率，连续 3 窗 >57fps 升一档
   if (fpsWin0 < 0) { fpsWin0 = now; }
   else {
@@ -1519,6 +1541,7 @@ frame = function frame(now) {
   }
   if (ready) {
     const calm = Math.min(0.999, Math.max(0, window.__tdCalm || 0));
+    const __t0 = performance.now();
     if (calm > 0) {
       // 动态静默：用虚拟时钟喂原 frame（dt 按系数缩小 → 环带转速/粒子运动逐渐减缓），
       // 画完盖一层渐暗（粒子/光束/网纹强度随之减弱），再回到真实时钟避免 dt 跳变。
@@ -1534,6 +1557,9 @@ frame = function frame(now) {
     } else {
       origFrame(now);          // origFrame 末尾自行续 rAF
     }
+    // 遥测：每帧渲染耗时（EMA），用于判断性能改动是否真的有效
+    const __ms = performance.now() - __t0;
+    window.__tdFrameMs = window.__tdFrameMs ? window.__tdFrameMs * 0.9 + __ms * 0.1 : __ms;
   }
   else { last = now; requestAnimationFrame(frame); }
 };
@@ -1958,6 +1984,7 @@ function syncPanel() {
     dpr: DPR,
     fps: window.__tdLastFps || null,   // 最近 4s 采样窗实际帧率（卡顿排查遥测）
     textLens: (window.__tdText || []).slice(-4).map((t) => t.length),
+    frameMs: Math.round((window.__tdFrameMs || 0) * 100) / 100,
     lights: (() => { try { return window.__tdLightState ? window.__tdLightState() : null; } catch (e) { return null; } })(),
   });
   window.__tdMouse = function (x, y) {
@@ -1978,31 +2005,49 @@ function syncPanel() {
   }, 250);
 
 
+  // 自检截图统一缩到一半：1920×1080 的 PNG 单张 ~3.5MB，存服务端内存 + toDataURL 编码都贵；
+  // 半分辨率（960×540）对肉眼校验足够，体积和编码耗时都降到 1/4 左右。
+  const SHOT_SCALE = 0.5;
+  function shotCanvas(w, h, paint) {
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(w * SHOT_SCALE));
+    out.height = Math.max(1, Math.round(h * SHOT_SCALE));
+    const x = out.getContext('2d');
+    x.imageSmoothingEnabled = true;
+    x.imageSmoothingQuality = 'high';
+    paint(x, out.width, out.height);
+    return out;
+  }
   // 自检：导出主画布（环带/粒子都在上面），用于在没有录屏权限的机器上验证画面
   window.__tdSnapshot = function () {
     try {
       const stageEl = document.getElementById('stage');
-      const out = document.createElement('canvas');
-      out.width = stageEl.width; out.height = stageEl.height;
-      const x = out.getContext('2d');
-      x.drawImage(stageEl, 0, 0);
-      for (const id of ['td-lights', 'td-ripple']) {
-        const el = document.getElementById(id);
-        if (el) x.drawImage(el, 0, 0, out.width, out.height);
-      }
+      const out = shotCanvas(stageEl.width, stageEl.height, (x, w, h) => {
+        x.drawImage(stageEl, 0, 0, w, h);
+        for (const id of ['td-lights', 'td-ripple']) {
+          const el = document.getElementById(id);
+          if (el) x.drawImage(el, 0, 0, w, h);
+        }
+      });
       return out.toDataURL('image/png');
     } catch (e) { return null; }
   };
   window.__tdLightsShot = function () {
     try {
       const el = document.getElementById('td-lights');
-      return el ? el.toDataURL('image/png') : null;
+      if (!el) return null;
+      const out = shotCanvas(el.width, el.height, (x, w, h) => x.drawImage(el, 0, 0, w, h));
+      return out.toDataURL('image/png');
     } catch (e) { return null; }
   };
   // 自检：最近一个「文本环槽」的独立画布，用来确认环带里画的到底是文字还是预设图案
   window.__tdDebugSlot = null;
   window.__tdSlotShot = function () {
-    try { return window.__tdDebugSlot ? window.__tdDebugSlot.toDataURL('image/png') : null; } catch (e) { return null; }
+    try {
+      const c = window.__tdDebugSlot;
+      if (!c) return null;
+      return shotCanvas(c.width, c.height, (x, w, h) => x.drawImage(c, 0, 0, w, h)).toDataURL('image/png');
+    } catch (e) { return null; }
   };
 
   /* ---------- 多厂商光效：谁在跑，就用谁的颜色点亮环带内外 ---------- */
@@ -2269,6 +2314,7 @@ function syncPanel() {
       return true;
     } catch (e) { return false; }
   };
+  // 冲击波层同样半分辨率导出
   window.__tdRippleShot = function () {
     try { const el = document.getElementById('td-ripple'); return el ? el.toDataURL('image/png') : null; } catch (e) { return null; }
   };

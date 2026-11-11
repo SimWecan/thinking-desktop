@@ -10,10 +10,9 @@
  * 采样依赖 /bin/ps；沙箱或权限受限时只告警一次，不影响其它连接器。
  */
 
-import { spawnSync } from "node:child_process";
 import { Connector } from "./base.mjs";
+import { getProcesses, sumByMatch } from "./ps-sample.mjs";
 
-const PS_ARGS = ["-A", "-o", "pid=,pcpu=,comm="];
 
 export class ProcessActivityConnector extends Connector {
   /**
@@ -117,11 +116,8 @@ export function parsePsCpu(stdout, match) {
   return { cpu, procs };
 }
 
-/** @returns {{cpu: number, procs: number}|null} ps 不可用时返回 null */
+/** @returns {{cpu: number, procs: number}|null} ps 不可用时返回 null（复用共享快照） */
 export function sampleProcesses(match) {
-  try {
-    const { status, stdout } = spawnSync("/bin/ps", PS_ARGS, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
-    if (status !== 0) return null;
-    return parsePsCpu(stdout, match);
-  } catch { return null; }
+  const list = getProcesses();
+  return list ? sumByMatch(list, match) : null;
 }

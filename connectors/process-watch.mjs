@@ -3,8 +3,8 @@
  * 适用于活动数据不落盘（或落盘为二进制库）的桌面应用，如 Gemini / ChatGPT 桌面版。
  */
 
-import { execFile } from "node:child_process";
 import { Connector } from "./base.mjs";
+import { getProcesses, hasProcess } from "./ps-sample.mjs";
 
 export class ProcessWatchConnector extends Connector {
   /**
@@ -27,8 +27,10 @@ export class ProcessWatchConnector extends Connector {
   }
 
   _check() {
-    execFile("pgrep", ["-x", this.processName], (err, stdout) => {
-      const running = !err && stdout.trim().length > 0;
+    // 复用共享进程快照：进程名取 comm 的 basename（等价于 pgrep -x），不再单独 spawn
+    const list = getProcesses();
+    const running = hasProcess(list, this.processName);
+    try {
       if (this._running === null) {
         this._running = running;
         this.emit({ type: "status", payload: { running, note: "initial" } });
@@ -41,6 +43,6 @@ export class ProcessWatchConnector extends Connector {
           payload: { running, note: running ? "app launched" : "app quit" },
         });
       }
-    });
+    } catch { /* 忽略瞬时错误 */ }
   }
 }
