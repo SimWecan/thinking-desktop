@@ -29,3 +29,38 @@ npm run release:check
 2. `npm run release:check` 全绿。
 3. 提交 → `git tag v<版本>` → `git push && git push --tags`。
 4. GitHub Release 写明：新增 / 修复 / 配置项变化（尤其 `ui.json` 字段）。
+
+---
+
+# v0.5.0 变更说明（2026-11-11）
+
+## 新功能
+
+- **双击控制台应用（macOS）**：`Thinking Desktop.app` 双击弹出控制台窗口——运行状态、AI 桌面端通道、实时日志、重启服务/壁纸、完整配置入口；关窗即退出（TerraFin 黑白风格）
+- **DeepSeek 商标动画重做**：鲸鱼完整「跃出商标框 → 空中翻身 → 扎回隐没 → 从商标中浮现」周期（3.4s）；glyph 内容层移到 logoWrap 外，框外动作不再被裁剪；底层商标图保持静止
+
+## 交互优化
+
+- 环带悬停命中加入迟滞：进入需压进 6px、离开需退出 10px，缘线上不再来回抖动
+- 鼠标采样 50ms → 25ms，悬停响应压到一帧以内
+- 悬停环带时光标变手型（Finder 会重置光标，宿主随采样常驻维持）
+- 光环缘线悬停增亮（hoverBoost 平滑过渡）
+- 右侧截流视窗滑入提速：0.55s → 0.34s
+
+## 性能优化
+
+- 光环环槽数据块重排概率 0.02 → 0.012（每帧最贵的文字排版分配减半，视觉无感）
+- 托盘动效自检遥测降频至每 3 轮一次（getComputedStyle 强制样式重算）
+- 壁纸双实例治理：PID 锁文件单实例守卫（launchd 直启时 NSRunningApplication 不可靠）
+
+## 修复
+
+- `/version` 引用未定义常量：任何页面请求即整服务崩溃（exit 1）
+- SSE 重连 / iframe 加载后光环来源残影（ghost sources 永不清除）
+- 桌面层级托盘收不到任何鼠标事件：改普通层级 + Finder 前台联动显隐
+- 悬停变量作用域错配导致粒子特效冻结（drawRing 每帧 ReferenceError 打断 rAF）
+
+## 质量
+
+- e2e 新增 P0 基础设施回归（/version、/logs、/console）与 waitWall 轮询助手，P4 静默观测起点确定性重置
+- 单元 48/48，e2e 22/22，release:check 全绿

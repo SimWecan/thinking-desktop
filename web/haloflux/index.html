@@ -1053,7 +1053,7 @@ function drawRing(dt) {
     const mid = R + band * 0.42;
     const sp = toScreen(cx + Math.cos(A) * mid, cy + Math.sin(A) * mid);
     if (sp.x < -140 || sp.x > W + 140 || sp.y < -140 || sp.y > H + 140) continue;
-    if (!s.c || (regen > 0 && rnd() < 0.02)) { renderSlot(s); regen--; }
+    if (!s.c || (regen > 0 && rnd() < 0.012)) { renderSlot(s); regen--; }
     S.save(); S.rotate(A);
     const hh = s.hpx + 2;
     S.drawImage(s.c, R, -hh / 2, band, hh);

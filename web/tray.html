@@ -105,13 +105,26 @@
     position: absolute; inset: 0; margin: auto; width: 30px; height: 30px;
     display: none; pointer-events: none; z-index: 2; overflow: visible; color: #fff;
   }
-  .icon .glyph.whale { width: 27px; height: 19px; top: 7px; }   /* 对准 DeepSeek 商标里鲸鱼的位置 */
+  /* 鲸鱼要跃出商标框：glyph 挂在 .icon 下（logoWrap 有 overflow:hidden 会裁掉它），
+     位置 = 图标内边距 5px + 商标内 7px；左右 margin auto 保持与商标水平居中对齐 */
+  .icon .glyph.whale { width: 27px; height: 19px; top: 12px; bottom: auto; }
   .icon .glyph.star { color: var(--c, #fff); }
-  /* DeepSeek：内容层的鲸鱼从静止变为大幅上下腾跃（底层商标不动） */
-  .icon.think.v-leap .glyph.whale { display: block; animation: whaleLeap 2.1s cubic-bezier(.45,0,.55,1) infinite; }
-  @keyframes whaleLeap {
-    0%, 100% { transform: translateY(4px) rotate(-11deg) scale(1.04); }
-    50%      { transform: translateY(-6px) rotate(11deg) scale(1.09); }
+  /* DeepSeek：完整「跃出—扎回—浮现」周期（底层商标不动，glyph 在框外也可见）：
+     0-8%    商标内待命、下蹲蓄力
+     8-26%   用力跃起，冲出商标框上缘（translateY -30px，框高 40px）
+     26-48%  空中翻身回落，扎回商标里（透明度随「入水」渐隐）
+     48-62%  完全潜没（不可见）
+     62-100% 从商标中重新浮现，回到待命位 */
+  .icon.think.v-leap .glyph.whale { display: block; animation: whaleBreach 3.4s cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes whaleBreach {
+    0%   { transform: translateY(0)     rotate(-6deg) scale(.98); opacity: 1; }
+    8%   { transform: translateY(3px)   rotate(-4deg) scale(.94); opacity: 1; }
+    26%  { transform: translateY(-30px) rotate(10deg) scale(1.08); opacity: 1; }
+    38%  { transform: translateY(-14px) rotate(-6deg) scale(1.02); opacity: 1; }
+    48%  { transform: translateY(4px)   rotate(-2deg) scale(.98); opacity: .22; }
+    62%  { transform: translateY(6px)   rotate(0deg)  scale(.96); opacity: 0; }
+    80%  { transform: translateY(-2px)  rotate(-4deg) scale(.97); opacity: .7; }
+    100% { transform: translateY(0)     rotate(-6deg) scale(.98); opacity: 1; }
   }
   /* Kimi：黑色商标背景里闪过白色流星（内容层 tilefx） */
   .icon.think.v-meteor .tilefx .meteor { display: block; animation: meteorFly 1.5s linear infinite; }
@@ -259,9 +272,9 @@ function build() {
         `<div class="orbit"><i></i><i class="b"></i></div><i class="ping"></i></div>` +
         `<span class="logoWrap">` +
         `<img class="logo" alt="" src="/icon/${key}.png" srcset="/icon/${key}@2x.png 2x" draggable="false">` +
-        glyphFor(primary.anim) +
         `<span class="tilefx"><i class="glow"></i><i class="scan"></i><i class="sheen"></i><i class="meteor"></i><i class="meteor"></i><i class="cursor"></i></span>` +
-        `</span>`;
+        `</span>` +
+        glyphFor(primary.anim);   // 内容层挂在 .icon 下：鲸鱼跃出商标框时不被 logoWrap 裁掉
       // 没有本地商标图时才用中性字母牌（不伪造 logo）
       const img = el.querySelector("img");
       img.addEventListener("error", () => {
@@ -393,7 +406,7 @@ async function shot() {
   } catch (e) { return null; }
 }
 
-let lastShotOk = null;
+let lastShotOk = null, pollN = 0;
 addEventListener("error", (e) => {
   fetch("/debug", { method: "POST", body: JSON.stringify({ client: "tray", pageError: String(e.message || e.error), src: (e.filename || "") + ":" + e.lineno }) }).catch(() => {});
 });
@@ -409,18 +422,24 @@ async function poll() {
       lastShotOk = !!png;
       if (png) fetch("/snapshot", { method: "POST", body: JSON.stringify({ tray: png }) }).catch(() => {});
     }
-    const anims = Array.from(document.querySelectorAll(".icon.think .tilefx i"))
-      .map((el) => getComputedStyle(el).animationName)
-      .filter((n) => n && n !== "none");
-    const sheen = Array.from(document.querySelectorAll(".icon.think .tilefx .sheen"))
-      .map((el) => getComputedStyle(el).animationName);
-    // 自检：底层商标图必须静止；动态只发生在内容层（glyph SVG / tilefx 特效层）
-    const logoAnims = Array.from(document.querySelectorAll(".icon.think img.logo, .icon.think img.solo"))
-      .map((el) => getComputedStyle(el).animationName)
-      .filter((n) => n && n !== "none");
-    const glyphAnims = Array.from(document.querySelectorAll(".icon.think .glyph"))
-      .map((el) => getComputedStyle(el).animationName)
-      .filter((n) => n && n !== "none");
+    // 动效自检遥测：getComputedStyle 会强制样式重算，降频到每 3 轮一次（轮询仍 1.5s）
+    pollN++;
+    const reportAnims = s.shot || pollN % 3 === 0;
+    let anims = [], sheen = [], logoAnims = [], glyphAnims = [];
+    if (reportAnims) {
+      anims = Array.from(document.querySelectorAll(".icon.think .tilefx i"))
+        .map((el) => getComputedStyle(el).animationName)
+        .filter((n) => n && n !== "none");
+      sheen = Array.from(document.querySelectorAll(".icon.think .tilefx .sheen"))
+        .map((el) => getComputedStyle(el).animationName);
+      // 自检：底层商标图必须静止；动态只发生在内容层（glyph SVG / tilefx 特效层）
+      logoAnims = Array.from(document.querySelectorAll(".icon.think img.logo, .icon.think img.solo"))
+        .map((el) => getComputedStyle(el).animationName)
+        .filter((n) => n && n !== "none");
+      glyphAnims = Array.from(document.querySelectorAll(".icon.think .glyph"))
+        .map((el) => getComputedStyle(el).animationName)
+        .filter((n) => n && n !== "none");
+    }
     const motion = Array.from(icons.values()).map((el) => (el.className.match(/v-[a-z]+/) || [""])[0]);
     fetch("/debug", {
       method: "POST",

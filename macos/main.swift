@@ -203,7 +203,18 @@ final class WallpaperView: NSView {
         }
     }
 
+    /// 环带命中（带迟滞）：进入需要压进环带 6px，离开要退出 10px——
+    /// 鼠标压在缘线上时不会来回抖动（进入/离开各有一次明确的翻转）
     func hitRing(_ x: CGFloat, _ y: CGFloat) -> Bool {
+        guard let g = geom else { return true }
+        let d = hypot(x - g.cx, y - g.cy)
+        let inner = g.r * g.z - 12, outer = g.ro * g.z + 12
+        if hoverRing { return d >= inner - 10 && d <= outer + 10 }
+        return d >= inner + 6 && d <= outer - 6
+    }
+
+    /// 点击命中（无迟滞）：点中环带本体即触发冲击波
+    func clickRing(_ x: CGFloat, _ y: CGFloat) -> Bool {
         guard let g = geom else { return true }
         let d = hypot(x - g.cx, y - g.cy)
         return d >= g.r * g.z - 12 && d <= g.ro * g.z + 12
@@ -223,7 +234,7 @@ final class WallpaperView: NSView {
 
     /// 点击冲击波：命中环带才转发（点击穿透下唯一的点击来源）
     func click(x: CGFloat, y: CGFloat) {
-        guard hitRing(x, y) else { return }
+        guard clickRing(x, y) else { return }
         webView?.evaluateJavaScript("window.__tdClick(\(x),\(y))") { _, _ in }
     }
 }
