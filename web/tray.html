@@ -86,37 +86,64 @@
     mix-blend-mode: overlay; transform: translateX(-160%) skewX(-12deg);
     animation: sheen 3.6s ease-in-out infinite;
   }
+  /* 流星：白色小光条（Kimi 黑底商标专用，默认隐藏） */
+  .icon .tilefx .meteor {
+    position: absolute; width: 15px; height: 2px; border-radius: 2px; opacity: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.95));
+    transform: rotate(35deg); display: none;
+  }
+  /* 终端光标（Codex 字母牌专用，默认隐藏） */
+  .icon .tilefx .cursor {
+    position: absolute; left: 6px; bottom: 5px; width: 6px; height: 2px;
+    background: rgba(255,255,255,.9); border-radius: 1px; display: none;
+  }
 
-  /* 各厂商只是「内容动效」的节奏/组合不同，商标本身一律静止 */
-  .icon.m-whale .tilefx .scan { animation-duration: 4.6s; }
-  .icon.m-whale .tilefx .glow { animation-duration: 3.6s; }
-  .icon.m-bob .tilefx .scan { display: none; }
-  .icon.m-bob .tilefx .sheen { animation-duration: 2.6s; }
-  .icon.m-twinkle .tilefx .glow { animation-duration: 2.2s; }
-  .icon.m-twinkle .tilefx .sheen { animation-duration: 2.8s; }
-  .icon.m-breathe .tilefx .scan { animation-duration: 5.2s; }
-  .icon.m-spin .tilefx .sheen { animation-duration: 4.4s; }
-  .icon.m-pulse .tilefx .scan { animation-duration: 1.7s; }
-  .icon.m-pulse .tilefx .glow { animation-duration: 1.9s; }
+  /* ———— 厂商专属「内容动效」：商标图一律不重绘 ———— */
+  /* DeepSeek：鲸鱼从静止变为大幅上下腾跃（商标本体位移） */
+  .icon.think.v-leap .logoWrap img.logo { animation: whaleLeap 2.1s cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes whaleLeap {
+    0%, 100% { transform: translateY(4px) rotate(-11deg) scale(1.03); }
+    50%      { transform: translateY(-6px) rotate(11deg) scale(1.07); }
+  }
+  /* Kimi：黑色商标背景里闪过白色流星 */
+  .icon.think.v-meteor .tilefx .meteor { display: block; animation: meteorFly 1.5s linear infinite; }
+  .icon.think.v-meteor .tilefx .meteor:nth-of-type(2) { animation-delay: .55s; }
+  @keyframes meteorFly {
+    0%   { left: -16px; top: -5px; opacity: 0; }
+    15%  { opacity: 1; }
+    100% { left: 32px;  top: 26px; opacity: 0; }
+  }
+  /* Gemini：四芒星整体闪烁（亮度 + 辉光脉动） */
+  .icon.think.v-glimmer .logoWrap img.logo { animation: starGlimmer 1.15s ease-in-out infinite; }
+  @keyframes starGlimmer {
+    0%, 100% { filter: brightness(1) drop-shadow(0 0 2px rgba(255,255,255,.15)); transform: scale(1); }
+    50%      { filter: brightness(1.5) drop-shadow(0 0 9px var(--c, #fff)); transform: scale(1.06); }
+  }
+  /* ChatGPT：线条间有光持续流动（无停顿的快速掠光） */
+  .icon.think.v-flow .tilefx .sheen {
+    width: 62%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.8), transparent);
+    animation: sheenFlow 1.6s linear infinite;
+  }
+  @keyframes sheenFlow {
+    0%   { transform: translateX(-170%) skewX(-14deg); }
+    100% { transform: translateX(250%) skewX(-14deg); }
+  }
+  /* Claude：商标周围光晕呼吸 */
+  .icon.think.v-glow .tilefx .glow { animation-duration: 2.4s; }
+  .icon.think.v-glow .fx .aura { animation-duration: 2.2s; }
+  /* Codex：终端光标闪烁 */
+  .icon.think.v-cursor .tilefx .cursor { display: block; animation: cursorBlink 1s steps(2, jump-none) infinite; }
+  @keyframes cursorBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
   @keyframes innerGlow { 0%, 100% { opacity: .18; transform: scale(.9); } 50% { opacity: .5; transform: scale(1.05); } }
   @keyframes scanDown { 0% { top: -20%; opacity: 0; } 12% { opacity: .9; } 88% { opacity: .9; } 100% { top: 105%; opacity: 0; } }
   @keyframes sheen { 0% { transform: translateX(-160%) skewX(-12deg); } 55%, 100% { transform: translateX(260%) skewX(-12deg); } }
 
   @media (prefers-reduced-motion: reduce) {
-    .icon.think img.logo, .icon .sheen::after, .icon .fx .aura, .icon .fx .ring, .icon .fx .orbit, .icon .fx .ping { animation: none !important; }
+    .icon.think .logoWrap img.logo, .icon .tilefx i,
+    .icon .fx .aura, .icon .fx .ring, .icon .fx .orbit, .icon .fx .ping { animation: none !important; }
   }
-
-  /* 各家只是「周围光效」的节奏不同，商标图本身完全一致 */
-  .icon.m-whale .fx .ring { animation-duration: 11s; }
-  .icon.m-whale .fx .aura { animation-duration: 3.4s; }
-  .icon.m-bob .fx .ring { display: none; }
-  .icon.m-bob .fx .ping { display: block; }
-  .icon.m-twinkle .fx .orbit { display: block; animation-duration: 5.2s; }
-  .icon.m-twinkle .fx .ring { opacity: .22; animation-duration: 16s; }
-  .icon.m-spin .fx .ring { animation-duration: 6s; }
-  .icon.m-breathe .fx .aura { animation-duration: 3.8s; }
-  .icon.m-pulse .fx .orbit { display: block; animation-duration: 2.6s; }
 
   @keyframes auraPulse { 0%, 100% { opacity: .3; } 50% { opacity: .85; } }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -165,14 +192,15 @@ const composite = document.getElementById("composite");
 const icons = new Map();
 let expanded = false, view = "all", agents = [];
 
-// 动效风格：用厂商商标图本身，只做位移/缩放/旋转
+// 动效风格：商标图一律不重绘——DeepSeek 本体腾跃、Kimi 黑底流星、Gemini 星体闪烁、
+// ChatGPT 线条流光、Claude 光晕呼吸、Codex 光标闪烁
 const MOTION = {
-  whale: "m-float",
-  moon: "m-bob",
-  spark4: "m-twinkle",
-  knot: "m-breathe",
-  asterisk: "m-spin",
-  term: "m-pulse",
+  whale: "v-leap",
+  moon: "v-meteor",
+  spark4: "v-glimmer",
+  knot: "v-flow",
+  asterisk: "v-glow",
+  term: "v-cursor",
 };
 
 /* 未使用：图标地址现在直接内联在 <img src>/srcset 里，保留备查
@@ -207,14 +235,14 @@ function build() {
     let el = icons.get(key);
     if (!el) {
       el = document.createElement("div");
-      el.className = "icon " + (MOTION[primary.anim] || "m-pulse");
+      el.className = "icon " + (MOTION[primary.anim] || "v-glow");
       el.dataset.src = key;
       el.innerHTML =
         `<div class="fx"><i class="aura"></i><i class="ring"></i>` +
         `<div class="orbit"><i></i><i class="b"></i></div><i class="ping"></i></div>` +
         `<span class="logoWrap">` +
         `<img class="logo" alt="" src="/icon/${key}.png" srcset="/icon/${key}@2x.png 2x" draggable="false">` +
-        `<span class="tilefx"><i class="glow"></i><i class="scan"></i><i class="sheen"></i></span>` +
+        `<span class="tilefx"><i class="glow"></i><i class="scan"></i><i class="sheen"></i><i class="meteor"></i><i class="meteor"></i><i class="cursor"></i></span>` +
         `</span>`;
       // 没有本地商标图时才用中性字母牌（不伪造 logo）
       const img = el.querySelector("img");
@@ -368,13 +396,14 @@ async function poll() {
       .filter((n) => n && n !== "none");
     const sheen = Array.from(document.querySelectorAll(".icon.think .tilefx .sheen"))
       .map((el) => getComputedStyle(el).animationName);
-    // 自检：商标本体必须静止（animationName 应为 none）
+    // 自检：商标本体动画仅限厂商专属设计（v-leap 腾跃 / v-glimmer 闪烁），其余必须静止
     const logoAnims = Array.from(document.querySelectorAll(".icon.think img.logo, .icon.think img.solo"))
       .map((el) => getComputedStyle(el).animationName)
       .filter((n) => n && n !== "none");
+    const motion = Array.from(icons.values()).map((el) => (el.className.match(/v-[a-z]+/) || [""])[0]);
     fetch("/debug", {
       method: "POST",
-      body: JSON.stringify({ client: "tray", agents: agents.length, expanded, shot: !!s.shot, lastShotOk, anims, sheen, logoAnims }),
+      body: JSON.stringify({ client: "tray", agents: agents.length, expanded, shot: !!s.shot, lastShotOk, anims, sheen, logoAnims, motion }),
     }).catch(() => {});
   } catch (e) { lastShotOk = "poll-error"; }
 }
