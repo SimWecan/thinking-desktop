@@ -76,20 +76,10 @@ func ringBoundsScreen() -> NSRect? {
     return nil
 }
 
-var hoverLeftAt: Date?
-
-func scheduleHideHoverPanel(_ delay: TimeInterval = 0.5) {
+func scheduleHideHoverPanel(_ delay: TimeInterval = 0.12) {
     hoverHideWork?.cancel()
     let work = DispatchWorkItem {
         hoverHideWork = nil
-        guard let p = hoverPanel, p.isVisible else { return }
-        let inside = p.frame.contains(NSEvent.mouseLocation)
-        let since = Date().timeIntervalSince(hoverLeftAt ?? Date())
-        // 光标移到弹窗上：最多再留 3 秒，到点必收（之前会一直挂着）
-        if inside && since < 3.0 {
-            scheduleHideHoverPanel(3.0 - since)
-            return
-        }
         hideHoverPanel()
     }
     hoverHideWork = work
@@ -98,10 +88,9 @@ func scheduleHideHoverPanel(_ delay: TimeInterval = 0.5) {
 
 func hoverTick() {
     guard let p = hoverPanel, p.isVisible else { return }
-    if p.frame.contains(NSEvent.mouseLocation) { return }   // 交给 3s 上限处理
     var onRing = false
     for win in windows where (win.contentView as? WallpaperView)?.hoverRing == true { onRing = true }
-    if !onRing { scheduleHideHoverPanel(0.25) }
+    if !onRing { scheduleHideHoverPanel(0.12) }
 }
 
 func hoverPanelScreen() -> NSScreen {
@@ -128,7 +117,8 @@ func makeHoverPanel() -> NSPanel {
         styleMask: [.borderless, .nonactivatingPanel],
         backing: .buffered,
         defer: false)
-    panel.level = .floating
+    // 桌面层之上、普通应用窗口之下：回到「壁纸上的视图窗口」而不是全局置顶浮窗
+    panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
     panel.backgroundColor = .clear
     panel.isOpaque = false
@@ -226,8 +216,8 @@ final class WallpaperView: NSView {
         hoverRing = over
         // 光标反馈：壁纸点击穿透，系统光标由桌面控制，悬停环带时换成手型
         if over { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
-        if over { hoverHideWork?.cancel(); hoverHideWork = nil; hoverLeftAt = nil; showHoverPanel() }
-        else { hoverLeftAt = Date(); scheduleHideHoverPanel(0.5) }
+        if over { hoverHideWork?.cancel(); hoverHideWork = nil; showHoverPanel() }
+        else { scheduleHideHoverPanel(0.12) }
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 
