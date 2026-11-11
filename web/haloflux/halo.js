@@ -43,6 +43,16 @@ function fit(c) {
    ========================================================= */
 const stage = document.getElementById('stage'); let S = stage.getContext('2d'); const S_MAIN = S;
 let W, H, cx, cy, R, RO, RMAX, thV, thS;
+// 圆环几何：中心（归一化 0–1）与半径缩放，控制台可以拖拽/缩放调整
+let ringX = 0.07, ringY = 0.5, ringScale = 1;
+window.__tdSetRing = function (r) {
+  if (!r) return;
+  if (Number.isFinite(Number(r.x))) ringX = Math.max(-0.5, Math.min(1.5, Number(r.x)));
+  if (Number.isFinite(Number(r.y))) ringY = Math.max(-0.5, Math.min(1.5, Number(r.y)));
+  if (Number.isFinite(Number(r.scale))) ringScale = Math.max(0.4, Math.min(2.5, Number(r.scale)));
+  resizeStage();
+  if (window.__tdStandby) setTimeout(() => { try { window.__tdRenderStandby && window.__tdRenderStandby(); } catch (e) {} }, 0);
+};
 let webBase, webLayers = [], layerEnv = [0, 0, 0], trailC, glowC, laneC;
 let curves = [], runners = [], comets = [], cards = [], wedges = [], pulses = [];
 let webRot = 0, ringRot = 0, ringVel = 0, OSTEP = 0.0038;
@@ -226,8 +236,8 @@ function resizeStage() {
   W = r.width; H = r.height;
   const pw = Math.round(W * DPR), ph = Math.round(H * DPR);
   if (stage.width !== pw || stage.height !== ph) { stage.width = pw; stage.height = ph; }
-  cx = W * 0.07; cy = H * 0.5;
-  R = Math.max(H * 0.78, W * 0.30);
+  cx = W * ringX; cy = H * ringY;
+  R = Math.max(H * 0.78, W * 0.30) * ringScale;
   RO = R + Math.max(90, Math.min(240, H * 0.3, W * 0.13)) * C.ringWidth;
   RMAX = Math.hypot(W - cx, H / 2) + 60;
   thV = Math.asin(Math.min(1, (H / 2 + 60) / R));

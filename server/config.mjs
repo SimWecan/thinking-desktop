@@ -19,6 +19,7 @@ export const UI_DEFAULTS = Object.freeze({
   winddownSec: 30,
   lightsWindowSec: 12,
   ringChars: 90,
+  ring: { x: 0.5, y: 0.5, scale: 0.30 },   // 圆环中心（归一化）与半径缩放：控制台可拖拽/缩放
 });
 
 const clamp = (v, lo, hi, d) => {
@@ -36,6 +37,11 @@ export function normalizeUiConfig(raw) {
     winddownSec: Math.round(clamp(r.winddownSec ?? r.holdSec, 5, 600, UI_DEFAULTS.winddownSec)),
     lightsWindowSec: Math.round(clamp(r.lightsWindowSec, 3, 600, UI_DEFAULTS.lightsWindowSec)),
     ringChars: Math.round(clamp(r.ringChars, 30, 400, UI_DEFAULTS.ringChars)),
+    ring: {
+      x: clamp(r.ring?.x, -0.5, 1.5, UI_DEFAULTS.ring.x),
+      y: clamp(r.ring?.y, -0.5, 1.5, UI_DEFAULTS.ring.y),
+      scale: clamp(r.ring?.scale, 0.4, 2.5, UI_DEFAULTS.ring.scale),
+    },
   };
 }
 
@@ -43,6 +49,6 @@ export function loadUiConfig(root) {
   try {
     return normalizeUiConfig(JSON.parse(readFileSync(join(root, "config", "ui.json"), "utf8")));
   } catch {
-    return { ...UI_DEFAULTS };
+    return normalizeUiConfig({});
   }
 }

@@ -14,6 +14,18 @@ const PAGE_BUILD = "wall-2";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
 const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
+// 宿主在鼠标离开环带后驱动 3 秒倒计时；这里把它画在弹窗底部
+window.__tdHoverCountdown = function (sec) {
+  const el = document.getElementById("pnCountdown");
+  if (!el) return;
+  const left = Number(sec) || 0;
+  if (left <= 0) { el.classList.remove("on"); return; }
+  el.classList.add("on");
+  const bar = el.querySelector("i"), txt = el.querySelector("span");
+  if (bar) bar.style.width = Math.max(0, Math.min(100, (left / 3) * 100)).toFixed(0) + "%";
+  if (txt) txt.textContent = left.toFixed(1) + "s 后收起";
+};
+
 if (PANEL_ONLY) {
   document.documentElement.classList.add("panel-only");
   document.body.classList.add("panel-only");
@@ -193,6 +205,16 @@ function setStandby(on) {
 }
 
 /** 活动强度 → HALOFLUX 参数（舒适档） */
+let lastRingKey = "";
+function pushRing() {
+  const r = UI.ring;
+  if (!r) return;
+  const key = `${r.x},${r.y},${r.scale}`;
+  if (key === lastRingKey) return;
+  lastRingKey = key;
+  haloMsg({ td: "ring", ring: { x: +r.x, y: +r.y, scale: +r.scale } });
+}
+
 function pushParams() {
   const now = Date.now();
   if (now - lastParamPush < 1000) return;
@@ -292,6 +314,7 @@ setInterval(async () => {
   else if (calm <= 0 && lastCalm > 0) haloMsg({ td: "calm", value: 0 });   // 活动回归：撤掉减速
   if (calm !== lastCalm) lastCalm = calm;
   syncPanel();
+  pushRing();            // 圆环几何独立于活动状态：配置一变就推给光环（内部按 key 去重）
   if (!idle) pushParams();
   energy *= 0.995;
   try {
@@ -312,7 +335,8 @@ setInterval(async () => {
         lastTestPopup = now2;
         try {
           window.webkit?.messageHandlers?.popup?.postMessage("show");
-          setTimeout(() => { try { window.webkit?.messageHandlers?.popup?.postMessage("hide"); } catch {} }, 2600);
+          // 自检：show 之后让宿主进入 3 秒倒计时（走真实收起链路），而不是直接 hide
+          setTimeout(() => { try { window.webkit?.messageHandlers?.popup?.postMessage("countdown"); } catch {} }, 700);
         } catch {}
       }
     }

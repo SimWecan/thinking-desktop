@@ -50,6 +50,36 @@
   /* .btn / .btn.ghost 见 /ui/terafin.css */
   .note { color: var(--faint); font-size: 10px; letter-spacing: 1px; margin-top: 10px; }
 
+  /* ---------- 桌面预览：拖拽 / 缩放圆环 ---------- */
+  .prev-stage {
+    position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+    border: 1px solid var(--line); background: #06070a;
+    cursor: default; touch-action: none; user-select: none;
+  }
+  .prev-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+  .ring-handle {
+    position: absolute; border: 1px dashed rgba(150,190,255,.75); border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4), inset 0 0 40px rgba(80,120,255,.08);
+    cursor: grab; transform: translate(-50%, -50%);
+  }
+  .ring-handle:active { cursor: grabbing; }
+  .ring-handle .knob {
+    position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px;
+    background: #cfe0ff; border: 1px solid #0b0d12; border-radius: 2px; cursor: nwse-resize;
+  }
+  .prev-meta { display: flex; align-items: center; gap: 12px; margin-top: 8px; color: var(--faint); font-size: 10px; letter-spacing: 1px; }
+  .prev-meta b { color: var(--dim); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+  /* ---------- 绑定 / 颜色 ---------- */
+  .bind-row { display: grid; grid-template-columns: 18px 92px 1fr auto; align-items: center; gap: 10px;
+    padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
+  .bind-row:last-child { border-bottom: 0; }
+  .bind-row .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,.3); }
+  .bind-row input[type=color] { width: 22px; height: 18px; padding: 0; border: 1px solid var(--line); background: none; }
+  .bind-row input[type=text] { min-width: 0; width: 100%; background: #0c0d11; color: var(--dim);
+    border: 1px solid var(--line); padding: 3px 6px; font: inherit; font-size: 10px; }
+  .bind-row label { display: flex; align-items: center; gap: 5px; color: var(--faint); }
+
   /* ---------- 右列：实时日志 ---------- */
   .right { display: flex; flex-direction: column; min-height: 0; }
   .logbar {
@@ -91,13 +121,27 @@
 
 <main>
   <div class="left">
+    <h2 class="sec">桌面预览 · 拖拽圆环移动，拖右下角缩放</h2>
+    <div class="prev-stage" id="prevStage">
+      <iframe id="prevHalo" src="/haloflux/?preview=1" title="壁纸预览"></iframe>
+      <div class="ring-handle" id="ringHandle"><span class="knob" id="ringKnob"></span></div>
+    </div>
+    <div class="prev-meta">
+      <span>圆环 <b id="ringMeta">—</b></span>
+      <button class="btn ghost" id="ringReset" style="padding:2px 10px;font-size:10px">重置位置</button>
+      <span id="ringSaved" style="color:var(--faint)"></span>
+    </div>
+
     <h2 class="sec">运行状态</h2>
     <div class="tiles">
       <div class="tile"><b id="uptime">—</b><span>运行时长</span></div>
       <div class="tile"><b id="cpu">—</b><span>CPU %</span></div>
       <div class="tile"><b id="rss">—</b><span>内存 MB</span></div>
       <div class="tile"><b id="conns">—</b><span>数据通道</span></div>
+      <div class="tile"><b id="load">—</b><span>负载（1 分钟）</span></div>
+      <div class="tile"><b id="cores">—</b><span>CPU 核心</span></div>
     </div>
+    <canvas id="cpuSpark" height="34" style="width:100%;display:block;margin-top:10px"></canvas>
 
     <h2 class="sec">AI 桌面端通道</h2>
     <table class="ch">
@@ -113,6 +157,10 @@
       <button class="btn ghost" id="openConfig">打开完整配置</button>
     </div>
     <div class="note" id="restartMsg">重启服务让服务端改动生效；重启壁纸会清空渲染内存</div>
+
+    <h2 class="sec">绑定客户端 · 粒子颜色</h2>
+    <div id="bindList"><div class="note">加载中…</div></div>
+    <div class="note">路径留空 = 使用自动探测的本机默认路径；自定义路径需重启服务生效。颜色即时生效。</div>
 
     <h2 class="sec">系统集成</h2>
     <div class="ops">
@@ -191,6 +239,9 @@ async function poll() {
     $("rss").textContent = h.rssMb;
     $("ver").textContent = "v" + String(v || "").trim();
     $("conns").textContent = h.connectors.length;
+    if (h.load != null) $("load").textContent = Number(h.load).toFixed(2);
+    if (h.cores != null) $("cores").textContent = h.cores;
+    pushCpuSample(h.cpuPct || 0);
     $("chBody").innerHTML = h.connectors.map((c) => `
       <tr>
         <td>${c.source}</td>
@@ -241,10 +292,129 @@ async function restart(target, btn) {
   }
 }
 
+// ---------- 桌面预览：拖拽移动圆环 / 右下角缩放，实时写回 /ui ----------
+const STAGE = $("prevStage"), HANDLE = $("ringHandle"), KNOB = $("ringKnob"), PREV = $("prevHalo");
+let ring = { x: 0.5, y: 0.5, scale: 0.55 };
+let ringDirty = 0, ringSaveTimer = 0;
+
+function ringBase(w, h) { return Math.max(h * 0.78, w * 0.30); }
+function ringLayout() {
+  const w = STAGE.clientWidth, h = STAGE.clientHeight;
+  const r = ringBase(w, h) * ring.scale;
+  HANDLE.style.width = HANDLE.style.height = r * 2 + "px";
+  HANDLE.style.left = ring.x * 100 + "%";
+  HANDLE.style.top = ring.y * 100 + "%";
+  $("ringMeta").textContent = `x ${ring.x.toFixed(2)} · y ${ring.y.toFixed(2)} · ${ring.scale.toFixed(2)}×`;
+}
+function applyRing() {
+  try { PREV.contentWindow && PREV.contentWindow.postMessage({ td: "ring", ring }, "*"); } catch (e) {}
+  ringLayout();
+  clearTimeout(ringSaveTimer);
+  ringSaveTimer = setTimeout(saveRing, 400);
+}
+async function saveRing() {
+  try {
+    const r = await fetch("/ui", { method: "POST", body: JSON.stringify({ ring }) });
+    if (!r.ok) throw new Error(String(r.status));
+    $("ringSaved").textContent = "已保存";
+    setTimeout(() => { $("ringSaved").textContent = ""; }, 1200);
+  } catch (e) { $("ringSaved").textContent = "保存失败"; }
+}
+function dragRing(ev) {
+  const rect = STAGE.getBoundingClientRect();
+  ring.x = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+  ring.y = Math.max(0, Math.min(1, (ev.clientY - rect.top) / rect.height));
+  applyRing();
+}
+function pinchRing(ev) {
+  const rect = STAGE.getBoundingClientRect();
+  const dx = ev.clientX - (rect.left + ring.x * rect.width);
+  const dy = ev.clientY - (rect.top + ring.y * rect.height);
+  const r = Math.max(20, Math.hypot(dx, dy));
+  ring.scale = Math.max(0.15, Math.min(1.6, r / ringBase(rect.width, rect.height)));
+  applyRing();
+}
+let dragMode = null;
+HANDLE.addEventListener("pointerdown", (e) => {
+  dragMode = e.target === KNOB ? "size" : "move";
+  HANDLE.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+HANDLE.addEventListener("pointermove", (e) => {
+  if (!dragMode) return;
+  dragMode === "size" ? pinchRing(e) : dragRing(e);
+});
+HANDLE.addEventListener("pointerup", () => { dragMode = null; });
+$("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.55 }; applyRing(); };
+
+// 预览 iframe 就绪后同步一次几何
+PREV.addEventListener("load", () => applyRing());
+
+// ---------- 绑定客户端：颜色 / 路径 / 启用 ----------
+async function renderBinds() {
+  const box = $("bindList");
+  // 正在输入路径/调色时不要重建，避免输入被打断
+  if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+  try {
+    const s = await (await fetch("/agents", { cache: "no-store" })).json();
+    box.innerHTML = "";
+    for (const a of s.agents.filter((x) => x.enabled || x.installed)) {
+      const row = document.createElement("div");
+      row.className = "bind-row";
+      row.innerHTML =
+        `<label><input type="checkbox" ${a.enabled ? "checked" : ""} ${a.installed ? "" : "disabled"}></label>` +
+        `<span title="${a.name}">${a.name}</span>` +
+        `<input type="text" placeholder="自定义路径（可选）" value="${a.path || ""}">` +
+        `<input type="color" value="${a.color || "#ffffff"}">`;
+      const [chk, , path, color] = [row.querySelector("input[type=checkbox]"), row.querySelector("span"), row.querySelector("input[type=text]"), row.querySelector("input[type=color]")];
+      const patch = async (body, msg) => {
+        await fetch("/agents", { method: "POST", body: JSON.stringify({ source: a.source, ...body }) });
+        if (msg) { $("restartMsg").textContent = msg; setTimeout(() => { $("restartMsg").textContent = ""; }, 2500); }
+        renderBinds();
+      };
+      chk.onchange = () => patch({ enabled: chk.checked });
+      color.onchange = () => patch({ color: color.value });
+      path.onchange = () => patch({ path: path.value.trim() }, path.value.trim() ? "路径已保存，重启服务后生效" : "已恢复自动探测路径，重启服务后生效");
+      box.appendChild(row);
+    }
+    if (!box.children.length) box.innerHTML = `<div class="note">没有已安装的 AI 桌面端</div>`;
+  } catch (e) { box.innerHTML = `<div class="note">读取失败：${e.message}</div>`; }
+}
+
+// ---------- CPU 迷你曲线 ----------
+const cpuHist = new Array(60).fill(0);
+function pushCpuSample(v) {
+  cpuHist.push(Math.max(0, Math.min(100, Number(v) || 0)));
+  if (cpuHist.length > 60) cpuHist.shift();
+  const cv = $("cpuSpark");
+  if (!cv) return;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = cv.clientWidth || 300, h = cv.clientHeight || 34;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+  x.strokeStyle = "rgba(140,190,255,.85)";
+  x.lineWidth = 1.2;
+  x.beginPath();
+  cpuHist.forEach((v, i) => {
+    const px = (i / (cpuHist.length - 1)) * w;
+    const py = h - (v / 100) * (h - 3) - 1.5;
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  });
+  x.stroke();
+}
+
 $("restartServer").onclick = (e) => restart("server", e.target);
 $("restartWallpaper").onclick = (e) => restart("wallpaper", e.target);
 $("restartBoth").onclick = (e) => restart("both", e.target);
 $("openConfig").onclick = () => { location.href = "/config"; };
+
+fetch("/ui", { cache: "no-store" }).then((r) => r.json()).then((ui) => {
+  if (ui && ui.ring) { ring = { ...ui.ring }; applyRing(); }
+}).catch(() => {});
+renderBinds();
+setInterval(renderBinds, 8000);
 
 poll(); pollLogs();
 setInterval(poll, 2000);

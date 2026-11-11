@@ -123,6 +123,18 @@
   }
   #textpane .tp-line { white-space: pre-wrap; word-break: break-word; }
   #textpane .tp-line.dim { color: rgba(255,255,255,.42); }
+  /* 悬停视图的收起倒计时：离开环带后 3 秒倒计时可见 */
+  #pnCountdown {
+    display: flex; align-items: center; gap: 8px; height: 14px; margin-top: 2px;
+    opacity: 0; transition: opacity .18s ease; font-size: 9px; color: rgba(255,255,255,.55);
+  }
+  #pnCountdown.on { opacity: 1; }
+  #pnCountdown i {
+    display: block; height: 2px; border-radius: 1px; background: rgba(140,190,255,.85);
+    box-shadow: 0 0 8px rgba(120,170,255,.6); width: 0%; transition: width .1s linear;
+  }
+  #pnCountdown span { white-space: nowrap; letter-spacing: .5px; }
+
   #textpane .tp-src {
     display: inline-block; min-width: 34px; margin-right: 6px;
     font-size: 8px; letter-spacing: 1px; opacity: .9;
@@ -148,6 +160,7 @@
   <div class="pn-block"><h4>TOOLS</h4><div id="pn-tools"></div></div>
   <div class="pn-block"><h4>CONTEXT</h4><div id="pn-ctx"></div></div>
   <div class="pn-block grow"><h4>THOUGHT STREAM</h4><div id="textpane"></div></div>
+  <div id="pnCountdown"><i></i><span>3.0s 后收起</span></div>
 </aside>
 
 <div id="hud"></div>

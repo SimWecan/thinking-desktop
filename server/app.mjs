@@ -70,7 +70,7 @@ export function start({ root, port }) {
   const hub = createStreamHub();
   const agents = new AgentRegistry(root);
   const zstdAvailable = detectZstd();
-  const connectors = assembleConnectors({ root, zstdAvailable, connectorsOff });
+  const connectors = assembleConnectors({ root, zstdAvailable, connectorsOff, bindings: agents.bindings });
 
   // UI 配置：GET 读、POST 归一化合并后落盘 config/ui.json，内存态立即生效
   let uiConfig = loadUiConfig(root);

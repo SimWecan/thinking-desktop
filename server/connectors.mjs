@@ -30,8 +30,9 @@ export function detectZstd() {
   try { return spawnSync("zstd", ["--version"], { encoding: "utf8" }).status === 0; } catch { return false; }
 }
 
-function assembleCodex(out) {
-  const p = join(HOME, ".codex", "logs_2.sqlite");
+function assembleCodex(out, { bindings } = {}) {
+  const custom = String(bindings?.codex?.path || "").trim();
+  const p = custom || join(HOME, ".codex", "logs_2.sqlite");
   if (!has(p)) return;
   out.push(new SqlitePollConnector({
     source: "codex",
@@ -48,7 +49,8 @@ function assembleCodex(out) {
   }));
 }
 
-function assembleKimi(out) {
+function assembleKimi(out, { bindings } = {}) {
+  const custom = String(bindings?.["kimi-desktop"]?.path || "").trim();
   const dir = join(APP_SUPPORT, "kimi-desktop", "kimi-agent");
   const usage = join(dir, "conversation-context-usage.json");
   if (has(usage)) {
@@ -96,15 +98,17 @@ function assembleKimi(out) {
     }));
   }
   // 真实文本截流：尾随本机会话 wire.jsonl（用户消息/助手输出/上下文压缩全落盘）
-  const wireDir = join(
+  // 控制台里可以填自定义 sessions 目录（例如把 Kimi 装在别的用户目录）
+  const wireDir = custom || join(
     APP_SUPPORT, "kimi-desktop", "daimon-share", "daimon",
     "runtime", "kimi-code", "home", "sessions",
   );
   if (has(wireDir)) out.push(new KimiWireConnector({ dir: wireDir }));
 }
 
-function assembleDeepSeek(out, { zstdAvailable }) {
-  const dir = join(HOME, ".dsh", "sessions");
+function assembleDeepSeek(out, { zstdAvailable, bindings } = {}) {
+  const custom = String(bindings?.["deepseek-harness"]?.path || "").trim();
+  const dir = custom || join(HOME, ".dsh", "sessions");
   if (has(dir)) {
     if (!zstdAvailable) {
       // 没装 zstd 时轮询会永远拿不到内容，要吵出来而不是静默空转
@@ -158,10 +162,10 @@ const ASSEMBLERS = [
 ];
 
 /** 装配全部连接器；env.connectorsOff 时返回空表（演示/e2e 隔离用） */
-export function assembleConnectors({ root, zstdAvailable, connectorsOff }) {
+export function assembleConnectors({ root, zstdAvailable, connectorsOff, bindings = {} }) {
   const out = [];
   if (!connectorsOff) {
-    for (const [, fn] of ASSEMBLERS) fn(out, { root, zstdAvailable });
+    for (const [, fn] of ASSEMBLERS) fn(out, { root, zstdAvailable, bindings });
   }
   return out;
 }

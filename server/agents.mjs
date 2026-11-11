@@ -70,11 +70,16 @@ export class AgentRegistry {
   }
 
   /** 绑定/解绑/改色/改名 */
-  update(source, { enabled, color, name } = {}) {
+  update(source, { enabled, color, name, path } = {}) {
     const cur = this.bindings[source] ?? {};
     if (enabled !== undefined) cur.enabled = !!enabled;
     if (color) cur.color = color;
     if (name) cur.name = name;
+    // 自定义客户端路径：空字符串 = 恢复自动探测
+    if (typeof path === "string") {
+      const p = path.trim();
+      if (p) cur.path = p.slice(0, 400); else delete cur.path;
+    }
     this.bindings[source] = cur;
     this._save();
     return this.agents();
@@ -112,6 +117,7 @@ export class AgentRegistry {
         thinking: now - lastReal < 20000,
         events: st?.events ?? 0,
         agoMs: st ? now - st.lastEventAt : null,
+        path: b.path ?? "",   // 控制台里可覆盖默认探测路径（重启服务生效）
       };
     });
   }

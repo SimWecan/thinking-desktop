@@ -1,5 +1,6 @@
 /** routes/system.mjs — 系统域：重启 / 版本 / 日志 / 健康自检 / AX 读屏 */
 import { spawn, execFileSync } from "node:child_process";
+import os from "node:os";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { psStats } from "../../connectors/ps-sample.mjs";
@@ -77,6 +78,8 @@ export function register(router, ctx) {
         arrayBuffers: Math.round(m.arrayBuffers / 1048576),
       }; })(),
       cpuPct: ctx.cpuPercent(),
+      load: Math.round((os.loadavg()[0] || 0) * 100) / 100,   // 1 分钟负载
+      cores: os.cpus().length,
       zstd: zstdAvailable,
       ps: psStats(),   // 进程采样合并效果：spawns 越少越好
       // 渲染侧性能（来自壁纸页遥测）：帧率、每帧渲染耗时、看板渲染耗时

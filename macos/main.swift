@@ -69,8 +69,41 @@ func hoverLogLine(_ s: String) {
     else { try? line.data(using: .utf8)?.write(to: hoverLog) }
 }
 
-// 悬停意图：离开环带后延迟收起；光标若已移到弹窗上就保持，移开再收
+// 悬停意图：离开环带后倒计时 3 秒再收起（倒计时实时推给弹窗页显示），回到环带立即取消
 var hoverHideWork: DispatchWorkItem?
+var hoverCountdownTimer: Timer?
+var hoverCountdownEnd: Date?
+
+func pushCountdown(_ left: TimeInterval) {
+    guard let wv = hoverPanel?.contentView as? WKWebView else { return }
+    let sec = String(format: "%.1f", max(0, left))
+    wv.evaluateJavaScript("window.__tdHoverCountdown && window.__tdHoverCountdown(\(sec))") { _, _ in }
+}
+
+func cancelHoverCountdown() {
+    hoverCountdownTimer?.invalidate()
+    hoverCountdownTimer = nil
+    hoverCountdownEnd = nil
+    pushCountdown(0)
+}
+
+func startHoverCountdown() {
+    hoverLogLine("countdown start")
+    hoverCountdownEnd = Date().addingTimeInterval(3.0)
+    hoverCountdownTimer?.invalidate()
+    hoverCountdownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { t in
+        guard let end = hoverCountdownEnd else { t.invalidate(); return }
+        let left = end.timeIntervalSinceNow
+        pushCountdown(left)
+        if left <= 0 {
+            t.invalidate()
+            hoverCountdownTimer = nil
+            hoverCountdownEnd = nil
+            hoverLogLine("countdown end")
+            hideHoverPanel()
+        }
+    }
+}
 
 func ringBoundsScreen() -> NSRect? {
     let mouse = NSEvent.mouseLocation
@@ -84,21 +117,11 @@ func ringBoundsScreen() -> NSRect? {
     return nil
 }
 
-func scheduleHideHoverPanel(_ delay: TimeInterval = 0.12) {
-    hoverHideWork?.cancel()
-    let work = DispatchWorkItem {
-        hoverHideWork = nil
-        hideHoverPanel()
-    }
-    hoverHideWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-}
-
 func hoverTick() {
     guard let p = hoverPanel, p.isVisible else { return }
     var onRing = false
     for win in windows where (win.contentView as? WallpaperView)?.hoverRing == true { onRing = true }
-    if !onRing { scheduleHideHoverPanel(0.12) }
+    if !onRing && hoverCountdownEnd == nil { startHoverCountdown() }
 }
 
 func hoverPanelScreen() -> NSScreen {
@@ -158,6 +181,7 @@ func showHoverPanel() {
 }
 
 func hideHoverPanel() {
+    cancelHoverCountdown()
     guard let p = hoverPanel, p.isVisible else { return }
     NSAnimationContext.runAnimationGroup({ ctx in
         ctx.duration = 0.14
@@ -169,7 +193,11 @@ final class HoverBridge: NSObject, WKScriptMessageHandler {
     func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "popup" else { return }
         let v = String(describing: message.body)
-        DispatchQueue.main.async { v.contains("show") ? showHoverPanel() : hideHoverPanel() }
+        DispatchQueue.main.async {
+            if v.contains("countdown") { startHoverCountdown() }   // 自检：走一遍 3s 倒计时链路
+            else if v.contains("show") { showHoverPanel() }
+            else { hideHoverPanel() }
+        }
     }
 }
 var hoverBridge: HoverBridge?
@@ -235,8 +263,8 @@ final class WallpaperView: NSView {
         hoverRing = over
         // 光标反馈：壁纸点击穿透，系统光标由桌面控制，悬停环带时换成手型
         if over { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
-        if over { hoverHideWork?.cancel(); hoverHideWork = nil; showHoverPanel() }
-        else { scheduleHideHoverPanel(0.12) }
+        if over { cancelHoverCountdown(); showHoverPanel() }
+        else { startHoverCountdown() }
         webView?.evaluateJavaScript("window.__tdMouse(\(x),\(y))") { _, _ in }
     }
 

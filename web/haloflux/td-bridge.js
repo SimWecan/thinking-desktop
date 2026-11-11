@@ -75,6 +75,7 @@
     if (m.td === 'mouse') { if (window.__tdMouse) window.__tdMouse(m.x, m.y); return; }
     if (m.td === 'click') { if (window.__tdClick) window.__tdClick(m.x, m.y); return; }
     if (m.td === 'sources') { if (window.__tdSources) window.__tdSources(m.list); return; }
+    if (m.td === 'ring') { try { window.__tdSetRing(m.ring || m); } catch (e) {} return; }   // 控制台调整圆环位置/大小
     if (m.td === 'text') { // 思考日志 → 环带数据块 + 悬停视窗
       const s = String(m.text || '').replace(/\s+/g, ' ').trim();
       if (s.length < 4) return;
