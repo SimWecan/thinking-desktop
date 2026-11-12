@@ -1,0 +1,58 @@
+# 打 tag（v*）即构建并发布「一句话安装」所需的全部产物。
+# 发布后 scripts/install-online.* 与安装包都在 releases/latest/download/<固定名> 下，
+# 下载页的 ASSET_BASE 默认就是该地址。
+# 同一套版本号规则：收尾自动调用 MCPWindow 仓库的 publish-web.sh，
+# 把 website 的 ?v= 修订位 +1（-g 哈希 = 该仓库当时的 HEAD），让访问者立即拿到新静态资源。
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Unit tests
+        run: npm test
+      - name: Build pkg / portable / win zip
+        run: |
+          bash scripts/build-pkg.sh
+          bash scripts/build-macos-portable.sh
+          bash scripts/build-win.sh
+      - name: Stage online installers
+        run: |
+          cp scripts/install-online.sh dist/install-online.sh
+          cp scripts/install-online.ps1 dist/install-online.ps1
+          ( cd dist && shasum -a 256 install-online.sh > install-online.sh.sha256 )
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Thinking-Desktop-*-macos.pkg
+            dist/Thinking-Desktop-macos.tar.gz
+            dist/Thinking-Desktop-macos.tar.gz.sha256
+            dist/Thinking-Desktop-*-win.zip
+            dist/Thinking-Desktop-win.zip
+            dist/Thinking-Desktop-win.zip.sha256
+            dist/install-online.sh
+            dist/install-online.sh.sha256
+            dist/install-online.ps1
+      - name: Bump TerraFin website asset version
+        env:
+          WEBSITE_TOKEN: ${{ secrets.WEBSITE_PUSH_TOKEN }}
+        run: |
+          if [ -z "$WEBSITE_TOKEN" ]; then
+            echo "未配置 WEBSITE_PUSH_TOKEN，跳过网站版本刷新"
+            exit 0
+          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git clone --depth 1 "https://x-access-token:$WEBSITE_TOKEN@github.com/SimWecan/MCPWindow.git" /tmp/terrafin-web
+          cd /tmp/terrafin-web
+          bash scripts/publish-web.sh
+          git push origin HEAD
