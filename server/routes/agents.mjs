@@ -26,6 +26,10 @@ export function register(router, ctx) {
     }
     if (m.action === "remove") {
       agents.removeCustom(m.source);
+      // 顺手清掉它的自定义图标文件
+      for (const ext of ["png", "gif", "webp", "jpg"]) {
+        try { unlinkSync(join(ctx.root, "data", "icons", "custom", `${m.source}.${ext}`)); } catch { /* 不存在 */ }
+      }
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       res.end(JSON.stringify({ agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors)) }));
       return;
