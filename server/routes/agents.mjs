@@ -21,7 +21,7 @@ export function register(router, ctx) {
     if (m.action === "create") {
       const source = agents.createCustom({ name: m.name, color: m.color, path: m.path });
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      res.end(JSON.stringify({ source, agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors)) }));
+      res.end(JSON.stringify({ source, agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors), store.isBusy) }));
       return;
     }
     if (m.action === "remove") {
@@ -31,7 +31,7 @@ export function register(router, ctx) {
         try { unlinkSync(join(ctx.root, "data", "icons", "custom", `${m.source}.${ext}`)); } catch { /* 不存在 */ }
       }
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      res.end(JSON.stringify({ agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors)) }));
+      res.end(JSON.stringify({ agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors), store.isBusy) }));
       return;
     }
     const list = agents.update(m.source, m, collectPresence(ctx.connectors));
@@ -86,7 +86,7 @@ export function register(router, ctx) {
 
   router.add("GET", "/agents", ({ res }) => {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    res.end(JSON.stringify({ agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors)), view: agents.view, shot: shotRequested() }));
+    res.end(JSON.stringify({ agents: agents.agents(store.sourceStats, Date.now(), collectPresence(ctx.connectors), store.isBusy), view: agents.view, shot: shotRequested() }));
   });
 
   // 壁纸视图选择：all = 综合形态；其它 = 单一 agent 形态

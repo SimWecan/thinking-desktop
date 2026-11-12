@@ -40,6 +40,13 @@ export function createStore({ root, fs: fsp }) {
   let totalEvents = 0;
   let lastEventAt = 0;
 
+  // ---- 回合/工具进行中 ----
+  // 「还在跑」不等于「刚有事件」：长构建/长思考期间会话文件不追加新行，只看 lastWorkAt
+  // 会把正在干活的 agent 误判成收工（壁纸转 30s 就停住）。这里跟住回合与工具的生命周期。
+  const live = new Map();          // source -> { turn, turnAt, openTools, toolAt }
+  const WORK_HOLD_MS = 20_000;     // 与 agents.thinking 的窗口一致
+  const LIVE_MAX_SILENCE_MS = 20 * 60_000;   // 回合/工具完全静默的容忍上限，超时视为残留状态
+
   // ---- 思考文本落盘：服务重启后 /texts 仍能回填 ----
   const TEXT_FILE = `${root}/data/texts.json`;
   let textBacklog = [];
@@ -69,6 +76,63 @@ export function createStore({ root, fs: fsp }) {
     toolCounts.clear();
     sourceStats.clear();
     tokenBySource.clear();
+    live.clear();
+  }
+
+  function blankLive(source) {
+    let L = live.get(source);
+    if (!L) live.set(source, (L = { turn: false, turnAt: 0, openTools: 0, toolAt: 0 }));
+    return L;
+  }
+
+  /**
+   * 事件 → 回合/工具生命周期。必须在 status 限流之前调用，
+   * 否则快速 turn/start→turn/end（间隔 <1s）会把收尾那条丢掉，回合永远挂在「进行中」。
+   */
+  function trackLive(event) {
+    const p = event.payload || {};
+    if (event.type === "tool_call") {
+      const L = blankLive(event.source);
+      L.openTools += 1;
+      L.toolAt = event.ts;
+      return;
+    }
+    if (event.type === "tool_result") {
+      const L = live.get(event.source);
+      if (!L) return;
+      L.openTools = Math.max(0, L.openTools - 1);
+      if (!L.openTools) L.toolAt = 0;
+      return;
+    }
+    if (event.type !== "status") return;
+
+    // 回合/会话状态：数字 running 且不带 note（DSH turn/start·turn/end、Kimi 会话状态）
+    if (typeof p.running === "number" && p.note === undefined) {
+      const L = blankLive(event.source);
+      L.turn = p.running > 0;
+      L.turnAt = event.ts;
+      if (!L.turn) { L.openTools = 0; L.toolAt = 0; }   // 收工：清掉未闭合的旧工具
+      return;
+    }
+    // 进程守护报「已退出」：清掉可能残留的回合/工具（崩溃时不会有 turn/end）
+    if (p.running === false) {
+      const L = live.get(event.source);
+      if (!L) return;
+      L.turn = false;
+      L.openTools = 0;
+      L.toolAt = 0;
+    }
+  }
+
+  /** 该来源现在是否仍在工作（含「回合进行中 / 工具未返回」这类没有新事件的状态） */
+  function isBusy(source, now = Date.now()) {
+    const st = sourceStats.get(source);
+    if (st && now - (st.lastWorkAt || 0) < WORK_HOLD_MS) return true;
+    const L = live.get(source);
+    if (!L) return false;
+    const lastSignal = Math.max(L.turnAt || 0, L.toolAt || 0, st?.lastWorkAt || 0);
+    if (now - lastSignal > LIVE_MAX_SILENCE_MS) return false;
+    return !!L.turn || (L.openTools || 0) > 0;
   }
 
   function saveStats() {
@@ -145,6 +209,7 @@ export function createStore({ root, fs: fsp }) {
       return;
     }
     rolloverDay();
+    trackLive(event);   // 先记回合/工具生命周期：status 限流不能让 turn/end 丢失
     if (!event.__test && (event.type === "status" || event.type === "token")) {
       const prev = lastQuietAt.get(event.source) || 0;
       if (event.ts - prev < 1000) return;              // 状态类事件 1s 内合并，避免刷屏
@@ -225,19 +290,26 @@ export function createStore({ root, fs: fsp }) {
       testClick: Date.now() - flags.testClickAt < 3000,
       testPopup: Date.now() - flags.testPopupAt < 6000,
       testPaused: !!flags.testPausedAt,
-      sources: [...sourceStats.entries()].map(([source, s]) => ({
-        source,
-        events: s.events,
-        lastType: s.lastType,
-        agoMs: now - s.lastEventAt,
-        workAgoMs: s.lastWorkAt ? now - s.lastWorkAt : null,
-      })),
+      sources: [...sourceStats.entries()].map(([source, s]) => {
+        const L = live.get(source);
+        return {
+          source,
+          events: s.events,
+          lastType: s.lastType,
+          agoMs: now - s.lastEventAt,
+          workAgoMs: s.lastWorkAt ? now - s.lastWorkAt : null,
+          // busy = 仍在工作：刚有事件，或回合/工具还没结束（长构建期间也保持亮着）
+          busy: isBusy(source, now),
+          turn: !!L?.turn,
+          openTools: L?.openTools || 0,
+        };
+      }),
       series: seriesFrom(secBuckets, now, 60),
       agentSeries: Object.fromEntries([...srcBuckets].map(([src, b]) => [src, seriesFrom(b, now, 60)])),
       tokens: Object.fromEntries(tokenBySource),
       tools: [...toolCounts.values()].sort((a, b) => b.count - a.count).slice(0, 8).map((t) => ({ name: t.name, count: t.count })),
       totalEvents,
-      agents: agents.agents(sourceStats, now, presence),
+      agents: agents.agents(sourceStats, now, presence, isBusy),
       view: agents.view,
       ui,
     };
@@ -269,6 +341,7 @@ export function createStore({ root, fs: fsp }) {
     sourceStats,
     toolCounts,
     tokenBySource,
+    isBusy,   // 路由层（/agents 等）要按同一口径判断「仍在工作」
     get textBacklog() { return textBacklog; },
     replaceTexts(arr) {   // /texts POST：原子替换（并立即落盘，避免和事件写入抢文件）
       textBacklog = arr;
@@ -294,6 +367,7 @@ export function createStore({ root, fs: fsp }) {
       }
       tokenBySource.clear();
       for (const [k, v] of Object.entries(d.tokens || {})) tokenBySource.set(k, v);
+      live.clear();
     },
   };
 }

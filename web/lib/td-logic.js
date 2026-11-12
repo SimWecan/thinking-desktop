@@ -28,6 +28,18 @@
     return (sources || []).filter((x) => x && x.agoMs < w && x.lastType !== "status");
   }
 
+  /**
+   * 有来源仍处于「回合/工具进行中」：长构建、长思考期间会话没有新行，
+   * 只按空闲时长会误判成收工，把还在干活的壁纸冻住。
+   *
+   * 只认 turn / openTools，不认 busy：busy 还包含「20s 内刚有事件」，
+   * 拿它停环会把静默过渡整体推迟 20s（画面晚 20s 才停）。
+   * @param {Array<{source:string, turn?:boolean, openTools?:number}>} sources
+   */
+  function hasBusy(sources) {
+    return (sources || []).some((x) => x && (x.turn === true || (Number(x.openTools) || 0) > 0));
+  }
+
   /** 事件速率 → 归一化的 60 点序列（用于迷你曲线，缺的补 0） */
   function normalizeSeries(series, points) {
     const n = Math.max(1, Number(points) || 60);
@@ -77,5 +89,5 @@
     return list.map((a) => ({ source: a.source, pct: Math.round(((a.events || 0) / max) * 100) }));
   }
 
-  root.TDLogic = { shouldStandby, winddownCalm, activeSources, normalizeSeries, agentBars, headline };
+  root.TDLogic = { shouldStandby, winddownCalm, hasBusy, activeSources, normalizeSeries, agentBars, headline };
 })(typeof window !== "undefined" ? window : globalThis);

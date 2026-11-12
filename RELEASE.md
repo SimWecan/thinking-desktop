@@ -1,3 +1,41 @@
+# 0.8.0 · 2026-11-12（一句话安装 + 下载页）
+
+- **下载页 `/download`**：中 / 英双语、macOS / Windows 切换；一键复制「交给 AI 的安装指令」，
+  也给出可自己执行的终端命令与安装包链接（`web/download.html`，纯静态、可单独托管）
+- **在线安装脚本**：`scripts/install-online.sh`（macOS，用户级、无需 sudo）与
+  `scripts/install-online.ps1`（Windows）——下载 + sha256 校验 → 解压安装 → 登录自启 →
+  等 `/health` 就绪 → 调 `/agents` 检索并绑定本机已安装的 AI 客户端 → 切综合形态 → 打开控制台；
+  已安装时重复运行只做检索/绑定（幂等）
+- **便携产物**：`scripts/build-macos-portable.sh` 生成固定名 `Thinking-Desktop-macos.tar.gz` + `.sha256`，
+  供一键安装按固定 URL 拉取；Windows 侧 `build-win.sh` 同步产出固定名 zip + `.sha256`
+- **安装包不再携带开发者本机配置**：pkg / win zip / 便携包都排除 `config/agents.json`、
+  `config/ui.json`、`config/icons.json`，避免把个人绑定带给新用户
+- 文档：README 增加「一句话安装」，PACKAGING 增加下载页与在线安装产物说明
+- 版本 0.8.0
+
+# 0.7.2 · 2026-11-12（中英双语控制台 + 宿主自愈）
+
+- **控制台中 / 英切换**：顶栏右侧新增「中 | EN」分段开关（红框位置），选择存 `localStorage`，
+  也可用 `?lang=en` 强制；约 100 条界面文案双语，窗口标题跟随页面标题一起切换
+- **壁纸 / 看板 / 控制台宿主自愈**：三个 `WKWebView` 都实现 `webViewWebContentProcessDidTerminate` →
+  自动重载（此前 WebContent 进程被系统回收后画面会永久停在最后一帧）；服务未就绪或加载失败时 2s 重试
+- **服务重启后恢复进行中的回合**：DSH 会话首次被读到时，若尾部是未闭合的 `turn/start`
+  （且文件 10 分钟内还在写），补报 `running=1`，避免重启后的长思考 / 长工具被误判成空闲
+- **安装版不再依赖仓库路径**：悬停诊断日志从写死的仓库 `logs/hover.log` 改为
+  `~/Library/Application Support/Thinking Desktop/hover.log`（与 wallpaper.lock 同目录）
+- 单测 72 → 74（zstd 连接器 onFirstSight 恢复 + 整文件回合标记扫描）；版本 0.7.2
+
+# 0.7.1 · 2026-11-12（环带显示修复 + 桌面预览重做）
+
+- **修复环带贴边只剩半圈**：可见扇区公式默认「环心贴左、上下居中」，环心靠近任意一边时会把圆砍掉一半——白色缘线、刻度、粒子消失，只剩环带中间的文字。改为整圈绘制，刻度按屏幕范围跳过远处路径，`RMAX` 改取最远屏角
+- **控制台预览与桌面一致**：预览实例按 `screen.width×height` 渲染后整体缩放；此前 90px 的环带固定下限让预览里的环带比桌面粗约 1.5 倍、圈内网纹密度高数倍，边缘裁切也对不上。现在环心/半径/环带厚度/裁切与壁纸一致
+- **预览交互**：拖拽整条环带（带抓取偏移，按下不跳）、双击定位、滚轮缩放（Shift/Alt 精调）、方向键微调（Alt 精 / Shift 粗）、`+/-` 缩放、`0`/`Home` 重置；裁切提示按真实外缘计算并指出方向；显示桌面分辨率与预览比例；拖动更新合并到 ~30fps
+- **修复「agent 还在跑、壁纸却停住」**：长构建/长思考期间 DSH 会话文件不追加新行，旧的「20s 无事件即空闲」口径会把正在进行的回合误判成收工，30s 后环带停转。现在 store 跟踪回合与工具生命周期（`turn/start`↔`turn/end`、`tool_call`↔`tool_result`，进程退出/20 分钟静默兜底清理），`/state.sources[].busy` 与 `/agents[].thinking`、控制台通道表口径统一；壁纸「综合形态」据此保持转动，单一形态沿用 `thinking`
+- **渲染帧链自愈**：`drawStage` 单帧异常此前会跳过 `requestAnimationFrame` 续帧，壁纸永久停在最后一帧（只等重建画布）。现在续帧统一走 `__tdArm`（pending 去重）、单帧异常不再断链，并加 1.5s 看门狗：2 秒没有帧且没有待执行 rAF 就重新起链，上报 `halo-stall`
+- **停滞可复盘**：待机/唤醒翻转与帧链自愈写 `logs/wall-events.log`（256KB 轮转），以后能直接区分「正常待机」和「渲染卡死」
+- 单测 64 → 72（store 运行态 6 + hasBusy 1 + ring-geom 1）
+- 版本 0.7.1
+
 # 0.7.0 · 2026-11-12（控制台绑定客户端重构）
 
 - 绑定客户端改为**四列表格**：客户端 / 商标·动效 / 文件夹 / 粒子颜色；底部常驻一行空白入口

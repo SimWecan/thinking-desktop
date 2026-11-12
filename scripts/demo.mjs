@@ -103,7 +103,10 @@ try {
       // 每家节奏错开：不是五家整齐划一，而是此起彼伏，更像真实并行
       if ((i + SOURCES.indexOf(src)) % 3 === 2) continue;
       await post(src, "text", { text: lines[i % lines.length], kind: "think", stream: true });
-      if (i % 2 === 0) await post(src, "tool_call", { name: TOOLS[(i / 2 | 0) % TOOLS.length] });
+      if (i % 2 === 0) {
+        await post(src, "tool_call", { name: TOOLS[(i / 2 | 0) % TOOLS.length] });
+        await post(src, "tool_result", {});   // 配对收尾，演示结束才能进入待机
+      }
       if (i % 4 === 1) {
         if (src === "deepseek-harness") await post(src, "token", { model: "deepseek-flash", used: 200000 + i * 8000, window: 1048576 });
         else await post(src, "token", { model: src.replace("-desktop", ""), maxUsage: Math.min(0.85, 0.15 + i * 0.02) });

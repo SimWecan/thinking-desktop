@@ -10,7 +10,7 @@ const TD_CLIENT = PARAMS.has("preview") ? "wall-preview" : PARAMS.has("panel") ?
 const PANEL_ONLY = PARAMS.has("panel");     // 弹出窗口：只渲染右侧看板
 const HOST_POPUP = PARAMS.has("hostpopup"); // 桌面壁纸：看板由原生弹窗负责，页内不再画
 const DEBUG = !!window.__TD_DEBUG__;
-const PAGE_BUILD = "wall-3";   // 自检用：确认壁纸加载的是新页面
+const PAGE_BUILD = "wall-4";   // 自检用：确认壁纸加载的是新页面
 let UI = { ringText: "headline", panel: "hover", winddownSec: 30, lightsWindowSec: 12, ringChars: 90 };  // 来自 /state.ui
 const WINDDOWN = () => UI.winddownSec * 1000;   // 静默过渡窗口：窗口内环带逐渐减速到停止
 
@@ -48,6 +48,7 @@ let standby = null;
 let lastCalm = 0;
 let overRing = false;
 let haloError = "";
+let lastIdle = null;   // 上一拍的待机态：只在翻转时写日志，避免刷屏
 let lastParamPush = 0, stateTimer = 0;
 
 /** agent 配置色（调色盘选择）优先于内置色 */
@@ -72,6 +73,14 @@ let lastTextAt = 0, textSeq = 0;
 // 与 server/agents.mjs 的 VENDOR_PRESETS 保持一致——/agents 拉取失败时的兜底色
 // 也必须和注册表相同，否则粒子颜色会闪变
 function haloMsg(m) { try { halo.contentWindow?.postMessage(m, "*"); } catch {} }
+
+/** 关键状态翻转写一行服务端日志（logs/wall-events.log）：事后能区分「正常待机」和「帧链卡死」 */
+function reportEvent(event, extra) {
+  fetch("/debug", {
+    method: "POST",
+    body: JSON.stringify({ client: TD_CLIENT, event, at: Date.now(), ...extra }),
+  }).catch(() => {});
+}
 
 // 悬停：原生宿主转发全局鼠标位置 → 光环只判断「是否停在环带上」
 // 原生宿主做环带命中判定时，会 evaluateJavaScript("window.__tdGeomGet()")；
@@ -151,6 +160,7 @@ halo.addEventListener("load", () => {
 window.addEventListener("message", (ev) => {
   if (ev.data && ev.data.td === "hover") { overRing = !!ev.data.ring; syncPanel(); return; }
   if (ev.data && ev.data.td === "error") { haloError = `${ev.data.message} @ ${new Date(ev.data.at).toLocaleTimeString()}`; return; }
+  if (ev.data && ev.data.td === "stall") { reportEvent("halo-stall", { silentMs: ev.data.silentFor }); return; }
   if (ev.data && ev.data.td === "ready") {
     standby = null;
     setStandby(currentCalm() >= 1);
@@ -162,6 +172,9 @@ window.addEventListener("message", (ev) => {
 
 /** 动态静默系数 0→1：0 全速；0<x<1 环带逐渐减速/粒子渐弱；1 完全静默 */
 function currentCalm() {
+  // 有来源的回合/工具还没结束 → 就是在工作，不能按「多久没新事件」停环。
+  // （长构建/长思考期间会话文件不追加新行，旧口径会在 30s 后把环冻住。）
+  if (view === "all" && TDLogic.hasBusy && TDLogic.hasBusy(sources)) return 0;
   return TDLogic.winddownCalm({
     now: Date.now(), workAt, busyUntil, winddown: WINDDOWN(), view, agents: agentsList,
   });
@@ -212,6 +225,14 @@ setInterval(async () => {
   // 环带转速随之逐渐减缓、粒子/光束强度渐弱；到 1 时转入完全静默（standby 冻结）
   const calm = currentCalm();
   const idle = calm >= 1;
+  if (idle !== lastIdle) {
+    lastIdle = idle;
+    reportEvent(idle ? "standby-on" : "wake", {
+      calm: +calm.toFixed(2),
+      idleFor: Math.round((Date.now() - workAt) / 1000),
+      busy: (sources || []).filter((x) => x.busy).map((x) => x.source),
+    });
+  }
   setStandby(idle);
   if (calm > 0 && calm < 1) haloMsg({ td: "calm", value: +calm.toFixed(3) });
   else if (calm <= 0 && lastCalm > 0) haloMsg({ td: "calm", value: 0 });   // 活动回归：撤掉减速

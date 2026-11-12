@@ -116,3 +116,43 @@ test("文件被重写回滚时不刷屏", opts, async () => {
   assert.equal(got.length, 0, "重写/回滚不应回放整段历史");
   c.stop();
 });
+
+test("首次见到会话时可按尾部恢复进行中的回合（onFirstSight）", opts, async () => {
+  const { root, file } = setup();
+  appendFrame(file, { type: "turn/start" });
+  appendFrame(file, { type: "tool/call" });
+  const got = [];
+  const c = new ZstdJsonlPollConnector({
+    source: "test", dir: root, intervalMs: 80,
+    summarize: () => null,
+    onFirstSight: (lines) =>
+      lines.some((l) => l.includes('"turn/start"')) ? { type: "status", payload: { running: 1 } } : null,
+  });
+  c.onEvent = (e) => got.push(e);
+  c.start();
+  await wait(300);
+  assert.equal(got.length, 1, "首次见到应补报一次回合进行中");
+  assert.equal(got[0].type, "status");
+  assert.equal(got[0].payload.running, 1);
+  c.stop();
+});
+
+test("首次解码会扫描整文件的回合标记（尾巴里没有 turn/start 也能恢复）", opts, async () => {
+  const { root, file } = setup();
+  appendFrame(file, { type: "turn/start" });
+  // 追加 200 行噪声：尾巴只留 160 行，turn/start 已经不在 lines 里
+  const noise = Array.from({ length: 200 }, (_, i) => JSON.stringify({ type: "noise", i })).join("\n") + "\n";
+  appendFileSync(file, execFileSync("zstd", ["-q", "-c"], { input: noise }));
+  let marker = null;
+  const c = new ZstdJsonlPollConnector({
+    source: "test", dir: root, intervalMs: 80,
+    summarize: () => null,
+    firstSightMarker: /"type":"turn\/(?:start|end)"/,
+    onFirstSight: (_lines, _f, m) => { marker = m; return null; },
+  });
+  c.onEvent = () => {};
+  c.start();
+  await wait(500);
+  assert.ok(marker && marker.includes('"turn/start"'), "应记住整文件最后一条回合标记");
+  c.stop();
+});

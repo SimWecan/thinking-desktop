@@ -12,7 +12,8 @@ OUT="$ROOT/dist/Thinking-Desktop-$VERSION-win.zip"
 
 echo "==> 版本 $VERSION · 组装 Windows 源码包"
 for d in server web config win docs scripts test connectors bin; do
-  [ -d "$ROOT/$d" ] && rsync -a --exclude '.DS_Store' "$ROOT/$d" "$STAGE/"
+  [ -d "$ROOT/$d" ] && rsync -a --exclude '.DS_Store' \
+    --exclude 'agents.json' --exclude 'ui.json' --exclude 'icons.json' "$ROOT/$d" "$STAGE/"
 done
 for f in package.json README.md RELEASE.md LICENSE; do
   [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$STAGE/"
@@ -23,6 +24,9 @@ mkdir -p "$ROOT/dist"
 rm -f "$OUT"
 # COPYFILE_DISABLE 去掉 __MACOSX 资源叉垃圾
 ( COPYFILE_DISABLE=1; export COPYFILE_DISABLE; cd "$STAGE" && zip -q -r "$OUT" . )
+# 固定名 + 校验文件：install-online.ps1 默认拉这两个
+cp "$OUT" "$ROOT/dist/Thinking-Desktop-win.zip"
+( cd "$ROOT/dist" && shasum -a 256 "Thinking-Desktop-win.zip" > "Thinking-Desktop-win.zip.sha256" )
 rm -rf "$STAGE"
-ls -lh "$OUT"
+ls -lh "$OUT" "$ROOT/dist/Thinking-Desktop-win.zip" "$ROOT/dist/Thinking-Desktop-win.zip.sha256"
 echo "完成。Windows 上解压后运行: powershell -NoProfile -ExecutionPolicy Bypass -File win\\install.ps1"

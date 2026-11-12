@@ -243,14 +243,14 @@ function resizeStage() {
   cx = W * ringX; cy = H * ringY;
   R = Math.max(H * 0.78, W * 0.30) * ringScale;
   RO = R + Math.max(90, Math.min(240, H * 0.3, W * 0.13)) * C.ringWidth;
-  RMAX = Math.hypot(W - cx, H / 2) + 60;
-  // 粒子/流光的角度范围：老版本环很大、只露出一段弧，所以用 asin 取可见扇区；
-  // 圆环缩小成完整圆之后（R/RO 在画面内），必须放开到整圈，否则只有一半有粒子。
-  const fitsInView = (rad) => rad <= Math.min(cx, W - cx, cy, H - cy) + 24;
-  // 内环完整可见时，外圈粒子也铺满整圈（外圈部分超出画面会被自然裁掉）；
-  // 否则保持老逻辑：只画可见扇区，避免超大环时白算
-  thV = fitsInView(R) ? Math.PI : Math.asin(Math.min(1, (H / 2 + 60) / R));
-  thS = fitsInView(R) ? Math.PI : Math.asin(Math.min(1, (H / 2 + 40) / RO));
+  // 最远屏角到圆心的距离：环心可以拖到任意位置，不能再用「x 贴左、y 居中」的旧假设
+  RMAX = Math.max(Math.hypot(cx, cy), Math.hypot(W - cx, cy), Math.hypot(cx, H - cy), Math.hypot(W - cx, H - cy)) + 60;
+  // 角度范围一率放开到整圈。旧逻辑用 asin((H/2+60)/R) 取「以 0° 为中心」的可见扇区，
+  // 只对「环心贴左、上下居中」的老布局成立；环心一旦靠近任意一条边（尤其上下边），
+  // 这个公式会砍掉半圈 → 白环只剩一侧，另一侧只剩环带文字。整圈绘制后画面外由画布裁掉，
+  // tick() 内部再按屏幕范围跳过远处刻度，代价可控。
+  thV = Math.PI;
+  thS = Math.PI;
   buildWeb(); buildLanes(); buildCards(); buildOuter();
   trailC = mkd(2 * R + 4, 2 * R + 4, Math.min(DPR, 1.5));
   farC = document.createElement('canvas'); farC.width = Math.ceil(W * FS); farC.height = Math.ceil(H * FS); farC.x = farC.getContext('2d');
@@ -916,9 +916,17 @@ function drawRing(dt) {
     S.restore();
   }
   // rulers & rim bands (all rotate with the ring)
-  const tick = (step, fn) => {
+  // 整圈刻度：rad 给定时按屏幕范围跳过远处的刻度（超大环/环心在画面外时省掉九成路径）
+  const tick = (step, fn, rad) => {
     const n0 = Math.floor((-thV - 0.05 - ringRot) / step), n1 = Math.ceil((thV + 0.05 - ringRot) / step);
-    for (let n = n0; n <= n1; n++) { const a = n * step + ringRot; fn(Math.cos(a), Math.sin(a), n); }
+    for (let n = n0; n <= n1; n++) {
+      const a = n * step + ringRot, ca = Math.cos(a), sa = Math.sin(a);
+      if (rad != null) {
+        const x = cx + ca * rad, y = cy + sa * rad;
+        if (x < -480 || x > W + 480 || y < -480 || y > H + 480) continue;
+      }
+      fn(ca, sa, n);
+    }
   };
   const RB = rimW();
   // 悬停反馈：鼠标移上环带时缘线微微增亮（120ms 级平滑，成本仅是三次乘法）
@@ -932,7 +940,7 @@ function drawRing(dt) {
     const lo = m === 0 ? RB : RB * (0.5 + 0.35 * hash(n + 77));
     S.moveTo(ca * (R + 1.5), sa * (R + 1.5)); S.lineTo(ca * (R + 1.5 + li), sa * (R + 1.5 + li));
     S.moveTo(ca * (RO - 1.5), sa * (RO - 1.5)); S.lineTo(ca * (RO - 1.5 - lo), sa * (RO - 1.5 - lo));
-  });
+  }, R);
   S.globalCompositeOperation = 'lighter';
   S.strokeStyle = `rgba(232,235,242,${Math.min(1, 0.035 * C.rimBright * C.rimBright * HB)})`; S.lineWidth = 1.2 + 2.4 * C.rimBright; S.stroke();   // glow grows with brightness
   S.strokeStyle = `rgba(232,235,242,${Math.min(1, 0.08 * C.rimBright * HB)})`; S.lineWidth = 1.4; S.stroke();
@@ -943,11 +951,11 @@ function drawRing(dt) {
   S.globalCompositeOperation = 'lighter'; arc(RO, 3.5, 0.1); S.globalCompositeOperation = 'source-over';
   arc(RO, 1.3, 0.95);
   S.beginPath();
-  tick(1 * Math.PI / 180, (ca, sa) => { S.moveTo(ca * (R - 2), sa * (R - 2)); S.lineTo(ca * (R - 5), sa * (R - 5)); });
+  tick(1 * Math.PI / 180, (ca, sa) => { S.moveTo(ca * (R - 2), sa * (R - 2)); S.lineTo(ca * (R - 5), sa * (R - 5)); }, R);
   tick(0.25 * Math.PI / 180, (ca, sa, n) => {
     const m = ((n % 20) + 20) % 20, L = m === 0 ? 9 : m % 5 === 0 ? 5 : 2.5;
     S.moveTo(ca * (RO + 2), sa * (RO + 2)); S.lineTo(ca * (RO + 2 + L), sa * (RO + 2 + L));
-  });
+  }, RO);
   S.strokeStyle = 'rgba(230,233,240,.5)'; S.lineWidth = 0.6; S.stroke();
   S.restore();
 }
@@ -1099,10 +1107,32 @@ function drawStage(dt) {
    ========================================================= */
 let last = performance.now();
 let T = 0;   // 全局时钟（帧循环累加；驱动环带/粒子相位）
-function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;
-  drawStage(dt);
+
+/* 续帧唯一入口：pending 标记保证任何路径都只有一条帧链。
+   单帧里一次异常曾经会跳过这里的 rAF，整幅壁纸永久停在最后一帧（要等重建画布才恢复）。 */
+window.__tdRafPending = false;
+window.__tdLastFrameAt = 0;
+window.__tdDrawErrors = 0;
+window.__tdArm = function () {
+  if (window.__tdRafPending) return;
+  window.__tdRafPending = true;
   requestAnimationFrame(frame);
+};
+
+function frame(now) {
+  window.__tdRafPending = false;
+  window.__tdLastFrameAt = performance.now();
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; T += dt;
+  try {
+    drawStage(dt);
+  } catch (e) {
+    // 画错一帧也要继续跑：不能让 rAF 断链（断链 = 壁纸冻结到下次重建画布）
+    window.__tdDrawErrors += 1;
+    if (window.__tdDrawErrors <= 3 || window.__tdDrawErrors % 600 === 0) {
+      try { parent.postMessage({ td: 'error', message: 'drawStage: ' + String((e && e.message) || e), at: Date.now() }, '*'); } catch (err) {}
+    }
+  }
+  window.__tdArm();
 }
 let rzT, ready = false, started = false, pvLast = 0;
 let fpsWin0 = -1, fpsN = 0;   // 自适应分辨率采样窗（-1 = 尚未开始，避开启动热身）
@@ -1113,7 +1143,7 @@ function resizeAll() {
   const r = stage.getBoundingClientRect();
   if (r.width < 20 || r.height < 20) { ready = false; return; }
   DPR = dprCap(); resizeStage(); ready = true;
-  if (!started) { started = true; last = performance.now(); requestAnimationFrame(frame); }
+  if (!started) { started = true; last = performance.now(); window.__tdArm(); }
   // 待机按需渲染：重建会清空画布（canvas.width 赋值即清屏），必须立即补一帧
   // （WKWebView 遮挡时 rAF 挂起，不能只置脏等下一帧）
   window.__tdStandbyDirty = true;
@@ -1124,6 +1154,8 @@ window.__tdRafOn = true;
 window.__tdCalm = 0;   // 动态静默 0→1：时间减速 + 渐暗；1 = 完全静默（转入 standby）
 let lastDrawAt = 0;
 frame = function frame(now) {
+  window.__tdRafPending = false;
+  window.__tdLastFrameAt = performance.now();
   if (window.__tdCalm >= 1) {
     // 静默到位：与 tdSetStandby(true) 等效的最小内联（该函数定义在桥接闭包里，此处不可见）
     window.__tdCalm = 1;
@@ -1145,11 +1177,11 @@ frame = function frame(now) {
     return;   // 关键：不再 requestAnimationFrame，等待外部事件唤醒
   }
   window.__tdStandbyDrawn = false;
-  if (PREVIEW && now - pvLast < PV_FPS_MS) { requestAnimationFrame(frame); return; }   // 预览模式 25fps 节流
+  if (PREVIEW && now - pvLast < PV_FPS_MS) { window.__tdArm(); return; }   // 预览模式 25fps 节流
   pvLast = now;
   // 上限 60fps：120Hz 屏上跑满 120fps，每帧 ~1ms，等于白烧一半 CPU；壁纸 60fps 已足够顺滑
   if (!PREVIEW && lastDrawAt && now - lastDrawAt < 1000 / 60 - 1.5) {
-    requestAnimationFrame(frame);
+    window.__tdArm();
     return;
   }
   lastDrawAt = now;
@@ -1190,7 +1222,8 @@ frame = function frame(now) {
     const __ms = performance.now() - __t0;
     window.__tdFrameMs = window.__tdFrameMs ? window.__tdFrameMs * 0.9 + __ms * 0.1 : __ms;
   }
-  else { last = now; requestAnimationFrame(frame); }
+  else { last = now; }
+  window.__tdArm();   // 兜底：上面任何分支（含 origFrame 抛错）都保证帧链不断
 };
 new ResizeObserver(() => { clearTimeout(rzT); rzT = setTimeout(resizeAll, 120); }).observe(document.getElementById('stageWrap'));
 (document.fonts ? document.fonts.ready : Promise.resolve()).then(resizeAll);

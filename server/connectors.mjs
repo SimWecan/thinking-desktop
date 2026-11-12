@@ -134,6 +134,17 @@ function assembleDeepSeek(out, { zstdAvailable, bindings } = {}) {
       dir,
       // 开源 AI：截流会话文本上墙展示（闭源 AI 无此通道，光环显示预设动画）
       summarize: summarizeDshLine,
+      // 服务重启时若会话尾部是一个没有 turn/end 的回合，说明 agent 还在跑：
+      // 补一条 running=1，别让壁纸在重启后的第一段长思考/长工具里误判空闲。
+      // 只认 10 分钟内还在写的会话，避免把崩溃残留的旧回合唤醒。
+      // 首次解码时整文件扫一遍回合标记（只这一次），尾巴里没有也能判断
+      firstSightMarker: /"type":"turn\/(?:start|end)"/,
+      onFirstSight: (_lines, f, lastMarker) => {
+        if (Date.now() - f.mtimeMs > 10 * 60_000) return null;
+        return lastMarker && lastMarker.includes('"turn/start"')
+          ? { type: "status", payload: { running: 1 } }
+          : null;
+      },
     }));
   }
   out.push(new ProcessWatchConnector({ source: "deepseek-harness", processName: "DeepSeek Harness" }));

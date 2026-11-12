@@ -32,17 +32,36 @@ let winDelegate = ConsoleWindowDelegate()
 
 final class ConsoleNav: NSObject, WKNavigationDelegate {
     static let shared = ConsoleNav()
+    private var loaded = false
+    func webView(_ wv: WKWebView, didFinish nav: WKNavigation!) { loaded = true }
     func webView(_ wv: WKWebView, didFail nav: WKNavigation!, withError e: Error) { retry(wv) }
     func webView(_ wv: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError e: Error) { retry(wv) }
-    /// 服务尚未起来（开机竞态）或网络抖动：2s 后重试；已加载成功则不动
+    /// WebContent 进程被系统回收：控制台会停在空白/最后一帧，必须显式重载
+    func webViewWebContentProcessDidTerminate(_ wv: WKWebView) {
+        loaded = false
+        wv.reload()
+    }
+    /// 服务尚未起来（开机竞态）或网络抖动：2s 后重试，直到加载成功
     private func retry(_ wv: WKWebView) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if wv.url?.host != "127.0.0.1" {
-                wv.load(URLRequest(url: URL(string: CONSOLE_URL)!))
-            }
+        if loaded { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak wv] in
+            guard let self = self, let wv = wv, !self.loaded else { return }
+            wv.load(URLRequest(url: URL(string: CONSOLE_URL)!))
         }
     }
 }
+
+/// 窗口标题跟随页面 <title>（中/英切换时一起变），不再写死中文
+final class ConsoleTitleObserver: NSObject {
+    weak var window: NSWindow?
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?,
+                               change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        guard keyPath == "title", let wv = object as? WKWebView,
+              let t = wv.title, !t.isEmpty else { return }
+        window?.title = t
+    }
+}
+let titleObserver = ConsoleTitleObserver()
 
 let rect = NSRect(x: 0, y: 0, width: 1000, height: 660)
 let window = NSWindow(
@@ -59,6 +78,8 @@ let cfg = WKWebViewConfiguration()
 let wv = WKWebView(frame: rect, configuration: cfg)
 wv.autoresizingMask = [.width, .height]
 wv.navigationDelegate = ConsoleNav.shared
+titleObserver.window = window
+wv.addObserver(titleObserver, forKeyPath: "title", options: [.new], context: nil)
 window.contentView = wv
 // 常规应用不驻留壁纸层：控制台是普通窗口，允许系统缓存以降低开销
 wv.load(URLRequest(url: URL(string: CONSOLE_URL)!))

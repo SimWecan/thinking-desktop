@@ -1,6 +1,6 @@
 {
   "name": "thinking-desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "把本机所有大模型桌面端软件的思考过程具像化为实时桌面壁纸",
   "type": "module",
   "main": "server/index.mjs",
@@ -15,6 +15,7 @@
     "test:e2e": "node scripts/e2e-test.mjs",
     "release:check": "node scripts/release-check.mjs",
     "build:pkg": "bash scripts/build-pkg.sh",
+    "build:portable": "bash scripts/build-macos-portable.sh",
     "build:win": "bash scripts/build-win.sh",
     "test:injection": "node scripts/isolated-injection-test.mjs"
   },

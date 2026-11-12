@@ -27,6 +27,19 @@
   header .logo { width: 30px; height: 30px; border-radius: 7px; flex: none; }
   header .tt { font-size: 13px; letter-spacing: 5px; font-weight: 600; }
   header .tt .thin { color: var(--dim); font-weight: 400; }
+  /* 语言切换：顶栏右侧、服务状态之前（黑底白字，选中态反白） */
+  header .lang {
+    margin-left: auto; display: flex; align-items: stretch;
+    border: 1px solid var(--line-2); background: rgba(255,255,255,.02);
+  }
+  header .lang button {
+    border: 0; background: transparent; color: var(--faint); cursor: pointer;
+    font: inherit; font-size: 10px; letter-spacing: 2px; padding: 3px 9px; line-height: 1.6;
+  }
+  header .lang button:hover { color: var(--paper); }
+  header .lang button.on { background: var(--paper); color: #000; }
+  header .lang button + button { border-left: 1px solid var(--line-2); }
+  header .svc { margin-left: 14px; }
 
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: auto minmax(0,1fr); } }
@@ -45,18 +58,24 @@
   table.ch td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
   table.ch td .ago { color: var(--dim); }
   table.ch td .ago.hot { color: var(--paper); }
+  table.ch td .live { color: var(--paper); }
+  table.ch td .off { color: var(--faint); }
 
   .ops { display: flex; gap: 10px; flex-wrap: wrap; }
   /* .btn / .btn.ghost 见 /ui/terafin.css */
   .note { color: var(--faint); font-size: 10px; letter-spacing: 1px; margin-top: 10px; }
 
-  /* ---------- 桌面预览：拖拽 / 缩放圆环 ---------- */
+  /* ---------- 桌面预览：按真实桌面等比缩放（拖拽 / 滚轮 / 方向键） ---------- */
   .prev-stage {
-    position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
-    border: 1px solid var(--line); background: #06070a;
+    position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden;
+    border: 1px solid var(--line); background: #06070a; outline: none;
     cursor: default; touch-action: none; user-select: none;
   }
-  .prev-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+  .prev-stage:focus-visible { border-color: var(--line-2); box-shadow: 0 0 0 1px rgba(150,190,255,.4); }
+  /* 预览实例按桌面逻辑分辨率渲染，再整体缩到这个框里：
+     位置/半径/环带厚度/边缘裁切与真实壁纸完全一致（否则固定 px 的环带会被小窗放大）。 */
+  .prev-fit { position: absolute; left: 0; top: 0; transform-origin: top left; }
+  .prev-fit iframe { display: block; border: 0; pointer-events: none; }
   .ring-handle {
     position: absolute; border: 1px dashed rgba(150,190,255,.75); border-radius: 50%;
     box-shadow: 0 0 0 1px rgba(0,0,0,.4), inset 0 0 40px rgba(80,120,255,.08);
@@ -160,69 +179,80 @@
 
 <header>
   <img class="logo" src="/icon/thinking-desktop.svg?v=0.5.1" alt="">
-  <div class="tt">THINKING DESKTOP <span class="thin">· 控制台</span></div>
+  <div class="tt">THINKING DESKTOP <span class="thin" data-i18n="consoleSuffix">· 控制台</span></div>
   <span class="ver" id="ver">—</span>
-  <div class="svc" id="svc"><span class="dot"></span><span id="svcTxt">连接中…</span></div>
+  <div class="lang" id="lang" role="group" aria-label="Language / 语言">
+    <button data-lang="zh" class="on" title="中文">中</button>
+    <button data-lang="en" title="English">EN</button>
+  </div>
+  <div class="svc" id="svc"><span class="dot"></span><span id="svcTxt" data-i18n="connecting">连接中…</span></div>
 </header>
 
 <main>
   <div class="left">
-    <h2 class="sec">桌面预览 · 拖拽圆环移动，滚轮缩放大小</h2>
-    <div class="prev-stage" id="prevStage">
-      <iframe id="prevHalo" src="/haloflux/?preview=1" title="壁纸预览"></iframe>
+    <h2 class="sec" data-i18n="previewTitle">桌面预览 · 拖拽圆环移动，滚轮缩放，双击定位</h2>
+    <div class="prev-stage" id="prevStage" tabindex="0"
+         data-i18n-aria="previewAria"
+         aria-label="桌面预览：拖拽或双击移动圆环，滚轮缩放，方向键微调，0 重置">
+      <div class="prev-fit" id="prevFit">
+        <iframe id="prevHalo" src="/haloflux/?preview=1" title="Wallpaper preview"></iframe>
+      </div>
       <div class="ring-handle" id="ringHandle"></div>
-      <span class="prev-badge">实时预览 · 25fps</span>
+      <span class="prev-badge" data-i18n="previewBadge">实时预览 · 25fps</span>
     </div>
     <div class="prev-meta">
-      <span>圆环 <b id="ringMeta">—</b></span>
-      <button class="btn ghost" id="ringReset" style="padding:2px 10px;font-size:10px">重置位置</button>
+      <span><span data-i18n="ring">圆环</span> <b id="ringMeta">—</b></span>
+      <button class="btn ghost" id="ringReset" style="padding:2px 10px;font-size:10px" data-i18n="resetPos">重置位置</button>
       <span id="ringSaved" style="color:var(--faint)"></span>
       <span id="ringWarn" style="color:#e8c07a"></span>
-      <label style="margin-left:auto; display:flex; align-items:center; gap:6px">环带文本
-        <select id="ringTextMode"><option value="headline">首句</option><option value="full">全文</option></select>
+      <span id="ringDesk" style="margin-left:auto;color:var(--faint)"></span>
+      <label style="display:flex; align-items:center; gap:6px"><span data-i18n="ringText">环带文本</span>
+        <select id="ringTextMode"><option value="headline" data-i18n="optHeadline">首句</option><option value="full" data-i18n="optFull">全文</option></select>
       </label>
     </div>
 
-    <h2 class="sec">运行状态</h2>
+    <h2 class="sec" data-i18n="runtime">运行状态</h2>
     <div class="tiles">
-      <div class="tile"><b id="uptime">—</b><span>运行时长</span></div>
+      <div class="tile"><b id="uptime">—</b><span data-i18n="uptime">运行时长</span></div>
       <div class="tile"><b id="cpu">—</b><span>CPU %</span></div>
-      <div class="tile"><b id="rss">—</b><span>内存 MB</span></div>
-      <div class="tile"><b id="conns">—</b><span>数据通道</span></div>
-      <div class="tile"><b id="load">—</b><span>负载（1 分钟）</span></div>
-      <div class="tile"><b id="cores">—</b><span>CPU 核心</span></div>
+      <div class="tile"><b id="rss">—</b><span data-i18n="memMb">内存 MB</span></div>
+      <div class="tile"><b id="conns">—</b><span data-i18n="channels">数据通道</span></div>
+      <div class="tile"><b id="load">—</b><span data-i18n="load1m">负载（1 分钟）</span></div>
+      <div class="tile"><b id="cores">—</b><span data-i18n="cores">CPU 核心</span></div>
     </div>
     <canvas id="cpuSpark" height="34" style="width:100%;display:block;margin-top:10px"></canvas>
 
-    <h2 class="sec">AI 桌面端通道</h2>
+    <h2 class="sec" data-i18n="aiChannels">AI 桌面端通道</h2>
     <table class="ch">
-      <thead><tr><th>来源</th><th>通道</th><th style="text-align:right">事件</th><th>最近活动</th></tr></thead>
-      <tbody id="chBody"><tr><td colspan="4" style="color:var(--faint)">加载中…</td></tr></tbody>
+      <thead><tr><th data-i18n="thSource">来源</th><th data-i18n="thChannel">通道</th><th data-i18n="thStatus">状态</th><th style="text-align:right" data-i18n="thEvents">事件</th><th data-i18n="thActivity">最近活动</th></tr></thead>
+      <tbody id="chBody"><tr><td colspan="5" style="color:var(--faint)" data-i18n="loading">加载中…</td></tr></tbody>
     </table>
 
-    <h2 class="sec">快捷操作</h2>
+    <h2 class="sec" data-i18n="quickOps">快捷操作</h2>
     <div class="ops">
-      <button class="btn" id="restartServer">重启服务</button>
-      <button class="btn" id="restartWallpaper">重启壁纸</button>
-      <button class="btn ghost" id="restartBoth">全部重启</button>
-      <button class="btn ghost" id="openConfig">打开完整配置</button>
+      <button class="btn" id="restartServer" data-i18n="restartServer">重启服务</button>
+      <button class="btn" id="restartWallpaper" data-i18n="restartWallpaper">重启壁纸</button>
+      <button class="btn ghost" id="restartBoth" data-i18n="restartBoth">全部重启</button>
+      <button class="btn ghost" id="openConfig" data-i18n="openConfig">打开完整配置</button>
+      <a class="btn ghost" id="openDownload" href="/download"
+         style="text-decoration:none;display:inline-block" data-i18n="openDownload">下载页 / 分享</a>
     </div>
-    <div class="note" id="restartMsg">重启服务让服务端改动生效；重启壁纸会清空渲染内存</div>
+    <div class="note" id="restartMsg" data-i18n="restartNote">重启服务让服务端改动生效；重启壁纸会清空渲染内存</div>
 
-    <h2 class="sec">系统集成</h2>
+    <h2 class="sec" data-i18n="sysIntegration">系统集成</h2>
     <div class="ops">
-      <span class="note" id="axState" style="margin:0">AX 读屏：检测中…</span>
-      <button class="btn ghost" id="axGrant">去授权</button>
-      <button class="btn ghost" id="axCheck">重新检测</button>
+      <span class="note" id="axState" style="margin:0" data-i18n="axChecking">AX 读屏：检测中…</span>
+      <button class="btn ghost" id="axGrant" data-i18n="grant">去授权</button>
+      <button class="btn ghost" id="axCheck" data-i18n="recheck">重新检测</button>
     </div>
-    <div class="note">授权后 Gemini / ChatGPT 等不落盘日志的桌面端也能读到真实文本；未授权时只显示工作强度。<br>
+    <div class="note" data-i18n-html="axNote">授权后 Gemini / ChatGPT 等不落盘日志的桌面端也能读到真实文本；未授权时只显示工作强度。<br>
       托盘只在 Finder 为前台时显示（避免遮挡其它应用窗口），切到别的应用会自动收起。</div>
   </div>
 
   <div class="right">
     <div class="logbar">
-      <span>实时日志</span>
-      <label><input type="checkbox" id="follow" checked>自动滚动</label>
+      <span data-i18n="liveLog">实时日志</span>
+      <label><input type="checkbox" id="follow" checked><span data-i18n="autoScroll">自动滚动</span></label>
       <span class="sp"></span>
       <span class="sz" id="logSz"></span>
     </div>
@@ -231,16 +261,16 @@
 </main>
 
   <section class="bind-section">
-    <h2 class="sec">绑定客户端 · 粒子颜色</h2>
+    <h2 class="sec" data-i18n="bindTitle">绑定客户端 · 粒子颜色</h2>
     <div class="bind-table">
-      <div class="bind-head"><span>客户端</span><span>商标 / 动效</span><span>文件夹</span><span>粒子颜色</span><span></span></div>
-      <div id="bindList"><div class="note" style="padding:10px">加载中…</div></div>
+      <div class="bind-head"><span data-i18n="bindClient">客户端</span><span data-i18n="bindIcon">商标 / 动效</span><span data-i18n="bindFolder">文件夹</span><span data-i18n="bindColor">粒子颜色</span><span></span></div>
+      <div id="bindList"><div class="note" style="padding:10px" data-i18n="loading">加载中…</div></div>
     </div>
-    <div class="note">第一列选择客户端（可自定义）；第二列可导入动图替换商标动画；第三列选择客户端文件夹（用于探查通道/抓日志，重启服务生效）；第四列设置粒子颜色。</div>
+    <div class="note" data-i18n="bindNote">第一列选择客户端（可自定义）；第二列可导入动图替换商标动画；第三列选择客户端文件夹（用于探查通道/抓日志，重启服务生效）；第四列设置粒子颜色。</div>
 
     <div class="palette-pop" id="palettePop">
       <div class="palette-box">
-        <h3>粒子颜色 · <span id="palTarget">—</span></h3>
+        <h3><span data-i18n="particleColor">粒子颜色</span> · <span id="palTarget">—</span></h3>
         <canvas id="svCanvas" width="272" height="132"></canvas>
         <input type="range" id="hueSlider" min="0" max="360" value="265">
         <div class="pal-row">
@@ -249,21 +279,21 @@
         </div>
         <div class="pal-swatches" id="palSwatches"></div>
         <div class="pal-actions">
-          <button class="btn ghost" id="palCancel">取消</button>
-          <button class="btn" id="palOk">应用</button>
+          <button class="btn ghost" id="palCancel" data-i18n="cancel">取消</button>
+          <button class="btn" id="palOk" data-i18n="apply">应用</button>
         </div>
       </div>
     </div>
 
     <div class="fs-pop" id="fsPop">
       <div class="fs-box">
-        <h3>选择 AI 客户端文件夹</h3>
+        <h3 data-i18n="fsTitle">选择 AI 客户端文件夹</h3>
         <div class="fs-path" id="fsPath">—</div>
         <div id="fsList"></div>
         <div class="pal-actions">
-          <button class="btn ghost" id="fsUp">上一级</button>
-          <button class="btn ghost" id="fsCancel">取消</button>
-          <button class="btn" id="fsPick">选择此文件夹</button>
+          <button class="btn ghost" id="fsUp" data-i18n="up">上一级</button>
+          <button class="btn ghost" id="fsCancel" data-i18n="cancel">取消</button>
+          <button class="btn" id="fsPick" data-i18n="pickFolder">选择此文件夹</button>
         </div>
       </div>
     </div>
@@ -273,15 +303,157 @@
 
 <div class="down" id="down">
   <div class="box">
-    <b>服务未运行</b>
-    <span>等待 Thinking Desktop 服务恢复后自动重连…</span>
+    <b data-i18n="svcDownTitle">服务未运行</b>
+    <span data-i18n="svcDownBody">等待 Thinking Desktop 服务恢复后自动重连…</span>
   </div>
 </div>
 
-<script src="/lib/ring-geom.js"></script>
-<script src="/lib/color.js"></script>
+<script src="/lib/ring-geom.js?v=0.7.2"></script>
+<script src="/lib/color.js?v=0.7.2"></script>
 <script>
 const $ = (id) => document.getElementById(id);
+
+/* ---------- 中 / 英（控制台） ----------
+   静态元素用 data-i18n* 标注；动态文案统一走 t()。
+   语言存 localStorage，也可用 ?lang=en 强制，方便自检/截图。 */
+const I18N = {
+  zh: {
+    consoleSuffix: "· 控制台",
+    connecting: "连接中…", svcOk: "服务正常", svcDown: "服务离线",
+    previewTitle: "桌面预览 · 拖拽圆环移动，滚轮缩放，双击定位",
+    previewAria: "桌面预览：拖拽或双击移动圆环，滚轮缩放，方向键微调，0 重置",
+    previewBadge: "实时预览 · 25fps",
+    ring: "圆环", resetPos: "重置位置", ringText: "环带文本", optHeadline: "首句", optFull: "全文",
+    runtime: "运行状态", uptime: "运行时长", memMb: "内存 MB", channels: "数据通道",
+    load1m: "负载（1 分钟）", cores: "CPU 核心",
+    aiChannels: "AI 桌面端通道", thSource: "来源", thChannel: "通道", thStatus: "状态",
+    thEvents: "事件", thActivity: "最近活动", loading: "加载中…", noChannels: "暂无通道",
+    quickOps: "快捷操作", restartServer: "重启服务", restartWallpaper: "重启壁纸",
+    restartBoth: "全部重启", openConfig: "打开完整配置", openDownload: "下载页 / 分享",
+    restartNote: "重启服务让服务端改动生效；重启壁纸会清空渲染内存",
+    sysIntegration: "系统集成", axChecking: "AX 读屏：检测中…",
+    axAvailableFalse: "AX 读屏：未编译 bin/axread（运行 macos/build-axread.sh）",
+    axError: "AX 读屏：检测失败（{e}）",
+    axTrusted: "AX 读屏：已授权 · 可读取闭源端文本",
+    axUntrusted: "AX 读屏：未授权（辅助功能里添加「Thinking Desktop Wallpaper」）",
+    axHostUntrusted: "AX 读屏：壁纸 App 未授权（辅助功能里移除「Thinking Desktop Wallpaper」后重新添加）",
+    axWaiting: "AX 读屏：等待壁纸上报授权状态…",
+    axUnreachable: "AX 读屏：服务不可达",
+    grant: "去授权", recheck: "重新检测",
+    axNote: "授权后 Gemini / ChatGPT 等不落盘日志的桌面端也能读到真实文本；未授权时只显示工作强度。<br>托盘只在 Finder 为前台时显示（避免遮挡其它应用窗口），切到别的应用会自动收起。",
+    liveLog: "实时日志", autoScroll: "自动滚动", noLogs: "（暂无日志）",
+    bindTitle: "绑定客户端 · 粒子颜色", bindClient: "客户端", bindIcon: "商标 / 动效",
+    bindFolder: "文件夹", bindColor: "粒子颜色",
+    bindNote: "第一列选择客户端（可自定义）；第二列可导入动图替换商标动画；第三列选择客户端文件夹（用于探查通道/抓日志，重启服务生效）；第四列设置粒子颜色。",
+    particleColor: "粒子颜色", cancel: "取消", apply: "应用",
+    fsTitle: "选择 AI 客户端文件夹", up: "上一级", pickFolder: "选择此文件夹",
+    svcDownTitle: "服务未运行", svcDownBody: "等待 Thinking Desktop 服务恢复后自动重连…",
+    justNow: "刚刚", secAgo: "{n}s 前", minAgo: "{n}m 前", hourAgo: "{n}h 前",
+    stTurn: "回合进行中", stTool: "工具执行中", stWork: "工作中", stIdle: "空闲",
+    restartingWallpaper: "正在重启壁纸…", restartingServer: "正在重启服务…", restartingAll: "正在全部重启…",
+    restartSent: "重启指令已发出，等待服务恢复…", restartFailed: "重启失败：{e}", restarted: "服务已重启完成",
+    saved: "已保存", saveFailed: "保存失败", textSwitched: "环带文本已切换",
+    cutWarn: "圆环被屏幕{edges}边缘裁切（与桌面一致）", edgeL: "左", edgeR: "右", edgeU: "上", edgeD: "下",
+    deskMeta: "{w}×{h} · 预览 {p}%",
+    notInstalled: "未安装", importGif: "导入动图", defaultPath: "默认探测路径（点击浏览）",
+    browse: "浏览", remove: "删除", disable: "停用",
+    gifTooBig: "动图过大（上限 8MB）", gifUpdated: "动图已更新", gifFailed: "动图上传失败",
+    pathMissing: "路径不存在，已保存但不会生效", folderSaved: "文件夹已保存，重启服务后生效",
+    pathReset: "已恢复默认探测路径，重启服务后生效", loadFailed: "读取失败：{e}",
+    confirmDelete: "删除自定义客户端「{name}」？",
+    chooseClient: "＋ 选择客户端…", customEllipsis: "＋ 自定义…",
+    customName: "自定义客户端名称（例如 Workbody / Qwen / 豆包）",
+    pickClientFirst: "选择客户端后可浏览文件夹",
+    cannotRead: "无法读取：{p}", emptyFolder: "（空文件夹）", browseFrom: "从哪个路径开始浏览？",
+  },
+  en: {
+    consoleSuffix: "· CONSOLE",
+    connecting: "Connecting…", svcOk: "Service online", svcDown: "Service offline",
+    previewTitle: "DESKTOP PREVIEW · Drag to move · Scroll to zoom · Double-click to place",
+    previewAria: "Desktop preview: drag or double-click to move the ring, scroll to zoom, arrow keys to nudge, 0 to reset",
+    previewBadge: "LIVE PREVIEW · 25fps",
+    ring: "Ring", resetPos: "Reset position", ringText: "Ring text", optHeadline: "Headline", optFull: "Full text",
+    runtime: "RUNTIME", uptime: "Uptime", memMb: "Memory MB", channels: "Channels",
+    load1m: "Load (1 min)", cores: "CPU cores",
+    aiChannels: "AI DESKTOP CHANNELS", thSource: "Source", thChannel: "Channel", thStatus: "Status",
+    thEvents: "Events", thActivity: "Last activity", loading: "Loading…", noChannels: "No channels",
+    quickOps: "QUICK ACTIONS", restartServer: "Restart service", restartWallpaper: "Restart wallpaper",
+    restartBoth: "Restart all", openConfig: "Open full settings", openDownload: "Download page",
+    restartNote: "Restart the service to apply server changes; restarting the wallpaper clears its render memory",
+    sysIntegration: "SYSTEM INTEGRATION", axChecking: "AX reader: checking…",
+    axAvailableFalse: "AX reader: bin/axread not built (run macos/build-axread.sh)",
+    axError: "AX reader: check failed ({e})",
+    axTrusted: "AX reader: authorized · closed-source text available",
+    axUntrusted: "AX reader: not authorized (add “Thinking Desktop Wallpaper” in Accessibility)",
+    axHostUntrusted: "AX reader: wallpaper app not authorized (remove and re-add “Thinking Desktop Wallpaper” in Accessibility)",
+    axWaiting: "AX reader: waiting for the wallpaper to report authorization…",
+    axUnreachable: "AX reader: service unreachable",
+    grant: "Grant access", recheck: "Re-check",
+    axNote: "When authorized, Gemini / ChatGPT (which keep no local logs) also contribute real text; otherwise only activity intensity is shown.<br>The tray only appears while Finder is frontmost so it never covers other apps.",
+    liveLog: "LIVE LOG", autoScroll: "Auto-scroll", noLogs: "(no logs yet)",
+    bindTitle: "BOUND CLIENTS · PARTICLE COLOR", bindClient: "Client", bindIcon: "Logo / motion",
+    bindFolder: "Folder", bindColor: "Particle color",
+    bindNote: "Column 1 picks a client (custom allowed); column 2 imports an animated logo; column 3 sets the client folder the generic probe watches for logs (restart to apply); column 4 sets the particle color.",
+    particleColor: "Particle color", cancel: "Cancel", apply: "Apply",
+    fsTitle: "Choose AI client folder", up: "Up", pickFolder: "Use this folder",
+    svcDownTitle: "Service not running", svcDownBody: "Reconnecting automatically when the Thinking Desktop service is back…",
+    justNow: "just now", secAgo: "{n}s ago", minAgo: "{n}m ago", hourAgo: "{n}h ago",
+    stTurn: "Turn running", stTool: "Tool running", stWork: "Working", stIdle: "Idle",
+    restartingWallpaper: "Restarting wallpaper…", restartingServer: "Restarting service…", restartingAll: "Restarting everything…",
+    restartSent: "Restart requested; waiting for the service…", restartFailed: "Restart failed: {e}", restarted: "Service restarted",
+    saved: "Saved", saveFailed: "Save failed", textSwitched: "Ring text updated",
+    cutWarn: "Ring is clipped by the {edges} screen edge (same on desktop)", edgeL: "left", edgeR: "right", edgeU: "top", edgeD: "bottom",
+    deskMeta: "{w}×{h} · preview {p}%",
+    notInstalled: "not installed", importGif: "Import image", defaultPath: "Default path (click to browse)",
+    browse: "Browse", remove: "Remove", disable: "Disable",
+    gifTooBig: "Image too large (max 8 MB)", gifUpdated: "Image updated", gifFailed: "Image upload failed",
+    pathMissing: "Path does not exist; saved but inactive", folderSaved: "Folder saved; restart the service to apply",
+    pathReset: "Default path restored; restart the service to apply", loadFailed: "Load failed: {e}",
+    confirmDelete: "Delete custom client “{name}”?",
+    chooseClient: "＋ Select client…", customEllipsis: "＋ Custom…",
+    customName: "Custom client name (e.g. Workbody / Qwen / Doubao)",
+    pickClientFirst: "Select a client to browse folders",
+    cannotRead: "Cannot read: {p}", emptyFolder: "(empty folder)", browseFrom: "Browse from which path?",
+  },
+};
+const LANG_KEY = "td.console.lang";
+let LANG = (() => {
+  const q = new URLSearchParams(location.search).get("lang");
+  let v = q || "";
+  if (!v) { try { v = localStorage.getItem(LANG_KEY) || ""; } catch (e) {} }
+  return v === "en" ? "en" : "zh";
+})();
+function t(key, vars) {
+  let str = (I18N[LANG] && I18N[LANG][key]) ?? I18N.zh[key] ?? key;
+  if (vars) for (const k in vars) str = str.replace(new RegExp("\\{" + k + "\\}", "g"), String(vars[k]));
+  return str;
+}
+let logEmpty = false;
+let svcState = "connecting";   // connecting | ok | down
+function applyLang() {
+  document.documentElement.lang = LANG === "en" ? "en" : "zh-CN";
+  document.title = LANG === "en" ? "Thinking Desktop — Console" : "Thinking Desktop — 控制台";
+  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAria)); });
+  document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
+  const msg = $("restartMsg");
+  if (msg && msg.dataset.i18n) msg.textContent = t(msg.dataset.i18n);
+  if ($("svcTxt")) $("svcTxt").textContent = t(svcState === "down" ? "svcDown" : svcState === "ok" ? "svcOk" : "connecting");
+  if (logEmpty && $("log")) $("log").textContent = t("noLogs");
+  if (typeof pollAx === "function") pollAx();
+  if (typeof renderBinds === "function") renderBinds();
+  if (typeof ringLayout === "function") ringLayout();
+  if (typeof fitPreview === "function") fitPreview();
+}
+document.querySelectorAll("#lang button").forEach((b) => {
+  b.onclick = () => {
+    LANG = b.dataset.lang === "en" ? "en" : "zh";
+    try { localStorage.setItem(LANG_KEY, LANG); } catch (e) {}
+    applyLang();
+  };
+});
+
 let upSince = null, restarting = false;
 
 function fmtUptime(ms) {
@@ -291,10 +463,10 @@ function fmtUptime(ms) {
 }
 function fmtAgo(ms) {
   if (!Number.isFinite(ms)) return "—";
-  if (ms < 1000) return "刚刚";
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s 前`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m 前`;
-  return `${Math.round(ms / 3_600_000)}h 前`;
+  if (ms < 1000) return t("justNow");
+  if (ms < 60_000) return t("secAgo", { n: Math.round(ms / 1000) });
+  if (ms < 3_600_000) return t("minAgo", { n: Math.round(ms / 60_000) });
+  return t("hourAgo", { n: Math.round(ms / 3_600_000) });
 }
 
 async function pollAx() {
@@ -302,11 +474,14 @@ async function pollAx() {
     const r = await fetch("/ax", { cache: "no-store" });
     const d = await r.json();
     const el = $("axState");
-    if (d.available === false) el.textContent = "AX 读屏：未编译 bin/axread（运行 macos/build-axread.sh）";
-    else if (d.error) el.textContent = "AX 读屏：检测失败（" + d.error + "）";
-    else if (d.trusted || d.hostTrusted) el.textContent = "AX 读屏：已授权 · 可读取闭源端文本";
-    else el.textContent = "AX 读屏：未授权（辅助功能里添加「Thinking Desktop Wallpaper」）";
-  } catch { $("axState").textContent = "AX 读屏：服务不可达"; }
+    if (d.available === false) el.textContent = t("axAvailableFalse");
+    else if (d.error) el.textContent = t("axError", { e: d.error });
+    else if (d.hostTrusted === true) el.textContent = t("axTrusted");
+    else if (d.hostReporting === false) el.textContent = t("axWaiting");
+    else if (d.hostTrusted === false) el.textContent = t("axHostUntrusted");
+    else if (d.trusted) el.textContent = t("axTrusted");   // 旧版服务没有 hostTrusted 字段
+    else el.textContent = t("axUntrusted");
+  } catch { $("axState").textContent = t("axUnreachable"); }
 }
 
 $("axCheck").onclick = pollAx;
@@ -323,7 +498,8 @@ async function poll() {
     if (!h) throw new Error("health failed");
     $("down").classList.remove("show");
     $("svc").classList.remove("down");
-    $("svcTxt").textContent = "服务正常";
+    svcState = "ok";
+    $("svcTxt").textContent = t("svcOk");
     if (!upSince || Math.abs(h.uptimeMs - (Date.now() - upSince)) > 3000) upSince = Date.now() - h.uptimeMs;
     $("uptime").textContent = fmtUptime(Date.now() - upSince);
     $("cpu").textContent = h.cpuPct.toFixed(1);
@@ -337,17 +513,19 @@ async function poll() {
       <tr>
         <td>${c.source}</td>
         <td style="color:var(--dim)">${(c.kinds || []).join(" · ")}</td>
+        <td><span class="${c.busy ? "live" : "off"}">${c.busy ? "● " + (c.turn ? t("stTurn") : c.openTools ? t("stTool") : t("stWork")) : t("stIdle")}</span></td>
         <td class="num">${c.events}</td>
         <td><span class="ago ${c.agoMs != null && c.agoMs < 12000 ? "hot" : ""}">${c.lastType ? c.lastType + " · " : ""}${fmtAgo(c.agoMs)}</span></td>
-      </tr>`).join("") || `<tr><td colspan="4" style="color:var(--faint)">暂无通道</td></tr>`;
+      </tr>`).join("") || `<tr><td colspan="5" style="color:var(--faint)">${t("noChannels")}</td></tr>`;
     if (restarting && h.uptimeMs > 0 && h.uptimeMs < 15000) {
       restarting = false;
-      $("restartMsg").textContent = "服务已重启完成";
+      $("restartMsg").textContent = t("restarted");
     }
   } catch {
     $("down").classList.add("show");
     $("svc").classList.add("down");
-    $("svcTxt").textContent = "服务离线";
+    svcState = "down";
+    $("svcTxt").textContent = t("svcDown");
   }
 }
 
@@ -360,7 +538,8 @@ async function pollLogs() {
     const key = d.lines.length + ":" + (d.lines[d.lines.length - 1] || "");
     if (key !== lastLogKey) {
       lastLogKey = key;
-      $("log").textContent = d.lines.join("\n") || "（暂无日志）";
+      logEmpty = !d.lines.length;
+      $("log").textContent = d.lines.join("\n") || t("noLogs");
       $("logSz").textContent = d.sizeKb + " KB";
       if ($("follow").checked) $("log").scrollTop = $("log").scrollHeight;
     }
@@ -370,42 +549,98 @@ async function pollLogs() {
 async function restart(target, btn) {
   const msg = $("restartMsg");
   btn.disabled = true;
-  msg.textContent = target === "wallpaper" ? "正在重启壁纸…" : target === "server" ? "正在重启服务…" : "正在全部重启…";
+  msg.textContent = target === "wallpaper" ? t("restartingWallpaper") : target === "server" ? t("restartingServer") : t("restartingAll");
   try {
     const res = await fetch("/restart", { method: "POST", body: JSON.stringify({ target }) });
     if (!res.ok) throw new Error(String(res.status));
     restarting = true;
-    msg.textContent = "重启指令已发出，等待服务恢复…";
+    msg.textContent = t("restartSent");
   } catch (e) {
-    msg.textContent = "重启失败：" + e.message;
+    msg.textContent = t("restartFailed", { e: e.message });
   } finally {
     btn.disabled = false;
   }
 }
 
-// ---------- 桌面预览：拖拽移动圆环 / 右下角缩放，实时写回 /ui ----------
-const STAGE = $("prevStage"), HANDLE = $("ringHandle"), PREV = $("prevHalo");
-let ring = { x: 0.5, y: 0.5, scale: 0.30 };
+// ---------- 桌面预览：按真实桌面等比缩放；拖拽/双击移动、滚轮/方向键缩放，实时写回 /ui ----------
+const STAGE = $("prevStage"), HANDLE = $("ringHandle"), PREV = $("prevHalo"), FIT = $("prevFit");
+const DEFAULT_RING = { x: 0.5, y: 0.5, scale: 0.30 };
+let ring = { ...DEFAULT_RING };
 let ringUserTouched = false;   // 只有用户拖拽/重置过才回写，避免打开控制台就覆盖别人的配置
 let ringSaveTimer = 0;
+let previewScale = 1;
 
-const ringBase = (w, h) => TDRing.base(w, h);
+// 壁纸窗口铺满整块屏幕，预览必须按同一块「桌面画布」渲染再整体缩放：
+// 否则环带的固定像素厚度（90–240）、粒子密度、边缘裁切都会随预览框大小走样。
+// 控制台和壁纸在同一块屏幕上，用 window.screen 的宽高比即可（取不到时退 1512×982）。
+const DESKTOP = (() => {
+  const w = Math.round((window.screen && screen.width) || 0);
+  const h = Math.round((window.screen && screen.height) || 0);
+  return w >= 640 && h >= 400 ? { w, h } : { w: 1512, h: 982 };
+})();
+STAGE.style.aspectRatio = `${DESKTOP.w} / ${DESKTOP.h}`;
+
+// 环带厚度以壁纸实例为准（ringWidth 可配）；读不到时按默认值算
+let bandCache = 0;
+function bandPx() {
+  if (bandCache) return bandCache;
+  try {
+    const g = PREV.contentWindow && PREV.contentWindow.__tdGeomGet && PREV.contentWindow.__tdGeomGet();
+    if (g && g.RO > g.R) return (bandCache = g.RO - g.R);
+  } catch (e) {}
+  return TDRing.band(DESKTOP.w, DESKTOP.h);
+}
+
+function fitPreview() {
+  const w = STAGE.clientWidth, h = STAGE.clientHeight;
+  if (!w || !h) return;
+  FIT.style.width = DESKTOP.w + "px";
+  FIT.style.height = DESKTOP.h + "px";
+  PREV.style.width = DESKTOP.w + "px";
+  PREV.style.height = DESKTOP.h + "px";
+  previewScale = Math.min(w / DESKTOP.w, h / DESKTOP.h);
+  FIT.style.transform = `scale(${previewScale})`;
+  const desk = $("ringDesk");
+  if (desk) desk.textContent = t("deskMeta", { w: DESKTOP.w, h: DESKTOP.h, p: Math.round(previewScale * 100) });
+  ringLayout();
+}
+
 function ringLayout() {
   const w = STAGE.clientWidth, h = STAGE.clientHeight;
-  const r = ringBase(w, h) * ring.scale;
+  const r = TDRing.pixelRadius(w, h, ring);
   HANDLE.style.width = HANDLE.style.height = r * 2 + "px";
   HANDLE.style.left = ring.x * 100 + "%";
   HANDLE.style.top = ring.y * 100 + "%";
   $("ringMeta").textContent = `x ${ring.x.toFixed(2)} · y ${ring.y.toFixed(2)} · ${ring.scale.toFixed(2)}×`;
-  // 圆心贴边时提示：环形大部分会落到桌面外，只看到一段弧
+  // 用与壁纸相同的公式算外缘，判断是否真的被屏幕裁掉（旧版只看圆心离边多远，误报多）
   const warn = $("ringWarn");
   if (warn) {
-    const edge = ring.x < 0.12 || ring.x > 0.88 || ring.y < 0.12 || ring.y > 0.88;
-    warn.textContent = edge ? "圆心贴近屏幕边缘，桌面只会看到一段弧" : "";
+    const ro = (TDRing.pixelRadius(DESKTOP.w, DESKTOP.h, ring) + bandPx()) * previewScale;
+    const cx = ring.x * w, cy = ring.y * h;
+    const cut = [];
+    if (cx - ro < -1) cut.push(t("edgeL"));
+    if (cx + ro > w + 1) cut.push(t("edgeR"));
+    if (cy - ro < -1) cut.push(t("edgeU"));
+    if (cy + ro > h + 1) cut.push(t("edgeD"));
+    warn.textContent = cut.length ? t("cutWarn", { edges: cut.join(LANG === "en" ? ", " : "、") }) : "";
   }
 }
-function applyRing(save) {
-  try { PREV.contentWindow && PREV.contentWindow.postMessage({ td: "ring", ring }, "*"); } catch (e) {}
+
+// 拖动时指针事件远多于预览需要的帧率：合并到 ~30fps，避免每个 pointermove 都在
+// iframe 里重建整块环带；手柄/读数仍按指针实时跟手。
+let ringSentAt = 0, ringSendTimer = 0;
+function postRing() {
+  ringSentAt = performance.now();
+  try { if (PREV.contentWindow) PREV.contentWindow.postMessage({ td: "ring", ring }, "*"); } catch (e) {}
+}
+function sendRing(immediate) {
+  if (immediate) { clearTimeout(ringSendTimer); ringSendTimer = 0; postRing(); return; }
+  const wait = 33 - (performance.now() - ringSentAt);
+  if (wait <= 0) { postRing(); return; }
+  if (!ringSendTimer) ringSendTimer = setTimeout(() => { ringSendTimer = 0; postRing(); }, wait);
+}
+function applyRing(save, immediate) {
+  sendRing(immediate);
   ringLayout();
   if (save) {
     ringUserTouched = true;
@@ -417,44 +652,93 @@ async function saveRing() {
   try {
     const r = await fetch("/ui", { method: "POST", body: JSON.stringify({ ring }) });
     if (!r.ok) throw new Error(String(r.status));
-    $("ringSaved").textContent = "已保存";
+    $("ringSaved").textContent = t("saved");
     setTimeout(() => { $("ringSaved").textContent = ""; }, 1200);
-  } catch (e) { $("ringSaved").textContent = "保存失败"; }
+  } catch (e) { $("ringSaved").textContent = t("saveFailed"); }
 }
-function dragRing(ev) {
+
+// 命中范围按「可见环带」算：整条环带（含外缘）都能拖，而不是只有虚线内圈
+function ringHitRadius() { return (TDRing.pixelRadius(DESKTOP.w, DESKTOP.h, ring) + bandPx()) * previewScale; }
+function overRing(ev) {
   const rect = STAGE.getBoundingClientRect();
-  ring = { ...ring, ...TDRing.fromMove(rect, ev.clientX, ev.clientY) };
-  applyRing(true);
+  const cx = rect.left + ring.x * rect.width, cy = rect.top + ring.y * rect.height;
+  return Math.hypot(ev.clientX - cx, ev.clientY - cy) <= ringHitRadius() + 16;
 }
-let dragMode = null;
-HANDLE.addEventListener("pointerdown", (e) => {
-  dragMode = "move";
-  HANDLE.setPointerCapture(e.pointerId);
+
+let drag = null;   // { dx, dy, id }
+STAGE.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || !overRing(e)) return;
+  const rect = STAGE.getBoundingClientRect();
+  drag = { dx: e.clientX - (rect.left + ring.x * rect.width), dy: e.clientY - (rect.top + ring.y * rect.height), id: e.pointerId };
+  try { STAGE.setPointerCapture(e.pointerId); } catch (err) {}
+  STAGE.style.cursor = "grabbing";
+  try { STAGE.focus({ preventScroll: true }); } catch (err) {}
   e.preventDefault();
 });
-HANDLE.addEventListener("pointermove", (e) => {
-  if (dragMode === "move") dragRing(e);
+STAGE.addEventListener("pointermove", (e) => {
+  if (!drag) { STAGE.style.cursor = overRing(e) ? "grab" : "default"; return; }
+  const rect = STAGE.getBoundingClientRect();
+  ring = TDRing.clampRing({
+    ...ring,
+    x: (e.clientX - drag.dx - rect.left) / (rect.width || 1),
+    y: (e.clientY - drag.dy - rect.top) / (rect.height || 1),
+  });
+  applyRing(true);
 });
-HANDLE.addEventListener("pointerup", () => { dragMode = null; });
+function endDrag() { if (!drag) return; drag = null; STAGE.style.cursor = "grab"; }
+STAGE.addEventListener("pointerup", endDrag);
+STAGE.addEventListener("pointercancel", endDrag);
 
-// 滚轮缩放：向上放大、向下缩小（指针位置不影响圆心）
+// 双击定位：把圆心直接放到点击处
+STAGE.addEventListener("dblclick", (e) => {
+  ring = { ...ring, ...TDRing.fromMove(STAGE.getBoundingClientRect(), e.clientX, e.clientY) };
+  applyRing(true, true);
+});
+
+// 滚轮缩放：向上放大、向下缩小；Shift/Alt 精调
 STAGE.addEventListener("wheel", (e) => {
   e.preventDefault();
-  const factor = Math.exp(-e.deltaY * 0.0015);
-  ring = { ...ring, scale: TDRing.clampRing({ ...ring, scale: ring.scale * factor }).scale };
+  const k = e.altKey ? 0.0004 : e.shiftKey ? 0.0005 : 0.0015;
+  ring = TDRing.clampRing({ ...ring, scale: ring.scale * Math.exp(-e.deltaY * k) });
   applyRing(true);
 }, { passive: false });
-$("ringReset").onclick = () => { ring = { x: 0.5, y: 0.5, scale: 0.30 }; applyRing(true); };
+
+// 方向键微调（Alt 精调 / Shift 粗调），+/- 缩放，0 或 Home 重置
+STAGE.addEventListener("keydown", (e) => {
+  const fine = e.altKey, coarse = e.shiftKey;
+  const step = fine ? 0.001 : coarse ? 0.02 : 0.004;
+  const zmul = fine ? 1.005 : coarse ? 1.15 : 1.06;
+  let next = { ...ring }, handled = true;
+  switch (e.key) {
+    case "ArrowLeft": next.x -= step; break;
+    case "ArrowRight": next.x += step; break;
+    case "ArrowUp": next.y -= step; break;
+    case "ArrowDown": next.y += step; break;
+    case "+": case "=": next.scale *= zmul; break;
+    case "-": case "_": next.scale /= zmul; break;
+    case "0": case "Home": next = { ...DEFAULT_RING }; break;
+    default: handled = false;
+  }
+  if (!handled) return;
+  e.preventDefault();
+  ring = TDRing.clampRing(next);
+  applyRing(true, e.key === "Home" || e.key === "0");
+});
+
+$("ringReset").onclick = () => { ring = { ...DEFAULT_RING }; applyRing(true, true); STAGE.focus({ preventScroll: true }); };
 $("ringTextMode").onchange = async (e) => {
   try {
     await fetch("/ui", { method: "POST", body: JSON.stringify({ ringText: e.target.value }) });
-    $("ringSaved").textContent = "环带文本已切换";
+    $("ringSaved").textContent = t("textSwitched");
     setTimeout(() => { $("ringSaved").textContent = ""; }, 1500);
-  } catch (err) { $("ringSaved").textContent = "保存失败"; }
+  } catch (err) { $("ringSaved").textContent = t("saveFailed"); }
 };
 
-// 预览 iframe 就绪后同步一次几何
-PREV.addEventListener("load", () => applyRing());
+// 预览 iframe 就绪后同步一次几何；窗口尺寸变化时重新算缩放
+PREV.addEventListener("load", () => { fitPreview(); applyRing(false, true); });
+if (window.ResizeObserver) new ResizeObserver(fitPreview).observe(STAGE);
+fitPreview();
+setTimeout(() => applyRing(false, true), 800);   // iframe 比控制台脚本先加载完时补一次
 
 // ---------- 绑定客户端：颜色 / 路径 / 启用 ----------
 
@@ -476,7 +760,7 @@ const bindNote = (msg) => {
 async function agentsPost(body) {
   const r = await fetch("/agents", { method: "POST", body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
-  if (d.pathOk === false) bindNote("路径不存在，已保存但不会生效");
+  if (d.pathOk === false) bindNote(t("pathMissing"));
   return d;
 }
 async function renderBinds() {
@@ -491,7 +775,7 @@ async function renderBinds() {
     for (const a of shown) box.appendChild(bindRow(a));
     box.appendChild(emptyRow([...PRESET_CLIENTS.filter(([k]) => !bound.has(k))]));
   } catch (e) {
-    box.innerHTML = `<div class="note" style="padding:10px">读取失败：${e.message}</div>`;
+    box.innerHTML = `<div class="note" style="padding:10px">${t("loadFailed", { e: e.message })}</div>`;
   }
 }
 
@@ -500,32 +784,32 @@ function bindRow(a) {
   row.className = "bind-row";
   const iconSrc = a.iconUrl || `/icon/${encodeURIComponent(a.icon || a.source)}.png`;
   row.innerHTML =
-    `<span class="bind-cell" title="${a.name}">${a.name}${a.custom ? "" : `<span class="hex">${a.installed ? "" : "未安装"}</span>`}</span>` +
+    `<span class="bind-cell" title="${a.name}">${a.name}${a.custom ? "" : `<span class="hex">${a.installed ? "" : t("notInstalled")}</span>`}</span>` +
     `<span class="bind-cell">` +
       `<img class="icon-prev" src="${iconSrc}" alt="">` +
-      `<button class="mini" data-act="icon">导入动图</button>` +
+      `<button class="mini" data-act="icon">${t("importGif")}</button>` +
       `<input type="file" accept="image/png,image/gif,image/webp,image/jpeg" hidden>` +
     `</span>` +
     `<span class="bind-cell">` +
-      `<input type="text" value="${(a.path || "").replace(/"/g, "&quot;")}" placeholder="默认探测路径（点击浏览）">` +
-      `<button class="mini" data-act="browse">浏览</button>` +
+      `<input type="text" value="${(a.path || "").replace(/"/g, "&quot;")}" placeholder="${t("defaultPath")}">` +
+      `<button class="mini" data-act="browse">${t("browse")}</button>` +
     `</span>` +
     `<span class="bind-cell">` +
       `<button class="swatch" data-act="color" style="background:${a.color || "#fff"}"></button>` +
       `<span class="hex">${(a.color || "").toUpperCase()}</span>` +
     `</span>` +
-    `<button class="mini" data-act="del" title="${a.custom ? "删除" : "停用"}">${a.custom ? "−" : "◻"}</button>`;
+    `<button class="mini" data-act="del" title="${a.custom ? t("remove") : t("disable")}">${a.custom ? "−" : "◻"}</button>`;
 
   const path = row.querySelector("input[type=text]");
   path.onchange = async () => {
     await agentsPost({ source: a.source, path: path.value.trim() });
-    bindNote(path.value.trim() ? "文件夹已保存，重启服务后生效" : "已恢复默认探测路径，重启服务后生效");
+    bindNote(path.value.trim() ? t("folderSaved") : t("pathReset"));
   };
   row.querySelector('[data-act="browse"]').onclick = () => openFs(a, path);
   row.querySelector('[data-act="color"]').onclick = (e) => openPalette(a, e.currentTarget);
   row.querySelector('[data-act="del"]').onclick = async () => {
     if (a.custom) {
-      if (!confirm(`删除自定义客户端「${a.name}」？`)) return;
+      if (!confirm(t("confirmDelete", { name: a.name }))) return;
       await agentsPost({ action: "remove", source: a.source });
     } else {
       await agentsPost({ source: a.source, enabled: false });
@@ -537,14 +821,14 @@ function bindRow(a) {
   file.onchange = async () => {
     const f = file.files && file.files[0];
     if (!f) return;
-    if (f.size > 3 * 1024 * 1024) { bindNote("动图过大（上限 3MB）"); return; }
+    if (f.size > 8 * 1024 * 1024) { bindNote(t("gifTooBig")); return; }
     const dataUrl = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(f); });
     const r = await fetch("/agents/icon", { method: "POST", body: JSON.stringify({ source: a.source, dataUrl }) });
     if (r.ok) {
       const d = await r.json();
       row.querySelector("img.icon-prev").src = d.iconUrl + "?t=" + Date.now();
-      bindNote("动图已更新");
-    } else bindNote("动图上传失败");
+      bindNote(t("gifUpdated"));
+    } else bindNote(t("gifFailed"));
     renderBinds();
   };
   return row;
@@ -554,11 +838,11 @@ function emptyRow(candidates) {
   const row = document.createElement("div");
   row.className = "bind-row empty";
   row.innerHTML =
-    `<span class="bind-cell"><select><option value="">＋ 选择客户端…</option>` +
+    `<span class="bind-cell"><select><option value="">${t("chooseClient")}</option>` +
       candidates.map(([k, n]) => `<option value="${k}">${n}</option>`).join("") +
-      `<option value="__custom__">＋ 自定义…</option></select></span>` +
+      `<option value="__custom__">${t("customEllipsis")}</option></select></span>` +
     `<span class="bind-cell"><span class="icon-prev empty">—</span></span>` +
-    `<span class="bind-cell"><input type="text" placeholder="选择客户端后可浏览文件夹" disabled></span>` +
+    `<span class="bind-cell"><input type="text" placeholder="${t("pickClientFirst")}" disabled></span>` +
     `<span class="bind-cell"><span class="swatch" style="background:transparent;border-style:dashed"></span></span>` +
     `<span></span>`;
   const sel = row.querySelector("select");
@@ -567,7 +851,7 @@ function emptyRow(candidates) {
     if (!v) return;
     const label = (PRESET_CLIENTS.find(([k]) => k === v) || [, v])[1];
     if (v === "__custom__") {
-      const name = prompt("自定义客户端名称（例如 Workbody / Qwen / 豆包）");
+      const name = prompt(t("customName"));
       if (!name || !name.trim()) { sel.value = ""; return; }
       await agentsPost({ action: "create", name: name.trim() });
     } else if (bindCache.some((a) => a.source === v)) {
@@ -647,7 +931,7 @@ function bindPaletteEvents() {
 let fsState = { path: "~", agent: null, input: null };
 async function fsLoad(path) {
   const r = await fetch("/fs?path=" + encodeURIComponent(path), { cache: "no-store" });
-  if (!r.ok) { $("fsPath").textContent = "无法读取：" + path; return; }
+  if (!r.ok) { $("fsPath").textContent = t("cannotRead", { p: path }); return; }
   const d = await r.json();
   fsState.path = d.path;
   $("fsPath").textContent = d.path;
@@ -659,13 +943,13 @@ async function fsLoad(path) {
     el.onclick = () => fsLoad(dir.path);
     list.appendChild(el);
   }
-  if (!d.dirs.length) list.innerHTML = `<div style="color:var(--faint);cursor:default">（空文件夹）</div>`;
+  if (!d.dirs.length) list.innerHTML = `<div style="color:var(--faint);cursor:default">${t("emptyFolder")}</div>`;
   fsState.parent = d.parent;
 }
 function openFs(agent, input) {
   fsState.agent = agent; fsState.input = input;
   $("fsPop").classList.add("show");
-  fsLoad(prompt("从哪个路径开始浏览？", agent.path || "~") || "~");
+  fsLoad(prompt(t("browseFrom"), agent.path || "~") || "~");
 }
 function bindFsEvents() {
   $("fsCancel").onclick = () => $("fsPop").classList.remove("show");
@@ -675,7 +959,7 @@ function bindFsEvents() {
     if (!fsState.agent || !fsState.input) return;
     fsState.input.value = fsState.path;
     await agentsPost({ source: fsState.agent.source, path: fsState.path });
-    bindNote("文件夹已保存，重启服务后生效");
+    bindNote(t("folderSaved"));
     renderBinds();
   };
 }
@@ -712,7 +996,7 @@ $("restartBoth").onclick = (e) => restart("both", e.target);
 $("openConfig").onclick = () => { location.href = "/config"; };
 
 fetch("/ui", { cache: "no-store" }).then((r) => r.json()).then((ui) => {
-  if (ui && ui.ring) { ring = { ...ui.ring }; applyRing(); }
+  if (ui && ui.ring) { ring = TDRing.clampRing(ui.ring); applyRing(false, true); }
 }).catch(() => {});
 renderBinds();
 setInterval(renderBinds, 8000);
@@ -724,6 +1008,7 @@ if (new URLSearchParams(location.search).get("demo") === "fs") {
   setTimeout(() => openFs({ source: "demo", name: "Demo", path: "~" }, { value: "" }), 900);
 }
 
+applyLang();
 poll(); pollLogs();
 setInterval(poll, 2000);
 setInterval(pollLogs, 2000);

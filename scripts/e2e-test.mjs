@@ -16,6 +16,7 @@
 
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { fetchRetry } from "./lib/http.mjs";
@@ -119,7 +120,10 @@ async function inject(sources, seconds) {
   while (Date.now() < until) {
     for (const src of sources) {
       await post(src, "text", { text: SCRIPT[src][i % SCRIPT[src].length], kind: "think", stream: true });
-      if (i % 2 === 0) await post(src, "tool_call", { name: "bash" });
+      if (i % 2 === 0) {
+        await post(src, "tool_call", { name: "bash" });
+        await post(src, "tool_result", {});   // 必须配对：未返回的工具会被当成「仍在工作」，P4 永远进不了静默
+      }
       if (src === "deepseek-harness") await post(src, "token", { model: "deepseek-flash", used: 200000 + i * 8000, window: 1048576 });
       else await post(src, "token", { model: src.replace("-desktop", ""), maxUsage: 0.2 + (i % 5) * 0.05 });
     }
@@ -351,8 +355,19 @@ try {
   // ---------- P6 悬停视图：2 秒倒计时后再收起 ----------
   if (process.platform === "darwin") {
     console.log("\n■ P6 悬停视图 3s 倒计时（自检链路）");
-    const logFile = join(ROOT, "logs", "hover.log");
-    const readLog = () => { try { return readFileSync(logFile, "utf8").split("\n"); } catch { return []; } };
+    // 壁纸宿主的悬停日志在用户的 Application Support（见 macos/main.swift），
+    // 仓库里的 logs/hover.log 只兼容旧版本
+    const logFiles = [
+      process.env.TD_HOVER_LOG,
+      join(homedir(), "Library", "Application Support", "Thinking Desktop", "hover.log"),
+      join(ROOT, "logs", "hover.log"),
+    ].filter(Boolean);
+    const readLog = () => {
+      for (const f of logFiles) {
+        try { return readFileSync(f, "utf8").split("\n"); } catch { /* 下一个 */ }
+      }
+      return [];
+    };
     const before = readLog().length;
     await api("/selftest?popup=1");
     await sleep(5500);

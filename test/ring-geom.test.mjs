@@ -9,7 +9,7 @@ import vm from "node:vm";
 const code = readFileSync(new URL("../web/lib/ring-geom.js", import.meta.url), "utf8");
 const sandbox = { window: {} };
 vm.runInNewContext(code, sandbox);
-const { base, clampRing, fromMove, fromResize, pixelRadius, MIN_SCALE, MAX_SCALE } = sandbox.window.TDRing;
+const { base, band, clampRing, fromMove, fromResize, pixelRadius, MIN_SCALE, MAX_SCALE } = sandbox.window.TDRing;
 const plain = (v) => JSON.parse(JSON.stringify(v));   // vm 沙箱对象跨 realm，先转普通对象再比较
 
 const rect = { left: 100, top: 50, width: 800, height: 450 };
@@ -17,6 +17,13 @@ const rect = { left: 100, top: 50, width: 800, height: 450 };
 test("半径基准与 halo 一致（max(H*0.78, W*0.30)）", () => {
   assert.equal(base(1920, 1080), 842.4);
   assert.equal(base(800, 450), 351);
+});
+
+test("环带厚度与 halo 一致（90–240 之间，取 H*0.3 / W*0.13 的较小者）", () => {
+  assert.equal(band(1920, 1080), 240);
+  assert.equal(band(800, 450), 104);
+  // 预览框只有几百像素宽时，旧的固定 90px 下限会让环带比半径还厚——所以预览按桌面尺寸算
+  assert.equal(band(360, 203), 90);
 });
 
 test("拖拽：指针 → 归一化圆心并夹在 0–1", () => {

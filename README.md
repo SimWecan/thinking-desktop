@@ -15,7 +15,7 @@
 - **真实数据优先**：`npm run backfill` 从今天的真实会话里按来源配额 + 等距取样回填（DSH 的 reasoning、Kimi 的 think/output），通过 `POST /texts` 原子替换服务端缓冲，避免模拟数据残留；工具/上下文统计只来自真实事件
 - **思考日志上墙（启动即回填）**：`/texts` 会保留最近的思考文本，壁纸一启动就把环带和视窗填满（不用等下一次事件）。环带用角度把最近的文本切成互不相同的片段铺进各个数据块（不会整圈重复同一段），6.4px 字号可读。内容直接来自开源模型落盘的**真实思考日志**（DeepSeek Harness 会话里的 `reasoning`、Kimi wire 里的 `think` 片段），整段不截句——环带数据块实时铺最新内容，右侧视窗按原文（保留换行）完整展示，每行标注来源；只保留最近 60 段、单段上限 6000 字，避免无限膨胀。闭源 AI 无本地日志时环带退回预设动画
 - **右侧实时看板**：鼠标停在环带上展开——60s 总速率曲线（面积渐变 + 末点）、EVENTS/TOOLS/AGENTS 统计、**每个 agent 自己的 60s 迷你曲线** + 专属色 + 累计事件 + 最后活跃时间、工具调用分布、**CONTEXT 段逐 agent 的上下文占用**（DSH 用 usage 的 input+cacheRead / contextWindow，Kimi 用 maxUsage）、以及逐行标注来源的思考流；右上角另有常驻迷你曲线与活跃厂商色点，不悬停也能看到节奏
-- **停环判定**：任一来源 **20s** 内没有真实工作事件（`status` 不计）→ 环带停转；`turn/end` 会立刻解除忙碌宽限。闭源端（Gemini/ChatGPT）的 CPU 活动检测带**空闲基线 + 滞后**（进入 ≥ max(14%, 基线+8) 且连续 2 次，退出跌破 max(7%, 基线+4) 连续 3 次），避免它们自身的轻微 CPU 抖动反复把壁纸唤醒
+- **停环判定**：任一来源 **20s** 内没有真实工作事件（`status` 不计）→ 环带停转；`turn/end` 会立刻解除忙碌宽限。**回合/工具未结束不算空闲**：长构建、长思考期间会话文件不追加新行，只要 `turn/start` 没等到 `turn/end`、或 `tool_call` 没等到 `tool_result`，环带就保持转动（完全静默 20 分钟视为崩溃残留，自动失效；服务重启时会从会话尾部恢复未闭合的回合）；`/health` 的每个通道带 `busy/turn/openTools`，控制台「AI 桌面端通道」直接显示「回合进行中 / 工具执行中 / 工作中 / 空闲」。闭源端（Gemini/ChatGPT）的 CPU 活动检测带**空闲基线 + 滞后**（进入 ≥ max(14%, 基线+8) 且连续 2 次，退出跌破 max(7%, 基线+4) 连续 3 次），避免它们自身的轻微 CPU 抖动反复把壁纸唤醒
 - **切换平滑**：多厂商并行时，新来源 0.6s 淡入、退出时约 2-4s 渐隐；环带分道位置随在场数量平滑滑动（1 个居中 → 2 个 1/3、2/3 → …），整帧主色按帧插值过渡，不会硬切；进入待机时清掉光效层，避免半透明光斑冻在冻结帧上
 - **多厂商光效**：每个厂商一个专属色——DeepSeek 深蓝 `#1E3A8A`、Kimi 白 `#FFFFFF`、Gemini 蓝紫 `#7C6BF2`、ChatGPT / Codex 紫 `#8B5CF6`。谁在跑（12s 内有真实工作事件，只有「开着」不算）就把**整个画面**按它的颜色染色（canvas `color` 混合，只改色相/饱和度、保留亮度）：环内外粒子、彗星、网纹、光束、环带一起变色。多厂商并行时按强度加权混色，同时各占一条环带通道做分道辉光 + 彩色粒子
 - **多源接入（每个都真接到数据）**：统一抽象 Connector，本机四个 AI 桌面端全部接入——DSH / Kimi 走会话文件真实文本，Gemini / ChatGPT 走「进程守护 + CPU 活动度」真实工作信号（它们不落盘任何对话文本，只能取强度，取不到文本）
@@ -30,7 +30,7 @@
   - **单一/综合切换**：单击综合图标展开侧栏；点任意厂商图标即切换为该 agent 的单一粒子形态并**收回侧栏**；收回后综合按钮直接显示**当前选中的厂商图标**（全部形态时显示三环标记）；再点综合图标回到综合形态并收回（右键可只展开/收起）
 - **Windows 原生宿主**：`win/` 提供 .NET 8 + WebView2 原生壁纸宿主（置底、点击穿透、托盘浮窗）与 `install.ps1` 自启安装脚本（⚠️ 代码已编写但未经 Windows 真机编译验证）
 - **零第三方依赖**：服务端仅使用 Node.js 标准库（DSH 会话解码复用系统 `zstd` 命令）
-- **可自检**：`npm run links` / `/health` 给出每个 AI 桌面端的连接通道、事件数、最后事件时间与闭源端实时 CPU，能直接区分「connector 注册了」和「connector 真的接到数据」
+- **可自检**：`npm run links` / `/health` 给出每个 AI 桌面端的连接通道、事件数、最后事件时间、是否仍在工作（`busy/turn/openTools`）与闭源端实时 CPU，能直接区分「connector 注册了」「connector 真的接到数据」「agent 还在跑只是暂时没有新事件」
 - **壁纸化**：macOS 原生桌面级 WebView 宿主（见下）；Windows 可用 Lively Wallpaper 加载 `/wall`
 - **跨平台**：macOS / Windows / Linux 均可运行
 
@@ -61,7 +61,9 @@ curl -X POST -H "x-td-token: $TOKEN" http://127.0.0.1:7799/ingest -d '{"source":
 
 双击 `Thinking Desktop.app` 打开控制台（`/console`）：
 
-- **桌面预览**：左侧实时渲染光环；拖拽圆环移动位置，拖右下角缩放半径，改动即写入 `ui.ring` 并立刻作用于桌面壁纸
+- **中 / 英界面**：顶栏右侧「中 | EN」一键切换（选择记在本地，`?lang=en` 可强制），窗口标题跟随语言
+- **桌面预览**：按真实桌面分辨率（`screen.width×height`）渲染后等比缩进预览框——环的位置、半径、环带厚度、边缘裁切与壁纸一致；
+  拖拽环带移动、双击定位、滚轮缩放（Shift/Alt 精调）、方向键微调、`+/-` 缩放、`0` 重置，改动即写入 `ui.ring` 并立刻作用于桌面壁纸
 - **绑定客户端**：四列表格——**客户端 / 商标·动效 / 文件夹 / 粒子颜色**
   - 第一列：空行里点一下弹出下拉框（ChatGPT / Claude / Gemini / DeepSeek Harness / Kimi / Workbody / Qwen / 豆包…），
     也可以「＋ 自定义…」自己命名
@@ -107,6 +109,24 @@ web/tray.html        ← 右上角托盘：综合/单一形态切换 + 厂商动
    ▼
 Lively Wallpaper / Wallpaper Engine / 原生宿主（macOS .app、Windows win/）
 ```
+
+## 一句话安装（下载用户）
+
+把下面这段直接交给任意 AI 桌面端（DSH / Kimi / ChatGPT / Claude / Gemini…）：
+
+> 帮我安装 Thinking Desktop：把本机 AI 桌面端的思考过程变成实时桌面壁纸。
+> 先判断我的操作系统，然后只执行对应的一条命令：
+> **macOS**：`curl -fsSL https://github.com/SimWecan/thinking-desktop/releases/latest/download/install-online.sh | bash`
+> **Windows**：`irm https://github.com/SimWecan/thinking-desktop/releases/latest/download/install-online.ps1 | iex`
+> 脚本会自动下载安装、检索本机已安装的 AI 客户端并绑定、启动服务并打开控制台。
+
+- 安装脚本：**macOS 用户级安装，无需 sudo**（装到 `~/Applications/Thinking Desktop`）；
+  Windows 装到 `%LOCALAPPDATA%\Thinking Desktop`，注册登录自启、编译并启动壁纸宿主
+- 自动检索：读取 `/agents` 的本机探测结果，把已安装的 AI 桌面端逐个绑定，切到综合形态
+- 幂等：已安装时重复运行只做「重新检索 + 绑定」，不会覆盖 `config/`、`data/`
+- 下载页：`/download`（`web/download.html`，纯静态、可单独托管；改顶部 `ASSET_BASE` 即可指向自己的下载目录）
+- 手动安装包：macOS `dist/Thinking-Desktop-<版本>-macos.pkg`（管理员安装）或
+  `Thinking-Desktop-macos.tar.gz`（便携）；Windows `Thinking-Desktop-win.zip`
 
 ## 快速开始
 

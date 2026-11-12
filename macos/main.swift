@@ -142,7 +142,11 @@ final class WallpaperWindow: NSWindow {
 
 // 悬停环带时弹出的看板窗口：浮在普通窗口之上、透明、不抢焦点、不拦截点击
 var hoverPanel: NSPanel?
-let hoverLog = URL(fileURLWithPath: "/Users/sim/Documents/MCPServer/repo/Thinking Desktop/logs/hover.log")
+var hoverPanelNav: ReloadingNav?   // 强引用：WKWebView.navigationDelegate 是 weak
+// 悬停诊断日志：写到用户的 Application Support（安装到 /Applications 后不能依赖仓库路径；
+// 与 wallpaper.lock 同目录，安装包/仓库被移动也不丢日志）
+let hoverLog = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/Thinking Desktop/hover.log")
 func hoverLogLine(_ s: String) {
     // 超过 256KB 轮转一份，避免长期悬停把日志撑大
     if let sz = try? FileManager.default.attributesOfItem(atPath: hoverLog.path)[.size] as? Int, sz > 256 * 1024 {
@@ -247,8 +251,11 @@ func makeHoverPanel() -> NSPanel {
     wv.autoresizingMask = [.width, .height]
     wv.setValue(false, forKey: "drawsBackground")
     if #available(macOS 12.0, *) { wv.underPageBackgroundColor = .clear }
-    wv.load(URLRequest(url: URL(string: "http://127.0.0.1:7799/wall?panel=1")!,
-                       cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30))
+    let panelURL = URL(string: "http://127.0.0.1:7799/wall?panel=1")!
+    let nav = ReloadingNav(url: panelURL)   // navigationDelegate 是弱引用，必须自己持有
+    wv.navigationDelegate = nav
+    hoverPanelNav = nav
+    wv.load(URLRequest(url: panelURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30))
     panel.contentView = wv
     return panel
 }
@@ -276,6 +283,43 @@ func hideHoverPanel() {
 }
 
 // 壁纸页在 ring 配置变化后 ping 一次，宿主立刻刷新几何（不用等 3s 定时器）
+/// 壁纸 / 看板 WebView 的导航守护：
+/// - WebContent 进程被系统回收（内存压力 / 渲染进程崩溃）时，WKWebView 会停在最后一帧，
+///   页面里的 JS 看门狗也随之失效——只能靠宿主实现 webViewWebContentProcessDidTerminate 后重载；
+/// - 开机竞态（服务还没起来）导致首次加载失败时，2s 后重试，直到加载成功。
+final class ReloadingNav: NSObject, WKNavigationDelegate {
+    let url: URL
+    private var loaded = false
+    init(url: URL) { self.url = url }
+
+    func webView(_ wv: WKWebView, didFinish nav: WKNavigation!) {
+        loaded = true
+        hoverLogLine("page loaded \(url.path)")
+    }
+    func webView(_ wv: WKWebView, didFail nav: WKNavigation!, withError e: Error) { retry(wv, e) }
+    func webView(_ wv: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError e: Error) { retry(wv, e) }
+
+    func webViewWebContentProcessDidTerminate(_ wv: WKWebView) {
+        loaded = false
+        hoverLogLine("webcontent terminated → reload \(url.path)")
+        wv.reload()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak wv] in
+            guard let self = self, let wv = wv, !self.loaded, wv.url == nil else { return }
+            wv.load(URLRequest(url: self.url))
+        }
+    }
+
+    private func retry(_ wv: WKWebView, _ e: Error) {
+        if loaded { return }
+        let ns = e as NSError
+        if ns.code == NSURLErrorCancelled { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak wv] in
+            guard let self = self, let wv = wv, !self.loaded else { return }
+            wv.load(URLRequest(url: self.url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 30))
+        }
+    }
+}
+
 final class GeomBridge: NSObject, WKScriptMessageHandler {
     weak var view: WallpaperView?
     func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -303,6 +347,7 @@ var hoverBridge: HoverBridge?
 final class WallpaperView: NSView {
     private var webView: WKWebView?
     private var geomBridge: GeomBridge?
+    private var nav: ReloadingNav?   // 强引用：WKWebView.navigationDelegate 是 weak
     /// 环带几何缓存（页面坐标）：命中判定在 Swift 侧完成，只在状态翻转时跨进程调 JS
     var geom: (cx: CGFloat, cy: CGFloat, r: CGFloat, ro: CGFloat, z: CGFloat)?
     var hoverRing = false
@@ -321,8 +366,12 @@ final class WallpaperView: NSView {
         let wv = WKWebView(frame: bounds, configuration: config)
         wv.autoresizingMask = [.width, .height]
         // 常驻壁纸页：强制绕过本地缓存，改完前端重启宿主即生效
+        let wallURL = URL(string: WALL_URL)!
+        let nav = ReloadingNav(url: wallURL)   // WebContent 崩溃 / 服务未就绪时自动重载
+        wv.navigationDelegate = nav
+        self.nav = nav
         let req = URLRequest(
-            url: URL(string: WALL_URL)!,
+            url: wallURL,
             cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
             timeoutInterval: 30)
         wv.load(req)

@@ -80,6 +80,8 @@ try {
   }
   await inject("kimi-desktop", "tool_call", { name: "Bash" });
   await inject("codex", "tool_call", { name: "Edit" });
+  await inject("kimi-desktop", "tool_result", {});   // 配对收尾：未返回的工具会一直算「工作中」
+  await inject("codex", "tool_result", {});
   await sleep(1500);
   const stB = await getState();
   const srcB = Object.keys(stB.bySource).sort();

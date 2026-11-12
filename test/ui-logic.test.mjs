@@ -11,7 +11,7 @@ import vm from "node:vm";
 const code = readFileSync(new URL("../web/lib/td-logic.js", import.meta.url), "utf8");
 const sandbox = { window: {} };
 vm.runInNewContext(code, sandbox);
-const { shouldStandby, winddownCalm, activeSources, normalizeSeries, agentBars } = sandbox.window.TDLogic;
+const { shouldStandby, winddownCalm, hasBusy, activeSources, normalizeSeries, agentBars } = sandbox.window.TDLogic;
 
 test("动态静默：空闲占过渡窗口的比例匀速爬升，窗口末到达 1", () => {
   const now = 1_000_000;
@@ -51,6 +51,16 @@ test("停环：单一形态只看选中 agent 的 thinking", () => {
   const agents = [{ source: "kimi-desktop", thinking: true }, { source: "codex", thinking: false }];
   assert.equal(shouldStandby({ now, workAt: now - 99999, busyUntil: 0, hold: 20000, view: "kimi-desktop", agents }), false);
   assert.equal(shouldStandby({ now, workAt: now, busyUntil: 0, hold: 20000, view: "codex", agents }), true);
+});
+
+test("busy：只认回合/工具未结束，不认「刚有事件」（否则静默会晚 20s）", () => {
+  assert.equal(hasBusy([{ source: "a", busy: true, turn: true, openTools: 0 }]), true);
+  assert.equal(hasBusy([{ source: "a", busy: true, turn: false, openTools: 1 }]), true);
+  // 刚有事件但回合/工具都结束了：静默过渡应立刻开始，不能被 busy 拖住
+  assert.equal(hasBusy([{ source: "a", busy: true, turn: false, openTools: 0 }]), false);
+  assert.equal(hasBusy([{ source: "a", busy: false }, { source: "b" }]), false);
+  assert.equal(hasBusy(null), false);
+  assert.equal(hasBusy([]), false);
 });
 
 test("活跃来源：status 与超时的不算", () => {

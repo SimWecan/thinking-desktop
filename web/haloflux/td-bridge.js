@@ -25,9 +25,31 @@
     if (!ready) return;
     window.__tdStandbyDirty = false;
     last = performance.now();
-    origFrame(last);               // dt=0 → drawStage 内时间冻结
+    try { origFrame(last); } catch (e) {}   // dt=0 → drawStage 内时间冻结（异常不能带崩消息处理）
   }
   window.__tdRenderStandby = tdRenderStandby;   // 供 resizeAll 等主脚本场景直接调用
+
+  /* 唤醒统一入口：起链交给 halo.js 的 __tdArm（自带 pending 去重，不会叠出第二条链） */
+  function tdWakeRaf() {
+    window.__tdRafOn = true;
+    last = performance.now();
+    if (window.__tdArm) window.__tdArm();
+    else requestAnimationFrame(frame);
+  }
+
+  /* 帧链看门狗：单帧异常 / WebKit 挂起后 rAF 可能断链，而 __tdRafOn 还是 true。
+     只要 2 秒没出帧、也没有待执行的 rAF，就重新起链并把这件事报给父页面记日志。 */
+  let lastStallReport = 0;
+  setInterval(() => {
+    if (window.__tdStandby || !ready) return;
+    if (window.__tdRafPending) return;                     // 有一条链排着队（含被遮挡暂停），不用管
+    const silent = performance.now() - (window.__tdLastFrameAt || 0);
+    if (silent < 2000) return;
+    tdWakeRaf();
+    if (Date.now() - lastStallReport < 30_000) return;
+    lastStallReport = Date.now();
+    try { parent.postMessage({ td: 'stall', at: Date.now(), silentFor: Math.round(silent) }, '*'); } catch (e) {}
+  }, 1500);
 
   function tdSetStandby(on) {
     on = !!on;
@@ -42,11 +64,10 @@
       try { trailC.x.setTransform(1, 0, 0, 1, 0, 0); trailC.x.clearRect(0, 0, trailC.width, trailC.height); } catch (e) {}
       try { comets.length = 0; } catch (e) {}
       tdRenderStandby();
-    } else if (!window.__tdRafOn) {
+    } else if (!window.__tdRafOn || performance.now() - (window.__tdLastFrameAt || 0) > 1500) {
       // 检测到 agent 开始工作：环带恢复转动、粒子特效重启 rAF 循环
-      window.__tdRafOn = true;
-      last = performance.now();
-      requestAnimationFrame(frame);
+      // （帧链已经断了但仍标记 __tdRafOn=true 的情况，也在这一步修好）
+      tdWakeRaf();
     }
   }
 
@@ -233,7 +254,7 @@
   }
   window.__tdHoverRing = false;
   window.__tdTextPaints = 0;   // 自检：环带文本实际重绘次数
-  window.__tdHaloBuild = "halo-7";
+  window.__tdHaloBuild = "halo-8";
   // 自检用几何：确认环心/半径与命中判定一致（父页面会把它带进 /debug 遥测）
   window.__tdGeomGet = () => ({
     cx: Math.round(cx), cy: Math.round(cy), R: Math.round(R), RO: Math.round(RO),
@@ -244,6 +265,10 @@
     fps: window.__tdLastFps || null,   // 最近 4s 采样窗实际帧率（卡顿排查遥测）
     textLens: (window.__tdText || []).slice(-4).map((t) => t.length),
     frameMs: Math.round((window.__tdFrameMs || 0) * 100) / 100,
+    // 帧链健康度：drawErrors 涨 = 单帧在抛异常（已不再断链）；rafSilentMs 大 = 真的没出帧
+    drawErrors: window.__tdDrawErrors || 0,
+    rafPending: !!window.__tdRafPending,
+    rafSilentMs: Math.round(performance.now() - (window.__tdLastFrameAt || 0)),
     lights: (() => { try { return window.__tdLightState ? window.__tdLightState() : null; } catch (e) { return null; } })(),
   });
   window.__tdMouse = function (x, y) {

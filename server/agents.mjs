@@ -149,13 +149,19 @@ export class AgentRegistry {
    * @param {Map} sourceStats 服务端来源统计
    * @param {number} now
    * @param {Object<string,boolean>} [presence] 进程运行状态（collectPresence 的产物）
+   * @param {(source:string, now?:number) => boolean} [isBusy] 回合/工具是否仍在进行（store.isBusy）
    */
-  agents(sourceStats, now = Date.now(), presence = null) {
+  agents(sourceStats, now = Date.now(), presence = null, isBusy = null) {
     const installed = detectInstalled();
+    const busyOf = (source) => {
+      if (typeof isBusy !== "function") return false;
+      try { return !!isBusy(source, now); } catch { return false; }
+    };
     return Object.entries(VENDOR_PRESETS).map(([source, p]) => {
       const b = this.bindings[source] ?? {};
       const st = sourceStats?.get(source);
       const lastReal = st?.lastWorkAt || 0;   // 只看真实工作事件，避免 turn/start 这类 status 把状态打回空闲
+      const busy = busyOf(source);
       return {
         source,
         name: b.name ?? p.name,
@@ -168,7 +174,9 @@ export class AgentRegistry {
         connected: this.connectedSources ? this.connectedSources.has(source) : true,
         running: presence?.[source] ?? null,   // null=无进程探测器或尚未探测
         enabled: b.enabled === undefined ? !!installed[source] : !!b.enabled, // 默认绑定已安装的
-        thinking: now - lastReal < 20000,
+        // 回合/工具未结束也算思考中：长构建期间没有新会话行，只按 20s 事件窗口会误判成空闲
+        thinking: now - lastReal < 20000 || busy,
+        busy,
         events: st?.events ?? 0,
         agoMs: st ? now - st.lastEventAt : null,
         path: b.path ?? "",   // 控制台里可覆盖默认探测路径（重启服务生效）
@@ -181,6 +189,7 @@ export class AgentRegistry {
       .map(([source, b]) => {
         const st = sourceStats?.get(source);
         const lastReal = st?.lastWorkAt || 0;
+        const busy = busyOf(source);
         return {
           source,
           name: b.name || source,
@@ -192,7 +201,8 @@ export class AgentRegistry {
           connected: this.connectedSources ? this.connectedSources.has(source) : false,
           running: presence?.[source] ?? null,
           enabled: b.enabled !== false,
-          thinking: now - lastReal < 20000,
+          thinking: now - lastReal < 20000 || busy,
+          busy,
           events: st?.events ?? 0,
           agoMs: st ? now - st.lastEventAt : null,
           path: b.path || "",

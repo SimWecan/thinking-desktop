@@ -39,7 +39,7 @@ export function register(router, ctx) {
   });
 
   // 页面别名：/tray、/config、/console（Windows 宿主、README 里用的都是不带 .html 的地址）
-  const ALIASES = { "/tray": "tray.html", "/config": "config.html", "/console": "console.html" };
+  const ALIASES = { "/tray": "tray.html", "/config": "config.html", "/console": "console.html", "/download": "download.html" };
   router.add("GET", (p) => p in ALIASES, ({ path, res }) => {
     try {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": NO_STORE, "Set-Cookie": cookie })
