@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { collectPresence } from "../agents.mjs";
 
 const ICON_EXT = { "image/png": "png", "image/gif": "gif", "image/webp": "webp", "image/jpeg": "jpg" };
-const MAX_ICON_BYTES = 3 * 1024 * 1024;
+const MAX_ICON_BYTES = 8 * 1024 * 1024;   // 商标动图常见 3–8MB：本地回环服务，8MB 仍安全
 
 export function register(router, ctx) {
   const { store, agents, hub } = ctx;

@@ -13,7 +13,7 @@ import { join } from "node:path";
 const MUTATING_PATHS = new Set(["/ingest", "/texts", "/view", "/agents", "/snapshot", "/debug", "/selftest", "/restart"]);
 const LOCAL_ORIGIN = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
-const MAX_BODY = 12 * 1024 * 1024;   // POST 体上限（canvas 快照 base64 较大，12MB 足够）
+const MAX_BODY = 16 * 1024 * 1024;   // POST 体上限：8MB 图标的 base64 约 11MB，canvas 快照也够用
 
 export function createSecurity({ root, fs: fsp = { readFileSync, writeFileSync, mkdirSync } }) {
   // 本机令牌：写状态的接口要求带 token（页面用 Cookie 自动携带，脚本读 data/.token）
