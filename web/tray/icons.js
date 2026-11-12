@@ -60,7 +60,8 @@ function build() {
         `<div class="fx"><i class="aura"></i><i class="ring"></i>` +
         `<div class="orbit"><i></i><i class="b"></i></div><i class="ping"></i></div>` +
         `<span class="logoWrap">` +
-        `<img class="logo" alt="" src="/icon/${key}.png" srcset="/icon/${key}@2x.png 2x" draggable="false">` +
+        `<img class="logo" alt="" src="${primary.iconUrl || `/icon/${key}.png`}"` +
+        (primary.iconUrl ? "" : ` srcset="/icon/${key}@2x.png 2x"`) + ` draggable="false">` +
         `<span class="tilefx"><i class="glow"></i><i class="scan"></i><i class="sheen"></i><i class="meteor"></i><i class="meteor"></i><i class="cursor"></i></span>` +
         `</span>` +
         glyphFor(primary.anim);   // 内容层挂在 .icon 下：鲸鱼跃出商标框时不被 logoWrap 裁掉
@@ -78,6 +79,15 @@ function build() {
       el.onclick = async () => { await select(primary.source); expanded = false; build(); };
       tray.appendChild(el);
       icons.set(key, el);
+    }
+    // 自定义图标/动图优先（用户上传的品牌动画）
+    const iconSrc = primary.iconUrl || `/icon/${key}.png`;
+    const logoImg = el.querySelector("img.logo");
+    if (logoImg && logoImg.dataset.src !== iconSrc) {
+      logoImg.dataset.src = iconSrc;
+      logoImg.src = iconSrc;
+      if (primary.iconUrl) logoImg.removeAttribute("srcset");
+      else logoImg.srcset = `/icon/${key}@2x.png 2x`;
     }
     el.style.setProperty("--c", primary.color);
     // 状态分层：思考中 > 未接入（无检测通道）> 未运行（进程探测器确认软件没开）> 静态
@@ -107,8 +117,9 @@ function build() {
       img.dataset.src = soloIcon;
       composite.classList.remove("no-icon");
       img.onerror = () => composite.classList.add("no-icon");
-      img.src = `/icon/${soloIcon}.png`;
-      img.srcset = `/icon/${soloIcon}@2x.png 2x`;
+      img.src = solo.iconUrl || `/icon/${soloIcon}.png`;
+      if (solo.iconUrl) img.removeAttribute("srcset");
+      else img.srcset = `/icon/${soloIcon}@2x.png 2x`;
     }
   } else {
     composite.classList.remove("no-icon");

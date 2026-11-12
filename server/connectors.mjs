@@ -17,6 +17,7 @@ import { ProcessActivityConnector } from "../connectors/process-activity.mjs";
 import { ZstdJsonlPollConnector } from "../connectors/zstd-jsonl-poll.mjs";
 import { FileTailConnector } from "../connectors/file-tail.mjs";
 import { KimiWireConnector } from "../connectors/kimi-wire.mjs";
+import { FolderProbeConnector } from "../connectors/folder-probe.mjs";
 import { summarizeDshLine } from "../connectors/dsh-session.mjs";
 import { mapCodexLogRow } from "../connectors/codex-filter.mjs";
 
@@ -178,6 +179,12 @@ export function assembleConnectors({ root, zstdAvailable, connectorsOff, binding
   const out = [];
   if (!connectorsOff) {
     for (const [, fn] of ASSEMBLERS) fn(out, { root, zstdAvailable, bindings });
+    // 自定义客户端：给了文件夹就用通用探针（增量读 *.jsonl/*.log/*.txt）
+    for (const [source, b] of Object.entries(bindings || {})) {
+      if (!b?.custom || !b.path) continue;
+      if (!has(b.path)) { console.warn(`[${source}] 自定义路径不存在，跳过探针: ${b.path}`); continue; }
+      out.push(new FolderProbeConnector({ source, dir: b.path }));
+    }
   }
   return out;
 }

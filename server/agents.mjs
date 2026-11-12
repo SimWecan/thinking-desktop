@@ -79,12 +79,17 @@ export class AgentRegistry {
     } catch { /* 首次运行 */ }
   }
 
-  /** 绑定/解绑/改色/改名 */
-  update(source, { enabled, color, name, path } = {}, presence = null) {
+  /** 绑定/解绑/改色/改名/自定义图标 */
+  update(source, { enabled, color, name, path, iconFile, anim } = {}, presence = null) {
     const cur = this.bindings[source] ?? {};
     if (enabled !== undefined) cur.enabled = !!enabled;
     if (color) cur.color = color;
-    if (name) cur.name = name;
+    if (name) cur.name = String(name).slice(0, 60);
+    if (iconFile !== undefined) {
+      if (iconFile) cur.iconFile = String(iconFile).slice(0, 200);
+      else delete cur.iconFile;
+    }
+    if (anim) cur.anim = String(anim).slice(0, 20);
     // 自定义客户端路径：空字符串 = 恢复自动探测
     if (typeof path === "string") {
       const p = path.trim();
@@ -93,6 +98,38 @@ export class AgentRegistry {
     this.bindings[source] = cur;
     this._save();
     return this.agents(undefined, Date.now(), presence);
+  }
+
+  /**
+   * 新增一个自定义客户端（下拉框里的「自定义」或用户自己命名的厂商）
+   * @returns {string} 生成的 source id
+   */
+  createCustom({ name, color, path } = {}) {
+    const label = String(name || "自定义客户端").trim().slice(0, 40) || "自定义客户端";
+    const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
+    let id = `custom-${slug || Date.now().toString(36)}`;
+    let n = 2;
+    while (this.bindings[id]) id = `custom-${slug || "x"}-${n++}`;
+    this.bindings[id] = {
+      enabled: true,
+      custom: true,
+      name: label,
+      color: color || "#8B5CF6",
+      path: String(path || "").slice(0, 400),
+      anim: "pulse",
+    };
+    this._save();
+    return id;
+  }
+
+  /** 删除自定义客户端 */
+  removeCustom(source) {
+    const b = this.bindings[source];
+    if (!b || !b.custom) return false;
+    delete this.bindings[source];
+    if (this.view === source) this.view = "all";
+    this._save();
+    return true;
   }
 
   /** 组合根注入：有连接器接入的来源集合（没有的来源在 UI 标注「未接入」） */
@@ -135,7 +172,34 @@ export class AgentRegistry {
         events: st?.events ?? 0,
         agoMs: st ? now - st.lastEventAt : null,
         path: b.path ?? "",   // 控制台里可覆盖默认探测路径（重启服务生效）
+        iconFile: b.iconFile ?? null,
+        iconUrl: b.iconFile ? `/icon/custom/${encodeURIComponent(b.iconFile)}` : null,
+        custom: false,
       };
-    });
+    }).concat(Object.entries(this.bindings)
+      .filter(([src, b]) => b.custom && !VENDOR_PRESETS[src])
+      .map(([source, b]) => {
+        const st = sourceStats?.get(source);
+        const lastReal = st?.lastWorkAt || 0;
+        return {
+          source,
+          name: b.name || source,
+          short: (b.name || "AI").slice(0, 2).toUpperCase(),
+          icon: source,
+          color: b.color || "#8B5CF6",
+          anim: b.anim || "pulse",
+          installed: true,
+          connected: this.connectedSources ? this.connectedSources.has(source) : false,
+          running: presence?.[source] ?? null,
+          enabled: b.enabled !== false,
+          thinking: now - lastReal < 20000,
+          events: st?.events ?? 0,
+          agoMs: st ? now - st.lastEventAt : null,
+          path: b.path || "",
+          iconFile: b.iconFile ?? null,
+          iconUrl: b.iconFile ? `/icon/custom/${encodeURIComponent(b.iconFile)}` : null,
+          custom: true,
+        };
+      }));
   }
 }

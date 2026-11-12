@@ -6,6 +6,16 @@ import { cachedIconPath, ensureIcon2x } from "../icons.mjs";
 export function register(router, ctx) {
   const webIcon = (name) => join(ctx.root, "web", "icon", name);
 
+  // 控制台上传的自定义图标/动图：data/icons/custom/<file>
+  router.add("GET", (p) => p.startsWith("/icon/custom/"), ({ path, res }) => {
+    const name = decodeURIComponent(path.slice("/icon/custom/".length)).replace(/[^a-z0-9._-]/gi, "");
+    const f = join(ctx.root, "data", "icons", "custom", name);
+    if (!existsSync(f)) { res.writeHead(404).end("no icon"); return; }
+    const ext = (name.split(".").pop() || "png").toLowerCase();
+    const mime = ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : ext === "jpg" ? "image/jpeg" : "image/png";
+    res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=60" }).end(readFileSync(f));
+  });
+
   router.add("GET", (p) => p.startsWith("/icon/"), ({ path, res }) => {
     const name = decodeURIComponent(path.slice("/icon/".length)).replace(/[^a-z0-9@._-]/gi, "");
 

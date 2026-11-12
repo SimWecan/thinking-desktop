@@ -30,7 +30,7 @@ server/index.mjs   入口：读环境变量 → app.start()（<20 行，不含�
 | `core/security.mjs` | 令牌签发与校验、Host 头（防 DNS rebinding）/Origin 校验、写接口判定 | 不读请求体 |
 | `core/http.mjs` | 微型路由器（method + 精确路径 + 前缀通配）、JSON 体读取 | 不含任何业务路由 |
 | `routes/*.mjs` | 一个域名一组端点（agents/debug/ingest/pages/snapshot/state/stream/system/test/texts/ui） | 不持有可变状态 |
-| `connectors.mjs` | 按本机安装情况装配 connector 列表（替代 v1 在 index 里的 6 段散装注册） | 连接器实现仍在 `connectors/` |
+| `connectors.mjs` | 按本机安装情况装配 connector 列表（替代 v1 在 index 里的 6 段散装注册）；自定义客户端若给了文件夹，装配通用 `FolderProbeConnector` | 连接器实现仍在 `connectors/` |
 
 ## 前端结构（v2，已落地）
 
@@ -54,7 +54,8 @@ web/
   console.html       控制台窗口（外壳 + 页面级样式）
   ui/terafin.css     TerraFin 黑白设计系统：色卡 + .svc/.ver/h2.sec/.btn 窗口件
   lib/               纯函数共享逻辑：td-logic.js（风洞曲线/摘要）、panel.js（曲线绘制）、
-                     ring-geom.js（控制台预览的圆环几何换算），服务端测试直接引用
+                     ring-geom.js（控制台预览的圆环几何换算）、color.js（调色盘 HSV/HEX 换算），
+                     服务端测试直接引用
   icon/              软件商标 + 厂商商标缓存回退
 ```
 
@@ -84,7 +85,9 @@ web/
 | 区块 | 数据来源 | 写入 |
 |---|---|---|
 | 桌面预览 | `/ui` 的 ring + `/haloflux/?preview=1` iframe | `POST /ui`（拖动/缩放，400ms 防抖） |
-| 绑定客户端 | `/agents`（含 installed/enabled/color/path） | `POST /agents`（color/enabled/path，path 返回 `pathOk`） |
+| 绑定客户端 | `/agents`（含 installed/enabled/color/path/iconUrl/custom） | `POST /agents`（颜色/路径/图标；`action:create` 新增自定义、`action:remove` 删除，path 返回 `pathOk`） |
+| 自定义动图 | `/icon/custom/<source>.<png\|gif\|webp>` | `POST /agents/icon`（dataUrl，≤3MB） |
+| 文件夹选择 | `GET /fs?path=`（仅 home 下、只列目录） | — |
 | 运行状态 | `/health`（cpuPct/rssMb/load/cores/perf） | —（60s 环形缓冲画 CPU 曲线） |
 | 通道表 | `/health.connectors` | — |
 | 系统集成 | `/ax` | —（AX 授权状态） |
