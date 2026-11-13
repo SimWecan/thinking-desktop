@@ -7,6 +7,7 @@
 
 import Cocoa
 import WebKit
+import UniformTypeIdentifiers
 
 let CONSOLE_URL = "http://127.0.0.1:7799/console"
 
@@ -51,6 +52,36 @@ final class ConsoleNav: NSObject, WKNavigationDelegate {
     }
 }
 
+/// 文件选择：WKWebView 默认不会响应 <input type=file>，必须实现 UIDelegate 的
+/// runOpenPanelWith 才会弹出系统选择框（「导入动图」按钮依赖这一条）。
+final class ConsoleUI: NSObject, WKUIDelegate {
+    static let shared = ConsoleUI()
+
+    func webView(_ webView: WKWebView,
+                 runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = "选择商标动图"
+        panel.message = "支持 PNG / GIF / WebP / JPEG，单张不超过 8MB"
+        panel.prompt = "导入"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.allowedContentTypes = [.png, .gif, .webP, .jpeg]
+        panel.treatsFilePackagesAsDirectories = false
+        // 有窗口时贴成表单，避免面板跑到别的 Space
+        let done: (NSApplication.ModalResponse) -> Void = { resp in
+            completionHandler(resp == .OK ? panel.urls : nil)
+        }
+        if let win = webView.window {
+            panel.beginSheetModal(for: win, completionHandler: done)
+        } else {
+            panel.begin(completionHandler: done)
+        }
+    }
+}
+
 /// 窗口标题跟随页面 <title>（中/英切换时一起变），不再写死中文
 final class ConsoleTitleObserver: NSObject {
     weak var window: NSWindow?
@@ -78,6 +109,7 @@ let cfg = WKWebViewConfiguration()
 let wv = WKWebView(frame: rect, configuration: cfg)
 wv.autoresizingMask = [.width, .height]
 wv.navigationDelegate = ConsoleNav.shared
+wv.uiDelegate = ConsoleUI.shared
 titleObserver.window = window
 wv.addObserver(titleObserver, forKeyPath: "title", options: [.new], context: nil)
 window.contentView = wv
