@@ -27,6 +27,7 @@ rsync -a \
   --exclude '.git' --exclude 'dist' --exclude '.verify' --exclude 'logs' --exclude 'data' \
   --exclude 'config' --exclude 'node_modules' --exclude '.DS_Store' --exclude '._*' \
   --exclude 'Thinking Desktop.app' --exclude 'Thinking Desktop Wallpaper.app' \
+  --exclude 'Promotional video' --exclude 'promotional video' \
   "$ROOT/" "$DEST/"
 cp -R "$ROOT/Thinking Desktop.app" "$DEST/Thinking Desktop.app"
 cp -R "$ROOT/Thinking Desktop Wallpaper.app" "$DEST/Thinking Desktop Wallpaper.app"
